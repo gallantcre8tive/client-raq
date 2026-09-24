@@ -1,0 +1,22 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Company Created – Client-RaQ{% endblock %}
+{% block page_title %}Company created{% endblock %}
+{% set active = 'companies' %}
+{% block content %}
+<div class="card p-6 sm:p-8 max-w-xl border-[color-mix(in_srgb,var(--status-active)_30%,transparent)]">
+  <div class="text-[var(--status-active)] font-semibold mb-2">Company created successfully</div>
+  <p class="text-sm text-[var(--text-secondary)] mb-6">Send these details to the printing company so they can sign in and set up their bot.</p>
+  <dl class="space-y-3 text-sm mb-6">
+    <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Company</dt><dd class="font-medium">{{ company_name }}</dd></div>
+    <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Brand / slug</dt><dd class="font-medium">{{ company_slug }}</dd></div>
+    <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Login URL</dt><dd class="font-medium text-[var(--primary)] break-all">{{ login_url }}</dd></div>
+    <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Admin email</dt><dd class="font-medium">{{ admin_email }}</dd></div>
+    <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Temporary password</dt><dd class="font-medium">{{ admin_password }}</dd></div>
+  </dl>
+  <p class="text-xs text-[var(--text-muted)] mb-6">They sign in at Company Login with brand name + email + password. They can change password later in Settings.</p>
+  <div class="flex flex-wrap gap-3">
+    <a href="/platform/companies" class="btn-primary">Back to Companies</a>
+    <a href="/platform/companies/new" class="btn-ghost">Add another company</a>
+  </div>
+</div>
+{% endblock %}

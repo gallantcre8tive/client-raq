@@ -1,0 +1,84 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Infrastructure – Client-RaQ{% endblock %}
+{% block page_title %}Infrastructure & Telemetry{% endblock %}
+{% set active = 'infra' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">Global webhook health, latency and queue status. Live metrics bind to backend probes in the next phase.</p>
+
+<div class="flex flex-wrap gap-2 mb-6">
+  <span class="status-pill status-active">Live telemetry ready</span>
+  <span class="text-xs text-[var(--text-muted)] self-center">Meta Graph · Webhook · Postgres · Queues</span>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Meta Graph latency</div>
+    <div class="text-2xl font-bold font-tabular">— <span class="text-sm font-normal text-[var(--text-muted)]">ms</span></div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">Target SLA &lt; 250ms</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Webhook pipeline</div>
+    <div class="text-2xl font-bold font-tabular">0 <span class="text-sm font-normal text-[var(--text-muted)]">msg/min</span></div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">Inbound ingestion</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Database pools</div>
+    <div class="text-2xl font-bold font-tabular">—</div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">RLS tenant isolation</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Delivery drops</div>
+    <div class="text-2xl font-bold font-tabular text-[var(--status-active)]">0</div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">Failed WhatsApp sends</div>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-3 gap-4 mb-6">
+  <div class="card p-5 lg:col-span-2">
+    <h3 class="font-semibold text-sm mb-3">Latency profile (placeholder chart)</h3>
+    <div class="h-48 rounded-xl flex items-end gap-1 px-2 pb-2" style="background:var(--surface-canvas)">
+      {% for h in range(24) %}
+      <div class="flex-1 rounded-t opacity-80" style="height:{{ 20 + (h * 3) % 60 }}%;background:color-mix(in srgb,var(--primary) {{ 40 + h }}%,transparent)"></div>
+      {% endfor %}
+    </div>
+    <p class="text-[11px] text-[var(--text-muted)] mt-2">Bars will reflect Meta Graph + ingestion throughput when probes are live.</p>
+  </div>
+  <div class="card p-5 space-y-4">
+    <h3 class="font-semibold text-sm">Webhook status</h3>
+    <div class="flex justify-between text-sm"><span class="text-[var(--text-muted)]">Verify token</span><span class="status-pill status-pending">Configure</span></div>
+    <div class="flex justify-between text-sm"><span class="text-[var(--text-muted)]">Callback URL</span><span class="text-xs break-all text-[var(--primary)]">/api/webhook/whatsapp</span></div>
+    <div class="flex justify-between text-sm"><span class="text-[var(--text-muted)]">Last event</span><span>—</span></div>
+    <button type="button" class="btn-ghost h-9 text-xs w-full">Trigger synthetic ping</button>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-4 mb-6">
+  <div class="card overflow-hidden">
+    <div class="px-5 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Regional edge (preview)</div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="table-head"><th class="px-4 py-2">Region</th><th class="px-4 py-2">Ping</th><th class="px-4 py-2">Status</th></tr></thead>
+        <tbody>
+          <tr class="border-b border-[var(--border-subtle)]"><td class="px-4 py-2.5">West Africa (Lagos)</td><td class="px-4 py-2.5 font-tabular">—</td><td class="px-4 py-2.5"><span class="status-pill status-pending">Standby</span></td></tr>
+          <tr class="border-b border-[var(--border-subtle)]"><td class="px-4 py-2.5">East Africa (Nairobi)</td><td class="px-4 py-2.5 font-tabular">—</td><td class="px-4 py-2.5"><span class="status-pill status-pending">Standby</span></td></tr>
+          <tr><td class="px-4 py-2.5">Global relay</td><td class="px-4 py-2.5 font-tabular">—</td><td class="px-4 py-2.5"><span class="status-pill status-pending">Standby</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card p-5">
+    <h3 class="font-semibold text-sm mb-3">Async queues</h3>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div class="p-3 rounded-xl" style="background:var(--surface-canvas)"><div class="text-[var(--text-muted)] text-xs">Inbound quotes</div><div class="font-tabular font-semibold text-lg">0</div></div>
+      <div class="p-3 rounded-xl" style="background:var(--surface-canvas)"><div class="text-[var(--text-muted)] text-xs">Media / proofs</div><div class="font-tabular font-semibold text-lg">0</div></div>
+      <div class="p-3 rounded-xl" style="background:var(--surface-canvas)"><div class="text-[var(--text-muted)] text-xs">Webhook dispatch</div><div class="font-tabular font-semibold text-lg">0</div></div>
+      <div class="p-3 rounded-xl" style="background:var(--surface-canvas)"><div class="text-[var(--text-muted)] text-xs">Workers</div><div class="font-tabular font-semibold text-lg">—</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="card p-5">
+  <h3 class="font-semibold text-sm mb-3">Infrastructure audit log</h3>
+  <p class="text-sm text-[var(--text-muted)]">Events will stream here after backend probes are connected (webhook handshakes, DB pool, Redis, deploy).</p>
+</div>
+{% endblock %}

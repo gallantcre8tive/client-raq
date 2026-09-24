@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full"
+  x-data="{
+    dark: localStorage.getItem('crq-theme') !== 'light',
+    sidebarOpen: false,
+    logoutOpen: false,
+    notifOpen: false,
+    notifications: []
+  }"
+  x-init="
+    $watch('dark', v => {
+      document.documentElement.classList.toggle('dark', v);
+      document.documentElement.classList.toggle('light', !v);
+      localStorage.setItem('crq-theme', v ? 'dark' : 'light');
+    });
+    document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.classList.toggle('light', !dark);
+  "
+  :class="{ 'dark': dark, 'light': !dark }">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Client-RaQ{% endblock %}</title>
+  <meta name="description" content="AI WhatsApp assistant for printing and branding companies.">
+  <link rel="icon" type="image/svg+xml" href="/static/img/logo-dark.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            'surface-base': 'var(--surface-base)',
+            'surface-canvas': 'var(--surface-canvas)',
+            'surface-subtle': 'var(--surface-subtle)',
+            'surface-card': 'var(--surface-card)',
+            'surface-card-hover': 'var(--surface-card-hover)',
+            'border-subtle': 'var(--border-subtle)',
+            'text-primary': 'var(--text-primary)',
+            'text-secondary': 'var(--text-secondary)',
+            'text-muted': 'var(--text-muted)',
+            primary: { DEFAULT: 'var(--primary)', hover: 'var(--primary-hover)' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/static/css/design-system.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full bg-[var(--surface-base)] text-[var(--text-primary)] font-sans antialiased">
+  {% block body %}{% endblock %}
+</body>
+</html>

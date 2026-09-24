@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "components/icons.html" import icon %}
+{% from "components/logo.html" import logo %}
+{% block body %}
+<div class="min-h-screen flex">
+  <div x-show="sidebarOpen" x-cloak @click="sidebarOpen=false" class="sidebar-overlay lg:hidden"></div>
+
+  <aside class="sidebar flex flex-col shrink-0 h-screen sticky top-0" :class="{ 'open': sidebarOpen }">
+    <div class="h-16 px-5 flex items-center gap-2.5 border-b border-[var(--border-subtle)]">
+      {{ logo('w-8 h-8') }}
+      <div class="min-w-0">
+        <div class="font-semibold text-[15px] tracking-tight truncate">{{ company_name|default('Company') }}</div>
+        <div class="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Company Admin</div>
+      </div>
+    </div>
+    <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <a href="/company/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
+      <a href="/company/services" class="nav-item {% if active=='services' %}active{% endif %}">{{ icon('printer') }} Services</a>
+      <a href="/company/orders" class="nav-item {% if active=='orders' %}active{% endif %}">{{ icon('receipt') }} Orders</a>
+      <a href="/company/payments" class="nav-item {% if active=='payments' %}active{% endif %}">{{ icon('credit-card') }} Payments</a>
+      <a href="/company/chats" class="nav-item {% if active=='chats' %}active{% endif %}">{{ icon('messages-square') }} Live Chats</a>
+      <a href="/company/bot-settings" class="nav-item {% if active=='bot' %}active{% endif %}">{{ icon('bot') }} Bot Settings</a>
+      <a href="/company/whatsapp" class="nav-item {% if active=='whatsapp' %}active{% endif %}">{{ icon('phone') }} WhatsApp API</a>
+      <a href="/company/settings" class="nav-item {% if active=='settings' %}active{% endif %}">{{ icon('settings') }} Settings</a>
+    </nav>
+    <div class="p-3 border-t border-[var(--border-subtle)] space-y-1">
+      <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="nav-item" style="color:var(--primary)" title="Platform support">
+        <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        Support
+      </a>
+      <button type="button" @click="dark=!dark" class="nav-item w-full">
+        <span x-show="dark">{{ icon('sun') }}</span>
+        <span x-show="!dark" x-cloak>{{ icon('moon') }}</span>
+        <span x-text="dark ? 'Light mode' : 'Dark mode'"></span>
+      </button>
+      <button type="button" @click="logoutOpen=true" class="nav-item w-full">{{ icon('log-out') }} Logout</button>
+    </div>
+  </aside>
+
+  <div class="flex-1 flex flex-col min-w-0 min-h-screen" style="background:var(--surface-canvas)">
+    <header class="h-16 px-4 lg:px-6 flex items-center gap-3 border-b border-[var(--border-subtle)] sticky top-0 z-20" style="background:color-mix(in srgb,var(--surface-base) 90%,transparent);backdrop-filter:blur(8px)">
+      <button type="button" @click="sidebarOpen=true" class="lg:hidden w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)]">
+        {{ icon('menu', 'w-[18px] h-[18px]') }}
+      </button>
+      <div class="flex-1 min-w-0"><h1 class="text-[15px] font-semibold truncate">{% block page_title %}Dashboard{% endblock %}</h1></div>
+      <div class="relative" @click.outside="notifOpen=false">
+        <button type="button" @click="notifOpen=!notifOpen" class="w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] relative">
+          {{ icon('bell', 'w-[18px] h-[18px]') }}
+        </button>
+        <div x-show="notifOpen" x-cloak class="absolute right-0 mt-2 w-80 card p-0 overflow-hidden z-50">
+          <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Notifications</div>
+          <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications yet</div>
+        </div>
+      </div>
+      <a href="/company/settings" class="hidden sm:flex items-center gap-2 text-sm rounded-lg px-2 py-1.5 hover:bg-[var(--surface-subtle)]">
+        <span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">{{ (user_name|default('A'))[0] }}</span>
+        <span class="font-medium truncate max-w-[120px]">{{ user_name|default('Admin') }}</span>
+      </a>
+    </header>
+    <main class="flex-1 p-4 lg:p-6 overflow-auto">{% block content %}{% endblock %}</main>
+  </div>
+
+  <div x-show="logoutOpen" x-cloak class="modal-backdrop">
+    <div class="modal-panel p-6" @click.stop>
+      <h3 class="text-lg font-semibold mb-2">Sign out?</h3>
+      <p class="text-sm text-[var(--text-secondary)] mb-6">You will need your brand name, email and password to sign in again.</p>
+      <div class="flex gap-3 justify-end">
+        <button type="button" class="btn-ghost" @click="logoutOpen=false">Cancel</button>
+        <a href="/company/logout" class="btn-danger">Yes, sign out</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

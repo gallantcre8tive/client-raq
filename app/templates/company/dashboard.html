@@ -1,0 +1,91 @@
+{% extends "layouts/company.html" %}
+{% block title %}Dashboard – Client-RaQ{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% set active = 'dashboard' %}
+{% block content %}
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Revenue today</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_daily|default(0)) }}</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This week</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_weekly|default(0)) }}</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This month</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_monthly|default(0)) }}</div>
+  </div>
+</div>
+
+<div class="mb-8">
+  <p class="text-sm text-[var(--text-secondary)]">Welcome back,</p>
+  <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">{{ user_name|default('Admin') }}</h2>
+  <p class="text-sm text-[var(--text-muted)] mt-1">{{ company_name|default('Your company') }} · Manage orders, bot and WhatsApp from one place.</p>
+</div>
+{% if platform_note %}
+<div class="mb-6 p-4 rounded-xl border text-sm" style="border-color:color-mix(in srgb,var(--primary) 30%,transparent);background:color-mix(in srgb,var(--primary) 10%,transparent)">
+  <div class="text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--primary)">Message from Platform</div>
+  <p>{{ platform_note }}</p>
+</div>
+{% endif %}
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Orders</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ orders_count|default(0) }}</div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">All time · starts at zero</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Pending payment</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ pending_count|default(0) }}</div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">Awaiting confirmation</div>
+  </div>
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Active chats</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ chats_count|default(0) }}</div>
+    <div class="text-xs text-[var(--text-secondary)] mt-1">Open conversations</div>
+  </div>
+</div>
+<div class="grid sm:grid-cols-2 gap-4 mb-8">
+  <a href="/company/services" class="card card-hover p-5 block">
+    <div class="font-semibold mb-1">Set up services</div>
+    <p class="text-sm text-[var(--text-secondary)]">Add banners, cloth branding, frames and prices so the bot can quote customers.</p>
+  </a>
+  <a href="/company/payments" class="card card-hover p-5 block">
+    <div class="font-semibold mb-1">Add bank account</div>
+    <p class="text-sm text-[var(--text-secondary)]">Bot will share these details when a customer is ready to pay.</p>
+  </a>
+</div>
+<h3 class="text-base font-semibold mb-4">Recent orders</h3>
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="table-head">
+          <th class="px-5 py-3">ID</th>
+          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Service</th>
+          <th class="px-5 py-3">Status</th>
+          <th class="px-5 py-3">Total</th>
+          <th class="px-5 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in recent_orders|default([]) %}
+        <tr class="border-b border-[var(--border-subtle)]">
+          <td class="px-5 py-3">#{{ o.id }}</td>
+          <td class="px-5 py-3">{{ o.customer }}</td>
+          <td class="px-5 py-3">{{ o.service }}</td>
+          <td class="px-5 py-3"><span class="status-pill status-{{ o.status }}">{{ o.status }}</span></td>
+          <td class="px-5 py-3 font-tabular">{{ o.total }}</td>
+          <td class="px-5 py-3"><a href="/company/orders/{{ o.id }}" class="text-[var(--primary)] text-xs font-medium hover:underline">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="px-5 py-12 text-center text-[var(--text-muted)]">No orders yet. New companies start at zero — orders appear when customers message your WhatsApp bot.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "layouts/company.html" %}
+{% block title %}WhatsApp API – Client-RaQ{% endblock %}
+{% block page_title %}WhatsApp Cloud API{% endblock %}
+{% set active = 'whatsapp' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">Connect Meta WhatsApp Cloud API for this company only. Credentials are isolated per tenant.</p>
+{% if saved %}<div class="mb-4 p-3 rounded-lg text-sm" style="background:var(--status-active-bg);color:var(--status-active)">WhatsApp connection saved. Bot will use these credentials.</div>{% endif %}
+<form method="post" action="/company/whatsapp" class="grid lg:grid-cols-2 gap-6">
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">Connection</h3>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Phone Number ID *</label>
+      <input type="text" name="phone_number_id" required class="input-field" placeholder="From Meta API Setup" value="{{ wa.phone_number_id if wa else '' }}">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">WhatsApp Business Account ID</label>
+      <input type="text" name="waba_id" class="input-field" placeholder="Optional">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Access token *</label>
+      <input type="password" name="access_token" required class="input-field" placeholder="Paste token (stored for this company only)">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Display number</label>
+      <input type="text" name="display_number" class="input-field" placeholder="+234..." value="{{ wa.display_number if wa else '' }}">
+    </div>
+    <button type="submit" class="btn-primary">Save connection</button>
+  </div>
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">Webhook (platform)</h3>
+    <p class="text-sm text-[var(--text-secondary)]">After Client-RaQ is live on your domain, Meta Callback URL must be:</p>
+    <code class="block text-xs p-3 rounded-lg break-all" style="background:var(--surface-canvas);color:var(--primary)">https://clientraq.com/api/webhook/whatsapp</code>
+    <p class="text-xs text-[var(--text-muted)]">Verify token is set in platform .env (WHATSAPP_VERIFY_TOKEN). Subscribe to <strong>messages</strong>.</p>
+    <div class="flex items-center gap-2 text-sm">
+      {% if wa and wa.phone_number_id %}
+      <span class="status-pill status-active">Configured</span>
+      {% else %}
+      <span class="status-pill status-pending">Not connected</span>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endblock %}

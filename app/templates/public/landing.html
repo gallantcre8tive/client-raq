@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% from "components/icons.html" import icon %}
+{% from "components/logo.html" import logo %}
+{% block title %}Client-RaQ – Enterprise WhatsApp Automation for Printing{% endblock %}
+{% block body %}
+<!-- Minimal top bar only (not full enterprise nav from mock) -->
+<header class="fixed top-0 inset-x-0 z-50 border-b border-[var(--border-subtle)]" style="background:color-mix(in srgb,var(--surface-base) 85%,transparent);backdrop-filter:blur(12px)">
+  <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight">
+      {{ logo('w-9 h-9') }}
+      <span>Client-RaQ</span>
+    </a>
+    <div class="flex items-center gap-2 sm:gap-3">
+      <button type="button" @click="dark=!dark" class="w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)]">
+        <span x-show="dark">{{ icon('sun', 'w-[18px] h-[18px]') }}</span>
+        <span x-show="!dark" x-cloak>{{ icon('moon', 'w-[18px] h-[18px]') }}</span>
+      </button>
+      <a href="/platform/login" class="btn-ghost h-9 text-xs hidden sm:inline-flex">Platform Login</a>
+      <a href="/company/login" class="btn-primary h-9 text-xs">Company Login</a>
+    </div>
+  </div>
+</header>
+
+<main class="pt-16">
+  <!-- Hero -->
+  <section class="relative overflow-hidden py-20 sm:py-28">
+    <div class="absolute inset-0 -z-10 pointer-events-none">
+      <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full blur-3xl opacity-30" style="background:radial-gradient(circle,var(--primary),transparent 70%)"></div>
+    </div>
+    <div class="max-w-6xl mx-auto px-4 text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider mb-6 border" style="border-color:color-mix(in srgb,var(--primary) 30%,transparent);color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent)">
+        Enterprise WhatsApp automation for printing and branding companies
+      </div>
+      <h1 class="text-4xl sm:text-5xl lg:text-[3.5rem] font-bold tracking-tight leading-[1.08] mb-6 max-w-4xl mx-auto">
+        Turn WhatsApp chats into structured,<br class="hidden sm:block">
+        <span style="color:var(--primary)">production-ready</span> print orders.
+      </h1>
+      <p class="text-base sm:text-lg text-[var(--text-secondary)] max-w-2xl mx-auto mb-10">
+        Client-RaQ equips print shops with automated WhatsApp quote engines, instant payment proof verification, and fully isolated multi-tenant workspaces.
+      </p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
+        <a href="#pricing" class="btn-primary px-8">Explore Platform Plans</a>
+        <a href="/company/login" class="btn-ghost px-8">Unified Company Login</a>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto text-left">
+        <div class="card p-5">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Extraction accuracy</div>
+          <div class="text-2xl font-bold font-tabular" style="color:var(--primary)">99.4%</div>
+          <div class="text-xs text-[var(--text-secondary)] mt-1">Spec parameters recognized automatically</div>
+        </div>
+        <div class="card p-5">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Velocity</div>
+          <div class="text-2xl font-bold font-tabular" style="color:var(--status-active)">4.5x</div>
+          <div class="text-xs text-[var(--text-secondary)] mt-1">Quicker quote-to-print conversion cycles</div>
+        </div>
+        <div class="card p-5">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Multi-currency</div>
+          <div class="text-2xl font-bold font-tabular">12+ Markets</div>
+          <div class="text-xs text-[var(--text-secondary)] mt-1">Native bank slips and local currency</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live orchestration demo (visual) -->
+  <section class="py-16 border-t border-[var(--border-subtle)]">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Live orchestration engine</h2>
+        <p class="text-sm text-[var(--text-secondary)]">Chat intent to production ticket in seconds — designed for real print workflows.</p>
+      </div>
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="card p-5 sm:p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-semibold">Customer WhatsApp thread</div>
+            <span class="status-pill status-active">Live</span>
+          </div>
+          <div class="space-y-3 text-sm">
+            <div class="rounded-xl p-3" style="background:var(--surface-canvas)">
+              <div class="text-[10px] text-[var(--text-muted)] mb-1">Customer</div>
+              <p>I need 250gsm matte flyers (5,000 qty) + 2 teardrop banners for Saturday exhibition in Lagos. Can we get prices and delivery time?</p>
+            </div>
+            <div class="rounded-xl p-3 border" style="border-color:color-mix(in srgb,var(--primary) 25%,transparent);background:color-mix(in srgb,var(--primary) 8%,transparent)">
+              <div class="text-[10px] mb-1" style="color:var(--primary)">Client-RaQ bot</div>
+              <p class="text-[var(--text-secondary)]">Quote generated: Flyers ₦145,000 · Banners ₦78,000 · Total ₦223,000. Payment details ready. Upload receipt to confirm.</p>
+            </div>
+            <div class="rounded-xl p-3" style="background:var(--surface-canvas)">
+              <div class="text-[10px] text-[var(--text-muted)] mb-1">Customer · receipt.pdf</div>
+              <p class="text-[var(--status-active)] text-xs font-medium">Payment screenshot received</p>
+            </div>
+          </div>
+        </div>
+        <div class="card p-5 sm:p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-semibold">Job ticket</div>
+            <span class="status-pill status-confirmed">Proof uploaded</span>
+          </div>
+          <dl class="text-sm space-y-2 mb-4">
+            <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Material</dt><dd>250gsm Matte Art</dd></div>
+            <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Qty</dt><dd>5,000 sheets + 2 banners</dd></div>
+            <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Total</dt><dd class="font-tabular font-semibold">₦223,000.00</dd></div>
+            <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Bank match</dt><dd class="text-[var(--status-active)]">Confirmed</dd></div>
+          </dl>
+          <button type="button" class="btn-primary w-full text-xs h-10">1-click send to production</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="py-16 border-t border-[var(--border-subtle)]">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Architecture built for print precision</h2>
+        <p class="text-sm text-[var(--text-secondary)] max-w-xl mx-auto">From teardrop yardage to commercial flyer offsets — Client-RaQ removes quoting friction.</p>
+      </div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {% set cards = [
+          ('building', 'Multi-tenant data isolation', 'Row-level tenant segregation ensures print houses never cross-wire orders, staff roles, or client CRM records.'),
+          ('receipt', 'Domain-specific quoting', 'Tailored price calculators for large format, flex, sublimation, apparel, vinyl, stationery and UV.'),
+          ('credit-card', 'Payment proof and bank sync', 'Multi-currency settlement with screenshot verification before production release.'),
+          ('messages-square', 'Live operator takeover', 'Supervisors join WhatsApp threads with full history — zero disruption to the bot flow.')
+        ] %}
+        {% for ico, title, desc in cards %}
+        <div class="card p-5">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style="background:color-mix(in srgb,var(--primary) 12%,transparent);color:var(--primary)">{{ icon(ico, 'w-5 h-5') }}</div>
+          <h3 class="font-semibold text-sm mb-1.5">{{ title }}</h3>
+          <p class="text-xs text-[var(--text-secondary)] leading-relaxed">{{ desc }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Roles -->
+  <section class="py-16 border-t border-[var(--border-subtle)]">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Built for platform landlords and print tenants</h2>
+        <p class="text-sm text-[var(--text-secondary)]">Clean operational separation between platform management and company fulfillment.</p>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="card p-6 sm:p-8">
+          <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--primary)">Platform landlord</div>
+          <h3 class="text-lg font-semibold mb-4">Master architecture overseer</h3>
+          <ul class="space-y-3 text-sm text-[var(--text-secondary)]">
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Instant tenant provisioning with admin login</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Global volume and company health oversight</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Messages, suspend, and infrastructure monitor</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Secure platform settings and support contact</li>
+          </ul>
+          <a href="/platform/login" class="btn-primary mt-6 h-10 text-xs inline-flex">Admin console</a>
+        </div>
+        <div class="card p-6 sm:p-8">
+          <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--status-active)">Company tenant</div>
+          <h3 class="text-lg font-semibold mb-4">Commercial print shop workspace</h3>
+          <ul class="space-y-3 text-sm text-[var(--text-secondary)]">
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Custom services, pricing and currency</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Production queue and status updates to customers</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Bank accounts for bot payment instructions</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Live chats, bot settings, WhatsApp Cloud API</li>
+          </ul>
+          <a href="/company/login" class="btn-ghost mt-6 h-10 text-xs inline-flex">Tenant workspace</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing" class="py-16 border-t border-[var(--border-subtle)]" x-data="{
+      rates: { NGN: 1, USD: 0.00062, EUR: 0.00057, GBP: 0.00049, GHS: 0.0095, KES: 0.08, ZAR: 0.011 },
+      symbols: { NGN: '₦', USD: '$', EUR: '€', GBP: '£', GHS: 'GH₵', KES: 'KSh', ZAR: 'R' },
+      currency: 'NGN',
+      fmt(naira) {
+        const r = this.rates[this.currency] || 1;
+        const v = naira * r;
+        const sym = this.symbols[this.currency] || '';
+        if (this.currency === 'NGN') return '₦' + naira.toLocaleString();
+        return sym + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      }
+    }">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="text-center mb-6">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Simple plans for every print house</h2>
+        <p class="text-sm text-[var(--text-secondary)] mb-4">Prices set in Naira. Amounts convert for your selected currency.</p>
+        <select x-model="currency" class="input-field w-auto inline-block min-w-[140px]">
+          <option value="NGN">NGN – Naira</option>
+          <option value="USD">USD – US Dollar</option>
+          <option value="EUR">EUR – Euro</option>
+          <option value="GBP">GBP – Pound</option>
+          <option value="GHS">GHS – Cedi</option>
+          <option value="KES">KES – Shilling</option>
+          <option value="ZAR">ZAR – Rand</option>
+        </select>
+      </div>
+      <div class="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
+        <div class="card p-6 flex flex-col">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Monthly</div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(18000)"></div>
+          <div class="text-xs text-[var(--text-muted)] mb-6">Billed every month · ₦18,000 base</div>
+          <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
+            <li>1 company workspace</li>
+            <li>WhatsApp bot + admin panel</li>
+            <li>Orders, payments, live chats</li>
+            <li>Email support</li>
+          </ul>
+          <a href="/company/login" class="btn-ghost w-full">Get started</a>
+        </div>
+        <div class="card p-6 flex flex-col border-2" style="border-color:var(--primary)">
+          <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--primary)">6 months · Best value</div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(102000)"></div>
+          <div class="text-xs text-[var(--text-muted)] mb-6">Save vs monthly · ₦102,000 base</div>
+          <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
+            <li>Everything in Monthly</li>
+            <li>Priority onboarding</li>
+            <li>Staff notification numbers</li>
+            <li>Pidgin + English bot</li>
+          </ul>
+          <a href="/company/login" class="btn-primary w-full">Choose 6 months</a>
+        </div>
+        <div class="card p-6 flex flex-col">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Yearly</div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(198000)"></div>
+          <div class="text-xs text-[var(--text-muted)] mb-6">Best long-term · ₦198,000 base</div>
+          <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
+            <li>Everything in 6 months</li>
+            <li>Lowest effective monthly rate</li>
+            <li>Annual account review</li>
+            <li>Priority WhatsApp support</li>
+          </ul>
+          <a href="/company/login" class="btn-ghost w-full">Choose yearly</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="py-16">
+    <div class="max-w-3xl mx-auto px-4">
+      <div class="card p-10 sm:p-12 text-center" style="background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 15%,var(--surface-card)),var(--surface-card))">
+        <h2 class="text-2xl font-bold mb-3">Equip your print plant with automated intake</h2>
+        <p class="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">Connect WhatsApp Business API and watch customer chats become queued print jobs.</p>
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+          <a href="/platform/login" class="btn-primary">Platform admin</a>
+          <a href="https://wa.me/2349169158961" target="_blank" class="btn-ghost">Chat on WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="border-t border-[var(--border-subtle)] py-12">
+  <div class="max-w-6xl mx-auto px-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-8 text-sm mb-10">
+    <div>
+      <div class="flex items-center gap-2 font-semibold mb-3">{{ logo('w-7 h-7') }} Client-RaQ</div>
+      <p class="text-xs text-[var(--text-secondary)] leading-relaxed">AI WhatsApp assistant for printing and branding companies. Multi-tenant. Production-ready orders.</p>
+    </div>
+    <div>
+      <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Product</div>
+      <ul class="space-y-2 text-[var(--text-secondary)]">
+        <li><a href="#pricing" class="hover:text-[var(--primary)]">Pricing</a></li>
+        <li><a href="/company/login" class="hover:text-[var(--primary)]">Company login</a></li>
+        <li><a href="/platform/login" class="hover:text-[var(--primary)]">Platform login</a></li>
+      </ul>
+    </div>
+    <div>
+      <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Support</div>
+      <ul class="space-y-2 text-[var(--text-secondary)]">
+        <li><a href="https://wa.me/2349169158961" target="_blank" class="hover:text-[var(--primary)]">WhatsApp support</a></li>
+      </ul>
+    </div>
+    <div>
+      <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Security</div>
+      <p class="text-xs text-[var(--text-secondary)]">Tenant isolation · Encrypted secrets · Role-based access</p>
+    </div>
+  </div>
+  <div class="max-w-6xl mx-auto px-4 pt-6 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row justify-between gap-2 text-xs text-[var(--text-muted)]">
+    <span>© 2026 Client-RaQ. All rights reserved.</span>
+    <span>Multi-tenant architecture · WhatsApp Cloud API ready</span>
+  </div>
+</footer>
+{% endblock %}

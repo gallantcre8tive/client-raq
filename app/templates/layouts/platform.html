@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "components/icons.html" import icon %}
+{% from "components/logo.html" import logo %}
+{% block body %}
+<div class="min-h-screen flex">
+  <div x-show="sidebarOpen" x-cloak @click="sidebarOpen=false" class="sidebar-overlay lg:hidden"></div>
+
+  <aside class="sidebar flex flex-col shrink-0 h-screen sticky top-0" :class="{ 'open': sidebarOpen }">
+    <div class="h-16 px-5 flex items-center gap-2.5 border-b border-[var(--border-subtle)]">
+      {{ logo('w-8 h-8') }}
+      <span class="font-semibold text-[15px] tracking-tight">Client-RaQ</span>
+      <span class="ml-auto text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full" style="background:color-mix(in srgb,var(--primary) 15%,transparent);color:var(--primary)">Platform</span>
+    </div>
+    <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <a href="/platform/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
+      <a href="/platform/companies" class="nav-item {% if active=='companies' %}active{% endif %}">{{ icon('building') }} Companies</a>
+      <a href="/platform/companies/new" class="nav-item {% if active=='add' %}active{% endif %}">{{ icon('plus') }} Add Company</a>
+      <a href="/platform/messages" class="nav-item {% if active=='messages' %}active{% endif %}">{{ icon('message-square') }} Messages</a>
+      <a href="/platform/infrastructure" class="nav-item {% if active=='infra' %}active{% endif %}">{{ icon('activity') }} Infrastructure</a>
+      <a href="/platform/settings" class="nav-item {% if active=='settings' %}active{% endif %}">{{ icon('settings') }} Settings</a>
+    </nav>
+    <div class="p-3 border-t border-[var(--border-subtle)] space-y-1">
+      <button type="button" @click="dark=!dark" class="nav-item w-full">
+        <span x-show="dark">{{ icon('sun') }}</span>
+        <span x-show="!dark" x-cloak>{{ icon('moon') }}</span>
+        <span x-text="dark ? 'Light mode' : 'Dark mode'"></span>
+      </button>
+      <button type="button" @click="logoutOpen=true" class="nav-item w-full">{{ icon('log-out') }} Logout</button>
+    </div>
+  </aside>
+
+  <div class="flex-1 flex flex-col min-w-0 min-h-screen" style="background:var(--surface-canvas)">
+    <header class="h-16 px-4 lg:px-6 flex items-center gap-3 border-b border-[var(--border-subtle)] sticky top-0 z-20" style="background:color-mix(in srgb,var(--surface-base) 90%,transparent);backdrop-filter:blur(8px)">
+      <button type="button" @click="sidebarOpen=true" class="lg:hidden w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)]">
+        {{ icon('menu', 'w-[18px] h-[18px]') }}
+      </button>
+      <div class="flex-1 min-w-0">
+        <h1 class="text-[15px] font-semibold truncate">{% block page_title %}Dashboard{% endblock %}</h1>
+      </div>
+      <!-- Notifications -->
+      <div class="relative" @click.outside="notifOpen=false">
+        <button type="button" @click="notifOpen=!notifOpen" class="w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] relative">
+          {{ icon('bell', 'w-[18px] h-[18px]') }}
+          <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--primary)]" x-show="notifications.length" x-cloak></span>
+        </button>
+        <div x-show="notifOpen" x-cloak class="absolute right-0 mt-2 w-80 card p-0 overflow-hidden z-50">
+          <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Notifications</div>
+          <div class="max-h-64 overflow-y-auto">
+            <template x-if="notifications.length===0">
+              <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications</div>
+            </template>
+            <template x-for="n in notifications" :key="n.id">
+              <div class="px-4 py-3 border-b border-[var(--border-subtle)] text-sm hover:bg-[var(--surface-subtle)]">
+                <div class="font-medium" x-text="n.title"></div>
+                <div class="text-xs text-[var(--text-muted)]" x-text="n.time"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+      <!-- Profile → settings -->
+      <a href="/platform/settings" class="hidden sm:flex items-center gap-2 text-sm rounded-lg px-2 py-1.5 hover:bg-[var(--surface-subtle)] transition">
+        <span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">P</span>
+        <span class="font-medium">{{ user_name|default('Platform Admin') }}</span>
+      </a>
+    </header>
+    <main class="flex-1 p-4 lg:p-6 overflow-auto">{% block content %}{% endblock %}</main>
+  </div>
+
+  <!-- Logout confirm -->
+  <div x-show="logoutOpen" x-cloak class="modal-backdrop" @keydown.escape.window="logoutOpen=false">
+    <div class="modal-panel p-6" @click.stop>
+      <h3 class="text-lg font-semibold mb-2">Sign out?</h3>
+      <p class="text-sm text-[var(--text-secondary)] mb-6">You will need to sign in again to access the platform admin panel.</p>
+      <div class="flex gap-3 justify-end">
+        <button type="button" class="btn-ghost" @click="logoutOpen=false">Cancel</button>
+        <a href="/platform/logout" class="btn-danger">Yes, sign out</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

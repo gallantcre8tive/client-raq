@@ -1,0 +1,59 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Add Company – Client-RaQ{% endblock %}
+{% block page_title %}Add Company{% endblock %}
+{% set active = 'provision' %}
+{% block content %}
+<p class="text-sm text-text-secondary mb-6 max-w-xl">Create a tenant and the first company admin login. Send them the company login URL, brand name, email and temporary password.</p>
+{% if error %}<div class="mb-4 p-3 rounded-lg bg-status-suspended-bg text-[#F87171] text-sm">{{ error }}</div>{% endif %}
+<form method="post" action="/platform/companies/new" class="card p-6 max-w-xl space-y-5">
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Company name *</label>
+    <input type="text" name="name" required class="input-field" placeholder="Acme Prints Lagos">
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Slug (unique) *</label>
+    <input type="text" name="slug" required class="input-field" placeholder="acme-prints">
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-medium text-text-secondary mb-1.5">Country *</label>
+      <select name="country" id="country" class="input-field" required>
+        {% for c in ['Nigeria','Ghana','Kenya','South Africa','United States','United Kingdom','China','Germany','France','UAE','India','Canada','Other'] %}
+        <option value="{{ c }}" {% if c=='Nigeria' %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-text-secondary mb-1.5">Currency</label>
+      <select name="currency" id="currency" class="input-field">
+        {% for cur in ['NGN','GHS','KES','ZAR','USD','GBP','EUR','CNY','INR','AED','CAD'] %}
+        <option value="{{ cur }}">{{ cur }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Phone (optional)</label>
+    <input type="text" name="phone" class="input-field" placeholder="+234...">
+  </div>
+  <hr class="border-border-subtle">
+  <p class="text-sm font-semibold">Company Admin login *</p>
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Admin full name *</label>
+    <input type="text" name="admin_full_name" required class="input-field">
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Admin email *</label>
+    <input type="email" name="admin_email" required class="input-field" placeholder="admin@company.com">
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-text-secondary mb-1.5">Temporary password *</label>
+    <input type="text" name="admin_password" required class="input-field" placeholder="They can change this later">
+  </div>
+  <button type="submit" class="btn-primary w-full">Create Company and Admin</button>
+</form>
+<script>
+const map={Nigeria:'NGN',Ghana:'GHS',Kenya:'KES','South Africa':'ZAR','United States':'USD','United Kingdom':'GBP',China:'CNY',Germany:'EUR',France:'EUR',UAE:'AED',India:'INR',Canada:'CAD',Other:'USD'};
+document.getElementById('country').addEventListener('change',function(){document.getElementById('currency').value=map[this.value]||'USD';});
+</script>
+{% endblock %}

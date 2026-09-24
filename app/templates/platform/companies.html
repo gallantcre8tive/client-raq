@@ -1,0 +1,46 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Companies – Client-RaQ{% endblock %}
+{% block page_title %}Companies{% endblock %}
+{% set active = 'companies' %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+  <p class="text-sm text-text-secondary">All printing company tenants on the platform.</p>
+  <a href="/platform/companies/new" class="btn-primary h-9 text-xs shrink-0">Add Company</a>
+</div>
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-border-subtle text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Country</th>
+          <th class="px-4 py-3">Currency</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">Created</th>
+          <th class="px-4 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in companies|default([]) %}
+        <tr class="border-b border-white/[0.04] hover:bg-surface-card-hover/50">
+          <td class="px-4 py-3.5 font-medium">{{ c.name }}<div class="text-xs text-text-muted">{{ c.slug }}</div></td>
+          <td class="px-4 py-3.5 text-text-secondary">{{ c.country or '—' }}</td>
+          <td class="px-4 py-3.5">{{ c.currency }}</td>
+          <td class="px-4 py-3.5"><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
+          <td class="px-4 py-3.5 text-text-secondary text-xs">{{ c.created_at or '—' }}</td>
+          <td class="px-4 py-3.5">
+            <div class="flex flex-wrap gap-2 text-xs">
+              <a href="/platform/companies/{{ c.id }}/admins" class="text-primary hover:underline">Admins</a>
+              <form method="post" action="/platform/companies/{{ c.id }}/suspend" class="inline"><button class="text-status-pending hover:underline">Suspend</button></form>
+              <form method="post" action="/platform/companies/{{ c.id }}/delete" class="inline" onsubmit="return confirm('Delete this company permanently?')"><button class="text-status-suspended hover:underline">Delete</button></form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="px-4 py-12 text-center text-text-muted">No companies. Click Add Company.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

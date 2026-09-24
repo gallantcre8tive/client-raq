@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "components/icons.html" import icon %}
+{% from "components/logo.html" import logo %}
+{% block title %}Platform Login – Client-RaQ{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center p-4 relative">
+  <div class="absolute top-4 right-4">
+    <button type="button" @click="dark=!dark" class="w-9 h-9 rounded-lg border border-border-subtle flex items-center justify-center text-text-secondary">
+      <span x-show="dark">{{ icon('sun', 'w-[18px] h-[18px]') }}</span>
+      <span x-show="!dark" x-cloak>{{ icon('moon', 'w-[18px] h-[18px]') }}</span>
+    </button>
+  </div>
+  <div class="w-full max-w-md">
+    <div class="text-center mb-8">
+      {{ logo('w-14 h-14 mx-auto mb-4') }}
+      <h1 class="text-xl font-semibold tracking-tight">Platform Admin</h1>
+      <p class="text-sm text-text-secondary mt-1">Sign in to manage companies and infrastructure</p>
+    </div>
+    <form method="post" action="/platform/login" class="card p-8 space-y-5">
+      {% if error %}<div class="p-3 rounded-lg bg-status-suspended-bg text-[#F87171] text-sm border border-status-suspended/25">{{ error }}</div>{% endif %}
+      <div>
+        <label class="block text-xs font-medium text-text-secondary mb-1.5">Email</label>
+        <input type="email" name="email" required autocomplete="username" class="input-field" placeholder="you@platform.com">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-text-secondary mb-1.5">Password</label>
+        <input type="password" name="password" required autocomplete="current-password" class="input-field">
+      </div>
+      <button type="submit" class="btn-primary w-full">Sign In to Platform</button>
+    </form>
+    <p class="text-center text-xs text-text-muted mt-6">
+      Company admin? <a href="/company/login" class="text-primary hover:underline">Use company login</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Platform Dashboard – Client-RaQ{% endblock %}
+{% block page_title %}Platform Dashboard{% endblock %}
+{% set active = 'dashboard' %}
+{% block content %}
+<div class="mb-6">
+  <p class="text-text-secondary text-sm">Overview of all tenants and system activity.</p>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+  {% for label, value, sub in [
+    ('Companies', companies_count|default(0), 'Active tenants'),
+    ('Orders', orders_count|default(0), 'Across all companies'),
+    ('Conversations', conv_count|default(0), 'WhatsApp threads'),
+    ('Revenue', revenue|default('—'), 'Platform view')
+  ] %}
+  <div class="card p-5">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">{{ label }}</div>
+    <div class="text-[28px] font-semibold font-tabular tracking-tight">{{ value }}</div>
+    <div class="text-xs text-text-secondary mt-1">{{ sub }}</div>
+  </div>
+  {% endfor %}
+</div>
+<div class="flex items-center justify-between mb-4">
+  <h2 class="text-base font-semibold">Recent Companies</h2>
+  <a href="/platform/companies/new" class="btn-primary h-9 text-xs">Add Company</a>
+</div>
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-border-subtle text-left text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          <th class="px-5 py-3">Name</th>
+          <th class="px-5 py-3">Country</th>
+          <th class="px-5 py-3">Currency</th>
+          <th class="px-5 py-3">Status</th>
+          <th class="px-5 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in companies|default([]) %}
+        <tr class="border-b border-white/[0.04] hover:bg-surface-card-hover/50">
+          <td class="px-5 py-3.5 font-medium">{{ c.name }}<div class="text-xs text-text-muted">{{ c.slug }}</div></td>
+          <td class="px-5 py-3.5 text-text-secondary">{{ c.country or '—' }}</td>
+          <td class="px-5 py-3.5">{{ c.currency }}</td>
+          <td class="px-5 py-3.5"><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
+          <td class="px-5 py-3.5"><a href="/platform/companies/{{ c.id }}/admins" class="text-primary text-xs font-medium hover:underline">Admins</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="px-5 py-12 text-center text-text-muted">No companies yet. Provision your first tenant to get started.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

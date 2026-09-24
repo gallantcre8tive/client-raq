@@ -1,0 +1,35 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Messages – Client-RaQ{% endblock %}
+{% block page_title %}Messages to Companies{% endblock %}
+{% set active = 'messages' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">Send a note to a company. They will see it on their company dashboard.</p>
+<form method="post" action="/platform/messages" class="card p-6 max-w-xl space-y-4 mb-8">
+  <div>
+    <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Company</label>
+    <select name="company_id" class="input-field" required>
+      <option value="">Select company</option>
+      {% for c in companies|default([]) %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Message</label>
+    <textarea name="message" required class="input-field" placeholder="e.g. Please update your bank details before weekend."></textarea>
+  </div>
+  <button type="submit" class="btn-primary">Send message</button>
+</form>
+<div class="card overflow-hidden">
+  <div class="px-5 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Recent notes</div>
+  {% if notes|default([]) %}
+  <ul class="divide-y divide-[var(--border-subtle)]">
+    {% for n in notes %}
+    <li class="px-5 py-3 text-sm"><span class="font-medium">{{ n.company }}</span> — {{ n.message }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="px-5 py-10 text-center text-sm text-[var(--text-muted)]">No messages sent yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

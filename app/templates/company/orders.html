@@ -1,0 +1,37 @@
+{% extends "layouts/company.html" %}
+{% block title %}Orders – Client-RaQ{% endblock %}
+{% block page_title %}Orders / Production Queue{% endblock %}
+{% set active = 'orders' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">View orders, confirm payments, and update status so the bot can notify the customer.</p>
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="table-head">
+          <th class="px-5 py-3">ID</th>
+          <th class="px-5 py-3">Customer</th>
+          <th class="px-5 py-3">Service</th>
+          <th class="px-5 py-3">Status</th>
+          <th class="px-5 py-3">Total</th>
+          <th class="px-5 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders|default([]) %}
+        <tr class="border-b border-[var(--border-subtle)]">
+          <td class="px-5 py-3">#{{ o.id }}</td>
+          <td class="px-5 py-3">{{ o.customer }}</td>
+          <td class="px-5 py-3">{{ o.service }}</td>
+          <td class="px-5 py-3"><span class="status-pill status-{{ o.status_class }}">{{ o.status }}</span></td>
+          <td class="px-5 py-3 font-tabular">{{ o.total }}</td>
+          <td class="px-5 py-3"><a href="/company/orders/{{ o.id }}" class="text-[var(--primary)] text-xs font-medium hover:underline">View order</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="px-5 py-12 text-center text-[var(--text-muted)]">No orders. Queue starts empty until the bot receives customer requests.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Admins – {{ company.name }}{% endblock %}
+{% block page_title %}Admins · {{ company.name }}{% endblock %}
+{% set active = 'companies' %}
+{% block content %}
+<a href="/platform/companies" class="text-sm text-[var(--primary)] hover:underline mb-4 inline-block">Back to companies</a>
+<p class="text-sm text-[var(--text-secondary)] mb-4">{{ company.country or '—' }} · {{ company.currency }} · {{ company.status.value }}</p>
+<div class="card overflow-hidden">
+  <table class="w-full text-sm">
+    <thead><tr class="table-head"><th class="px-5 py-3">Name</th><th class="px-5 py-3">Email</th><th class="px-5 py-3">Role</th></tr></thead>
+    <tbody>
+      {% for a in admins %}
+      <tr class="border-b border-[var(--border-subtle)]">
+        <td class="px-5 py-3">{{ a.full_name }}</td>
+        <td class="px-5 py-3">{{ a.email }}</td>
+        <td class="px-5 py-3">{{ a.role.value }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="px-5 py-8 text-center text-[var(--text-muted)]">No admins</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

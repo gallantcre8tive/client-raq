@@ -1,0 +1,47 @@
+{% extends "layouts/company.html" %}
+{% block title %}Bot Settings – Client-RaQ{% endblock %}
+{% block page_title %}Bot Settings{% endblock %}
+{% set active = 'bot' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">Control how your WhatsApp AI assistant greets customers, speaks, and uses your prices.</p>
+<form method="post" action="/company/bot-settings" class="space-y-6 max-w-2xl">
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">Greeting & language</h3>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Greeting message</label>
+      <textarea name="greeting" class="input-field" placeholder="Welcome to our print shop! Wetin you wan print today?">{{ greeting|default('') }}</textarea>
+    </div>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Primary language</label>
+        <select name="language" class="input-field">
+          <option value="en" {% if language=='en' %}selected{% endif %}>English</option>
+          <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Nigerian Pidgin</option>
+          <option value="both">English + Pidgin (auto)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Currency</label>
+        <select name="currency" class="input-field">
+          {% for c in ['NGN','USD','GHS','KES','EUR','GBP','CNY'] %}
+          <option value="{{ c }}" {% if currency==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">Order flow</h3>
+    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_size_help" checked class="rounded"> Offer size guide when customer is unsure</label>
+    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_payment_proof" checked class="rounded"> Ask for payment screenshot after transfer details</label>
+    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_delivery" checked class="rounded"> Ask pickup vs delivery and delivery date</label>
+    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="calc_delivery_fee" class="rounded"> Calculate delivery fee (when you set zones later)</label>
+  </div>
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">Services used by bot</h3>
+    <p class="text-xs text-[var(--text-muted)]">Active services from the Services page are quoted by the bot. Remove a service there to stop offering it.</p>
+    <a href="/company/services" class="btn-ghost h-9 text-xs inline-flex">Manage services & prices</a>
+  </div>
+  <button type="submit" class="btn-primary">Save bot settings</button>
+</form>
+{% endblock %}

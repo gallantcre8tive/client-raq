@@ -1,0 +1,90 @@
+{% extends "layouts/company.html" %}
+{% block title %}Services – Client-RaQ{% endblock %}
+{% block page_title %}Services & Pricing{% endblock %}
+{% set active = 'services' %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6" x-data="{ open: false }">
+  <p class="text-sm text-[var(--text-secondary)]">Services your bot can offer. Set prices so quotes calculate automatically.</p>
+  <button type="button" class="btn-primary h-9 text-xs" @click="open=true">Add service</button>
+
+  <div x-show="open" x-cloak class="modal-backdrop" @click.self="open=false">
+    <div class="modal-panel p-6 max-w-lg" @click.stop>
+      <h3 class="text-lg font-semibold mb-4">Add printing service</h3>
+      <form method="post" action="/company/services/add" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Category *</label>
+          <select name="category" required class="input-field">
+            <option value="">Select category</option>
+            <option>Large Format (banners, flex, SAV, window graphics)</option>
+            <option>Signage (boards, acrylic, lightbox)</option>
+            <option>Cloth Branding (DTF, screen print, flex, flock, embroidery)</option>
+            <option>Frames & Display</option>
+            <option>Stickers & Labels</option>
+            <option>Stationery (jotter, notebook, letterhead)</option>
+            <option>Promotional (pens, nylon, souvenirs)</option>
+            <option>UV & Specialty printing</option>
+            <option>Surprise box / gift packaging</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Service name *</label>
+          <input type="text" name="name" required class="input-field" placeholder="e.g. Roll-up banner 3x2ft">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Description</label>
+          <textarea name="description" class="input-field" placeholder="Material, finish, typical sizes..."></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Base price *</label>
+            <input type="number" name="base_price" required min="0" step="0.01" class="input-field" placeholder="0.00">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Unit</label>
+            <select name="unit" class="input-field">
+              <option>per piece</option>
+              <option>per sqm</option>
+              <option>per ft</option>
+              <option>per dozen</option>
+              <option>per set</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex gap-3 justify-end pt-2">
+          <button type="button" class="btn-ghost" @click="open=false">Cancel</button>
+          <button type="submit" class="btn-primary">Save service</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="table-head">
+          <th class="px-5 py-3">Service</th>
+          <th class="px-5 py-3">Category</th>
+          <th class="px-5 py-3">Price</th>
+          <th class="px-5 py-3">Status</th>
+          <th class="px-5 py-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services|default([]) %}
+        <tr class="border-b border-[var(--border-subtle)]">
+          <td class="px-5 py-3 font-medium">{{ s.name }}</td>
+          <td class="px-5 py-3 text-[var(--text-secondary)]">{{ s.category }}</td>
+          <td class="px-5 py-3 font-tabular">{{ s.price }}</td>
+          <td class="px-5 py-3"><span class="status-pill status-active">Active</span></td>
+          <td class="px-5 py-3 text-xs"><button class="text-[var(--status-suspended)]">Remove</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="px-5 py-12 text-center text-[var(--text-muted)]">No services yet. Click Add service to list what you print (banner, cloth, frames, etc.).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
