@@ -3,8 +3,8 @@
 {% block page_title %}Platform Dashboard{% endblock %}
 {% set active = 'dashboard' %}
 {% block content %}
-<div class="mb-6">
-  <p class="text-text-secondary text-sm">Overview of all tenants and system activity.</p>
+<div class="page-toolbar">
+  <p>Overview of all tenants and system activity.</p>
 </div>
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
   {% for label, value, sub in [
@@ -20,9 +20,9 @@
   </div>
   {% endfor %}
 </div>
-<div class="flex items-center justify-between mb-4">
-  <h2 class="text-base font-semibold">Recent Companies</h2>
-  <a href="/platform/companies/new" class="btn-primary h-9 text-xs">Add Company</a>
+<div class="page-toolbar" style="margin-bottom:16px">
+  <h2 class="text-base font-semibold m-0" style="color:var(--text-primary)">Recent Companies</h2>
+  <a href="/platform/companies/new" class="btn-primary">Add Company</a>
 </div>
 <div class="card overflow-hidden">
   <div class="overflow-x-auto">
