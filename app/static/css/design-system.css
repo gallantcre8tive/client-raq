@@ -567,3 +567,32 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
 @supports (padding: max(0px)) {
   body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 }
+
+
+/* Force mobile drawer (final) */
+@media (max-width: 1023px) {
+  .app-shell { display: block !important; }
+  aside.sidebar {
+    position: fixed !important;
+    top: 0; left: 0; bottom: 0;
+    z-index: 50 !important;
+    width: min(288px, 88vw) !important;
+    height: 100dvh !important;
+    transform: translateX(-110%) !important;
+    transition: transform 0.28s ease !important;
+  }
+  aside.sidebar.open {
+    transform: translateX(0) !important;
+    box-shadow: 12px 0 48px rgba(0,0,0,0.5) !important;
+  }
+  .app-main { width: 100% !important; max-width: 100% !important; }
+}
+@media (min-width: 1024px) {
+  aside.sidebar {
+    position: sticky !important;
+    top: 0 !important;
+    transform: none !important;
+    width: var(--sidebar-width) !important;
+    height: 100vh !important;
+  }
+}

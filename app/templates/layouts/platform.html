@@ -2,30 +2,28 @@
 {% from "components/icons.html" import icon %}
 {% from "components/logo.html" import logo %}
 {% block body %}
-<div class="app-shell">
-  <!-- Mobile overlay -->
+<div class="app-shell min-h-screen w-full max-w-full overflow-x-hidden">
   <div
-    class="sidebar-overlay"
+    class="sidebar-overlay fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
     x-show="sidebarOpen"
     x-cloak
     x-transition.opacity
     @click="sidebarOpen = false"
   ></div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar" :class="{ 'open': sidebarOpen }">
-    <div class="sidebar-brand">
-      {{ logo('w-8 h-8') }}
-      <span class="font-semibold text-[15px] tracking-tight">Client-RaQ</span>
-      <span class="sidebar-badge">Platform</span>
-      <button
-        type="button"
-        class="sidebar-close"
-        @click="sidebarOpen = false"
-        aria-label="Close menu"
-      >{{ icon('x', 'w-[18px] h-[18px]') }}</button>
+  <aside
+    class="sidebar flex flex-col shrink-0 bg-[var(--surface-base)] border-r border-[var(--border-subtle)]"
+    :class="{ 'open': sidebarOpen }"
+  >
+    <div class="flex flex-row flex-nowrap items-center gap-2.5 h-14 min-h-[56px] px-3 border-b border-[var(--border-subtle)] shrink-0">
+      {{ logo('w-8 h-8 shrink-0') }}
+      <span class="font-semibold text-[15px] tracking-tight truncate flex-1 min-w-0">Client-RaQ</span>
+      <span class="sidebar-badge shrink-0">Platform</span>
+      <button type="button" class="sidebar-close lg:hidden shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--surface-subtle)]" @click="sidebarOpen = false" aria-label="Close menu">
+        {{ icon('x', 'w-[18px] h-[18px]') }}
+      </button>
     </div>
-    <nav class="sidebar-nav" @click="if (window.innerWidth < 1024) sidebarOpen = false">
+    <nav class="flex-1 p-2.5 space-y-0.5 overflow-y-auto" @click="if (window.innerWidth < 1024) sidebarOpen = false">
       <a href="/platform/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
       <a href="/platform/companies" class="nav-item {% if active=='companies' %}active{% endif %}">{{ icon('building') }} Companies</a>
       <a href="/platform/companies/new" class="nav-item {% if active=='add' %}active{% endif %}">{{ icon('plus') }} Add Company</a>
@@ -33,7 +31,7 @@
       <a href="/platform/infrastructure" class="nav-item {% if active=='infra' %}active{% endif %}">{{ icon('activity') }} Infrastructure</a>
       <a href="/platform/settings" class="nav-item {% if active=='settings' %}active{% endif %}">{{ icon('settings') }} Settings</a>
     </nav>
-    <div class="sidebar-footer">
+    <div class="p-2.5 border-t border-[var(--border-subtle)] space-y-0.5 shrink-0">
       <button type="button" @click="dark = !dark" class="nav-item w-full">
         <span x-show="dark">{{ icon('sun') }}</span>
         <span x-show="!dark" x-cloak>{{ icon('moon') }}</span>
@@ -43,30 +41,42 @@
     </div>
   </aside>
 
-  <!-- Main column: full width on mobile -->
-  <div class="app-main">
-    <header class="app-header">
+  <div class="app-main flex flex-col min-w-0 w-full min-h-screen bg-[var(--surface-canvas)]">
+    <!-- CRITICAL: single horizontal bar via Tailwind (works even if custom CSS lags) -->
+    <header
+      class="sticky top-0 z-30 flex flex-row flex-nowrap items-center gap-2 h-14 min-h-[56px] max-h-14 px-3 sm:px-4 border-b border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-base)_94%,transparent)] backdrop-blur-md"
+      style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right));"
+    >
       <button
         type="button"
-        class="menu-btn"
+        class="lg:hidden shrink-0 w-10 h-10 rounded-xl border border-[var(--border-subtle)] inline-flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--surface-subtle)]"
         @click="sidebarOpen = true"
         aria-label="Open menu"
-      >{{ icon('menu', 'w-[18px] h-[18px]') }}</button>
-      <h1 class="app-title">{% block page_title %}Platform{% endblock %}</h1>
-      <div class="app-header-actions">
+      >{{ icon('menu', 'w-5 h-5') }}</button>
+
+      <h1 class="flex-1 min-w-0 m-0 text-[17px] sm:text-lg font-semibold tracking-tight truncate text-[var(--text-primary)]">
+        {% block page_title %}Platform{% endblock %}
+      </h1>
+
+      <div class="flex flex-row flex-nowrap items-center gap-1.5 shrink-0 ml-auto">
         <div class="relative" x-data="{ notifOpen: false }" @click.outside="notifOpen = false">
-          <button type="button" @click="notifOpen = !notifOpen" class="icon-btn relative" aria-label="Notifications">
+          <button
+            type="button"
+            @click="notifOpen = !notifOpen"
+            class="relative shrink-0 w-10 h-10 rounded-xl border border-[var(--border-subtle)] inline-flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--surface-subtle)]"
+            aria-label="Notifications"
+          >
             {{ icon('bell', 'w-[18px] h-[18px]') }}
-            <span class="notif-dot" x-show="notifications && notifications.length" x-cloak></span>
+            <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--primary)]" x-show="notifications && notifications.length" x-cloak></span>
           </button>
-          <div x-show="notifOpen" x-cloak class="notif-panel">
+          <div x-show="notifOpen" x-cloak class="absolute right-0 mt-2 w-72 max-w-[calc(100vw-24px)] rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xl overflow-hidden z-50">
             <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Notifications</div>
             <div class="max-h-64 overflow-y-auto">
               <template x-if="!notifications || notifications.length === 0">
                 <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications</div>
               </template>
               <template x-for="n in (notifications || [])" :key="n.id">
-                <div class="px-4 py-3 border-b border-[var(--border-subtle)] text-sm hover:bg-[var(--surface-subtle)]">
+                <div class="px-4 py-3 border-b border-[var(--border-subtle)] text-sm">
                   <div class="font-medium" x-text="n.title"></div>
                   <div class="text-xs text-[var(--text-muted)]" x-text="n.time"></div>
                 </div>
@@ -74,18 +84,22 @@
             </div>
           </div>
         </div>
-        <a href="/platform/settings" class="profile-chip">
-          <span class="profile-avatar">P</span>
-          <span class="profile-name">{{ user_name|default('Platform Admin') }}</span>
+        <a
+          href="/platform/settings"
+          class="shrink-0 inline-flex flex-row items-center gap-2 rounded-xl hover:bg-[var(--surface-subtle)] p-0.5 sm:pr-2 no-underline text-[var(--text-primary)]"
+          title="Settings"
+        >
+          <span class="w-9 h-9 rounded-full inline-flex items-center justify-center text-xs font-semibold shrink-0" style="background:color-mix(in srgb,var(--primary) 22%,transparent);color:var(--primary)">P</span>
+          <span class="hidden sm:inline text-sm font-medium truncate max-w-[8rem]">{{ user_name|default('Admin') }}</span>
         </a>
       </div>
     </header>
-    <main class="app-content">
+
+    <main class="flex-1 w-full max-w-full overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6" style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: max(16px, env(safe-area-inset-bottom));">
       {% block content %}{% endblock %}
     </main>
   </div>
 
-  <!-- Logout confirm -->
   <div x-show="logoutOpen" x-cloak class="modal-backdrop" @keydown.escape.window="logoutOpen = false">
     <div class="modal-panel p-6" @click.stop>
       <h3 class="text-lg font-semibold mb-2">Sign out?</h3>
