@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, Float, func
+from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, Float, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -9,6 +9,7 @@ class ServiceCategory(Base):
     name: Mapped[str] = mapped_column(String(120))
     slug: Mapped[str] = mapped_column(String(120), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 class Service(Base):
     __tablename__ = "services"
@@ -19,6 +20,8 @@ class Service(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_price: Mapped[float] = mapped_column(Float, default=0)
     unit: Mapped[str] = mapped_column(String(40), default="per piece")
+    pricing_method: Mapped[str] = mapped_column(String(30), default="piece")  # piece|sqft|sqin|tier|setup_unit|custom
+    catalog_key: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="services")

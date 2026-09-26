@@ -1,91 +1,161 @@
 {% extends "layouts/company.html" %}
 {% block title %}Services – Client-RaQ{% endblock %}
-{% block page_title %}Services & Pricing{% endblock %}
+{% block page_title %}Services{% endblock %}
 {% set active = 'services' %}
 {% block content %}
-<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6" x-data="{ open: false }">
-  <p class="text-sm text-[var(--text-secondary)]">Services your bot can offer. Set prices so quotes calculate automatically.</p>
-  <button type="button" class="btn-primary h-9 text-xs" @click="open=true">Add service</button>
+<p class="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+  Enable services from the master catalogue and set <strong>your</strong> prices. The WhatsApp bot only offers services you activate.
+</p>
+{% if saved %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Services updated.</div>
+{% endif %}
 
-  <div x-show="open" x-cloak class="modal-backdrop" @click.self="open=false">
-    <div class="modal-panel p-6 max-w-lg" @click.stop>
-      <h3 class="text-lg font-semibold mb-4">Add printing service</h3>
-      <form method="post" action="/company/services/add" class="space-y-4">
-        <div>
-          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Category *</label>
-          <select name="category" required class="input-field">
-            <option value="">Select category</option>
-            <option>Large Format (banners, flex, SAV, window graphics)</option>
-            <option>Signage (boards, acrylic, lightbox)</option>
-            <option>Cloth Branding (DTF, screen print, flex, flock, embroidery)</option>
-            <option>Frames & Display</option>
-            <option>Stickers & Labels</option>
-            <option>Stationery (jotter, notebook, letterhead)</option>
-            <option>Promotional (pens, nylon, souvenirs)</option>
-            <option>UV & Specialty printing</option>
-            <option>Surprise box / gift packaging</option>
-          </select>
+<div class="flex flex-col sm:flex-row gap-3 mb-6">
+  <form method="get" action="/company/services" class="flex flex-1 flex-wrap gap-2">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search catalogue…" class="input-field flex-1 min-w-[140px]">
+    <select name="cat" class="input-field w-full sm:w-48" onchange="this.form.submit()">
+      <option value="">All categories</option>
+      {% for c in categories|default([]) %}
+      <option value="{{ c }}" {% if cat==c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-primary">Search</button>
+  </form>
+  <button type="button" class="btn-ghost" @click="$dispatch('open-custom')">Custom service</button>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+  <!-- Active company services -->
+  <div class="card overflow-hidden">
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Your active services</div>
+    <div class="overflow-x-auto max-h-[520px] overflow-y-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="table-head sticky top-0 bg-[var(--surface-card)]">
+            <th class="px-4 py-2 text-left">Service</th>
+            <th class="px-4 py-2 text-left">Price</th>
+            <th class="px-4 py-2 text-left">On</th>
+            <th class="px-4 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in services|default([]) %}
+          <tr class="border-b border-[var(--border-subtle)] align-top">
+            <td class="px-4 py-3">
+              <div class="font-medium">{{ s.name }}</div>
+              <div class="text-xs text-[var(--text-muted)]">{{ s.category }}</div>
+            </td>
+            <td class="px-4 py-3">
+              <form method="post" action="/company/services/{{ s.id }}/update" class="space-y-1.5 min-w-[140px]">
+                <input type="number" name="base_price" step="0.01" min="0" value="{{ s.base_price }}" class="input-field text-sm py-1.5">
+                <select name="unit" class="input-field text-xs py-1.5">
+                  <option value="per piece" {% if s.unit=='per piece' %}selected{% endif %}>per piece</option>
+                  <option value="per sq ft" {% if s.unit=='per sq ft' %}selected{% endif %}>per sq ft</option>
+                  <option value="per sqm" {% if s.unit=='per sqm' %}selected{% endif %}>per sqm</option>
+                  <option value="custom quote" {% if s.unit=='custom quote' %}selected{% endif %}>custom quote</option>
+                </select>
+                <select name="pricing_method" class="input-field text-xs py-1.5">
+                  <option value="piece" {% if s.pricing_method=='piece' %}selected{% endif %}>Piece</option>
+                  <option value="sqft" {% if s.pricing_method=='sqft' %}selected{% endif %}>Area (sq ft)</option>
+                  <option value="sqin" {% if s.pricing_method=='sqin' %}selected{% endif %}>Sq in (÷144)</option>
+                  <option value="tier" {% if s.pricing_method=='tier' %}selected{% endif %}>Qty tier</option>
+                  <option value="setup_unit" {% if s.pricing_method=='setup_unit' %}selected{% endif %}>Setup + unit</option>
+                  <option value="custom" {% if s.pricing_method=='custom' %}selected{% endif %}>Custom quote</option>
+                </select>
+                <label class="flex items-center gap-2 text-xs">
+                  <input type="checkbox" name="is_active" value="1" {% if s.active %}checked{% endif %}> Active
+                </label>
+                <button type="submit" class="btn-primary text-xs py-1.5 w-full">Save</button>
+              </form>
+            </td>
+            <td class="px-4 py-3">
+              {% if s.active %}<span class="status-pill status-active">On</span>{% else %}<span class="status-pill status-pending">Off</span>{% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <form method="post" action="/company/services/{{ s.id }}/remove" onsubmit="return confirm('Remove this service?')">
+                <button type="submit" class="text-xs text-[var(--status-suspended)] hover:underline">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="px-4 py-10 text-center text-[var(--text-muted)] text-sm">No services enabled yet. Enable from the catalogue →</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Master catalogue -->
+  <div class="card overflow-hidden">
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Master catalogue — enable what you offer</div>
+    <div class="overflow-y-auto max-h-[520px] divide-y divide-[var(--border-subtle)]">
+      {% for c in catalog|default([]) %}
+      <div class="px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-3">
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm">{{ c.name }}</div>
+          <div class="text-xs text-[var(--text-muted)]">{{ c.category }} · {{ c.pricing_method }}</div>
+          <p class="text-xs text-[var(--text-secondary)] mt-1 leading-snug">{{ c.description }}</p>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Service name *</label>
-          <input type="text" name="name" required class="input-field" placeholder="e.g. Roll-up banner 3x2ft">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Description</label>
-          <textarea name="description" class="input-field" placeholder="Material, finish, typical sizes..."></textarea>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Base price *</label>
-            <input type="number" name="base_price" required min="0" step="0.01" class="input-field" placeholder="0.00">
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Unit</label>
-            <select name="unit" class="input-field">
-              <option value="per piece">per piece (fixed size e.g. frame)</option>
-              <option value="per sq ft">per sq ft (banner/flex — size in feet)</option>
-              <option value="per sq ft">per sq ft (sticker — inches use ÷144)</option>
-              <option value="per sqm">per sqm</option>
-              <option value="per set">per set</option>
-              <option value="per dozen">per dozen</option>
-            </select>
-          </div>
-        </div>
-        <div class="flex gap-3 justify-end pt-2">
-          <button type="button" class="btn-ghost" @click="open=false">Cancel</button>
-          <button type="submit" class="btn-primary">Save service</button>
-        </div>
-      </form>
+        {% if c.enabled %}
+        <span class="status-pill status-active shrink-0 self-start">Enabled</span>
+        {% else %}
+        <form method="post" action="/company/services/enable" class="flex flex-col gap-1.5 shrink-0 w-full sm:w-36">
+          <input type="hidden" name="catalog_key" value="{{ c.key }}">
+          <input type="hidden" name="category" value="{{ c.category }}">
+          <input type="hidden" name="name" value="{{ c.name }}">
+          <input type="hidden" name="description" value="{{ c.description }}">
+          <input type="hidden" name="pricing_method" value="{{ c.pricing_method }}">
+          <input type="hidden" name="unit" value="{{ c.unit }}">
+          <input type="number" name="base_price" step="0.01" min="0" value="0" placeholder="Your price" class="input-field text-xs py-1.5" required>
+          <button type="submit" class="btn-primary text-xs py-1.5">Enable</button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="p-8 text-center text-sm text-[var(--text-muted)]">No catalogue matches.</div>
+      {% endfor %}
     </div>
   </div>
 </div>
 
-<div class="card overflow-hidden">
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="table-head">
-          <th class="px-5 py-3">Service</th>
-          <th class="px-5 py-3">Category</th>
-          <th class="px-5 py-3">Price</th>
-          <th class="px-5 py-3">Status</th>
-          <th class="px-5 py-3">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in services|default([]) %}
-        <tr class="border-b border-[var(--border-subtle)]">
-          <td class="px-5 py-3 font-medium">{{ s.name }}</td>
-          <td class="px-5 py-3 text-[var(--text-secondary)]">{{ s.category }}</td>
-          <td class="px-5 py-3 font-tabular">{{ s.price }}</td>
-          <td class="px-5 py-3"><span class="status-pill status-active">Active</span></td>
-          <td class="px-5 py-3 text-xs"><button class="text-[var(--status-suspended)]">Remove</button></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="px-5 py-12 text-center text-[var(--text-muted)]">No services yet. Click Add service to list what you print (banner, cloth, frames, etc.).</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<!-- Custom service modal -->
+<div x-data="{ open: false }" @open-custom.window="open=true" x-show="open" x-cloak class="modal-backdrop" @keydown.escape.window="open=false">
+  <div class="modal-panel p-6 max-w-md w-full" @click.stop>
+    <h3 class="font-semibold mb-4">Add custom service</h3>
+    <form method="post" action="/company/services/add" class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1">Category</label>
+        <input type="text" name="category" required class="input-field" placeholder="e.g. Large Format">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1">Service name</label>
+        <input type="text" name="name" required class="input-field" placeholder="e.g. Custom display stand">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1">Description</label>
+        <textarea name="description" class="input-field" rows="2"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1">Base price</label>
+          <input type="number" name="base_price" step="0.01" min="0" value="0" class="input-field" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1">Unit</label>
+          <select name="unit" class="input-field">
+            <option value="per piece">per piece</option>
+            <option value="per sq ft">per sq ft</option>
+            <option value="per sqm">per sqm</option>
+            <option value="custom quote">custom quote</option>
+          </select>
+        </div>
+      </div>
+      <input type="hidden" name="pricing_method" value="piece">
+      <div class="flex gap-2 justify-end pt-2">
+        <button type="button" class="btn-ghost" @click="open=false">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}

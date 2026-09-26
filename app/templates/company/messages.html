@@ -3,9 +3,12 @@
 {% block page_title %}Messages{% endblock %}
 {% set active = 'messages' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
-  Live WhatsApp conversations for your company. Open a thread to read bot and customer messages.
+<p class="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+  WhatsApp conversations. Reply as your team — the bot pauses auto-replies while you have taken over.
 </p>
+{% if request.query_params.get('sent') %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Message sent to customer.</div>
+{% endif %}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-[420px]">
   <div class="card overflow-hidden lg:col-span-1 flex flex-col max-h-[70vh]">
     <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">Conversations</div>
@@ -24,8 +27,14 @@
     </div>
   </div>
   <div class="card lg:col-span-2 flex flex-col max-h-[70vh]">
-    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">
-      {% if selected %}Thread · {{ selected.customer_name or selected.customer_wa_id }}{% else %}Thread{% endif %}
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0 flex items-center justify-between gap-2">
+      <span>{% if selected %}{{ selected.customer_name or selected.customer_wa_id }}{% else %}Thread{% endif %}</span>
+      {% if selected and selected.is_live_takeover %}
+      <form method="post" action="/company/messages/release" class="m-0">
+        <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+        <button type="submit" class="text-xs text-[var(--primary)] hover:underline">Return to bot</button>
+      </form>
+      {% endif %}
     </div>
     <div class="flex-1 overflow-y-auto p-4 space-y-3">
       {% if messages and messages|length > 0 %}
@@ -34,7 +43,7 @@
           <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm {% if m.direction=='outbound' %}bg-[var(--primary)] text-white{% else %}bg-[var(--surface-subtle)] text-[var(--text-primary)]{% endif %}">
             <div class="whitespace-pre-wrap break-words">{{ m.body or '—' }}</div>
             {% if m.media_url %}
-            <div class="text-[10px] opacity-80 mt-1">[media / payment proof id: {{ m.media_url[:24] }}…]</div>
+            <div class="text-[10px] opacity-80 mt-1">[attachment / media]</div>
             {% endif %}
           </div>
         </div>
@@ -45,6 +54,13 @@
         </div>
       {% endif %}
     </div>
+    {% if selected %}
+    <form method="post" action="/company/messages/reply" class="p-3 border-t border-[var(--border-subtle)] flex gap-2 shrink-0">
+      <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+      <input type="text" name="body" required class="input-field flex-1" placeholder="Type a reply to the customer…" autocomplete="off">
+      <button type="submit" class="btn-primary h-10 shrink-0">Send</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

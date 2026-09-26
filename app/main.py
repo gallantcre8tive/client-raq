@@ -472,11 +472,42 @@ async def company_dashboard(
 async def company_services(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    from app.data.master_catalog import MASTER_CATALOG, CATEGORIES, catalog_key
     company = await company_ctx(user, db)
-    services = (await db.execute(select(Service).where(Service.company_id == company.id))).scalars().all()
-    rows = [{"name": s.name, "category": s.category, "price": f"{company.currency} {s.base_price:,.0f} / {s.unit}"} for s in services]
+    services = list((await db.execute(
+        select(Service).where(Service.company_id == company.id).order_by(Service.category, Service.name)
+    )).scalars().all())
+    enabled_keys = {s.catalog_key for s in services if s.catalog_key}
+    enabled_names = {(s.category, s.name) for s in services}
+    rows = []
+    for s in services:
+        rows.append({
+            "id": s.id,
+            "name": s.name,
+            "category": s.category,
+            "price": f"{company.currency} {s.base_price:,.0f} / {s.unit}",
+            "base_price": s.base_price,
+            "unit": s.unit,
+            "pricing_method": getattr(s, "pricing_method", None) or "piece",
+            "active": s.is_active,
+            "description": s.description or "",
+        })
+    catalog_view = []
+    for item in MASTER_CATALOG:
+        key = catalog_key(item["category"], item["name"])
+        on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
+        catalog_view.append({**item, "key": key, "enabled": on})
+    q = (request.query_params.get("q") or "").strip().lower()
+    cat_filter = (request.query_params.get("cat") or "").strip()
+    if q:
+        catalog_view = [c for c in catalog_view if q in c["name"].lower() or q in c["category"].lower()]
+    if cat_filter:
+        catalog_view = [c for c in catalog_view if c["category"] == cat_filter]
     return render(request, "company/services.html", {
-        "active": "services", "company_name": company.name, "user_name": user.full_name, "services": rows,
+        "active": "services", "company_name": company.name, "user_name": user.full_name,
+        "services": rows, "catalog": catalog_view, "categories": CATEGORIES,
+        "currency": company.currency, "q": request.query_params.get("q") or "",
+        "cat": cat_filter, "saved": request.query_params.get("saved"),
     })
 
 
@@ -485,14 +516,95 @@ async def company_services_add(
     request: Request,
     category: str = Form(...), name: str = Form(...), description: Optional[str] = Form(None),
     base_price: float = Form(0), unit: str = Form("per piece"),
+    pricing_method: str = Form("piece"),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    from app.data.master_catalog import catalog_key
     db.add(Service(
         company_id=user.company_id, category=category, name=name.strip(),
-        description=description, base_price=base_price, unit=unit, is_active=True,
+        description=description, base_price=base_price, unit=unit,
+        pricing_method=pricing_method or "piece",
+        catalog_key=catalog_key(category, name),
+        is_active=True,
     ))
     await db.commit()
-    return RedirectResponse("/company/services", status_code=303)
+    return RedirectResponse("/company/services?saved=1", status_code=303)
+
+
+@app.post("/company/services/enable")
+async def company_services_enable(
+    catalog_key: str = Form(...),
+    category: str = Form(...),
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    pricing_method: str = Form("piece"),
+    unit: str = Form("per piece"),
+    base_price: float = Form(0),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    existing = (await db.execute(
+        select(Service).where(
+            Service.company_id == user.company_id,
+            Service.catalog_key == catalog_key,
+        )
+    )).scalars().first()
+    if existing:
+        existing.is_active = True
+        existing.base_price = base_price
+        existing.unit = unit
+        existing.pricing_method = pricing_method
+        if description:
+            existing.description = description
+    else:
+        db.add(Service(
+            company_id=user.company_id,
+            category=category,
+            name=name.strip(),
+            description=description,
+            base_price=base_price,
+            unit=unit,
+            pricing_method=pricing_method,
+            catalog_key=catalog_key,
+            is_active=True,
+        ))
+    await db.commit()
+    return RedirectResponse("/company/services?saved=1", status_code=303)
+
+
+@app.post("/company/services/{service_id}/update")
+async def company_services_update(
+    service_id: int,
+    base_price: float = Form(0),
+    unit: str = Form("per piece"),
+    pricing_method: str = Form("piece"),
+    description: Optional[str] = Form(None),
+    is_active: Optional[str] = Form(None),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    s = await db.get(Service, service_id)
+    if not s or s.company_id != user.company_id:
+        raise HTTPException(404)
+    s.base_price = base_price
+    s.unit = unit
+    s.pricing_method = pricing_method
+    if description is not None:
+        s.description = description
+    s.is_active = is_active is not None
+    await db.commit()
+    return RedirectResponse("/company/services?saved=1", status_code=303)
+
+
+@app.post("/company/services/{service_id}/remove")
+async def company_services_remove(
+    service_id: int,
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    s = await db.get(Service, service_id)
+    if s and s.company_id == user.company_id:
+        await db.delete(s)
+        await db.commit()
+    return RedirectResponse("/company/services?saved=1", status_code=303)
+
 
 
 @app.get("/company/orders", response_class=HTMLResponse)
@@ -626,6 +738,51 @@ async def company_messages(request: Request, user: User = Depends(require_compan
         "selected": selected,
         "selected_id": int(selected_id) if selected_id and str(selected_id).isdigit() else None,
     })
+
+
+
+@app.post("/company/messages/reply")
+async def company_messages_reply(
+    conversation_id: int = Form(...),
+    body: str = Form(""),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from app.models.conversation import Conversation, Message
+    from app.models.company import CompanyWhatsAppNumber
+    from app.services.whatsapp_send import send_text
+    company = await company_ctx(user, db)
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.company_id != company.id:
+        raise HTTPException(404)
+    text = (body or "").strip()
+    if not text:
+        return RedirectResponse(f"/company/messages?c={conversation_id}", status_code=303)
+    # mark staff takeover so bot does not auto-reply next customer msg until cleared - optional soft flag
+    conv.is_live_takeover = True
+    db.add(Message(conversation_id=conv.id, direction="outbound", body=text))
+    await db.commit()
+    link = (await db.execute(
+        select(CompanyWhatsAppNumber).where(
+            CompanyWhatsAppNumber.company_id == company.id,
+            CompanyWhatsAppNumber.is_active == True,
+        )
+    )).scalars().first()
+    if link and link.access_token:
+        await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, text)
+    return RedirectResponse(f"/company/messages?c={conversation_id}&sent=1", status_code=303)
+
+
+@app.post("/company/messages/release")
+async def company_messages_release(
+    conversation_id: int = Form(...),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from app.models.conversation import Conversation
+    conv = await db.get(Conversation, conversation_id)
+    if conv and conv.company_id == user.company_id:
+        conv.is_live_takeover = False
+        await db.commit()
+    return RedirectResponse(f"/company/messages?c={conversation_id}", status_code=303)
 
 
 @app.get("/company/chats", response_class=HTMLResponse)

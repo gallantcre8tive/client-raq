@@ -77,7 +77,11 @@ def _parse_qty(text: str):
 def _calc_total(service, width, height, qty, size_text: str = "") -> float:
     base = float(service.base_price or 0)
     qty = max(1, int(qty or 1))
-    mode = _unit_mode(service.unit)
+    mode = getattr(service, 'pricing_method', None) or _unit_mode(service.unit)
+    if mode in ('sqin',):
+        mode = 'sqft'  # handled with inches below via size_text
+    if mode in ('custom', 'setup_unit', 'tier'):
+        mode = _unit_mode(service.unit)
     if mode == "piece" or not width or not height:
         return round(base * qty, 2)
     if mode == "sqft" and _size_in_inches(size_text or ""):
@@ -187,6 +191,28 @@ async def _send_services(link, company, services, to, ctx: dict) -> None:
     )
 
 
+def _detect_customer_lang(text: str, ctx: dict) -> str:
+    """Match customer vibe: pidgin markers vs formal English."""
+    low = (text or "").lower()
+    pidgin_markers = (
+        "wetin", "abeg", "dey", "wan ", "una", "na ", "how far", "o!", "sha",
+        "make i", "i go", "e be", "no wahala", "sharp", "bros", "oga", "pls abeg",
+        "i dey", "you dey", "wetin you", "how much be",
+    )
+    if any(m in low for m in pidgin_markers):
+        return "pidgin"
+    # if company forced pidgin only
+    if ctx.get("lang") == "pidgin" and not text:
+        return "pidgin"
+    # good English / neutral -> english unless forced pidgin
+    if ctx.get("lang") == "pidgin":
+        # still allow English if they wrote proper English
+        if len(low) > 12 and not any(m in low for m in pidgin_markers):
+            return "en"
+        return "pidgin"
+    return "en"
+
+
 async def _grok_staff(
     company: Company,
     ctx: dict,
@@ -194,18 +220,24 @@ async def _grok_staff(
     services: list,
     extra: str = "",
 ) -> str | None:
-    lang = _lang(ctx)
-    catalog = ", ".join(f"{s.name} ({company.currency} {s.base_price}/{s.unit})" for s in services) or "none listed"
+    lang = _detect_customer_lang(user_text, ctx)
+    ctx["lang"] = lang  # keep conversation aligned to latest vibe
+    catalog = ", ".join(
+        f"{s.name} ({company.currency} {s.base_price}/{s.unit}, method={getattr(s, 'pricing_method', 'piece')})"
+        for s in services
+    ) or "none listed yet"
     system = (
-        f"You are a friendly human staff at {company.name}, a printing/branding company. "
-        f"Reply in {'Nigerian Pidgin English' if lang == 'pidgin' else 'clear simple English'}. "
-        "Keep answers short (1-4 sentences). Sound natural, not robotic. Never say you are AI. "
-        f"Services we offer: {catalog}. "
-        "If they describe a job (sticker, banner, frame, cloth, etc.), acknowledge and ask only the next useful detail "
-        "(size, quantity/units, pickup or delivery). "
-        "Unit means how many copies of the same job (not 'pieces' unless they use that word). "
-        "If price is per square foot/metre, explain simply. "
-        f"Company greeting/context: {(company.greeting_message or '')[:200]}. {extra}"
+        f"You are a real customer-care staff at {company.name}, a printing and branding shop. "
+        "Never say you are an AI or a bot. "
+        f"Reply in {'Nigerian Pidgin English (natural, short)' if lang == 'pidgin' else 'clear, friendly professional English'}. "
+        "Match the customer's tone: if they wrote casually, be warm; if formal, be professional. "
+        "Keep replies short (1-4 sentences). "
+        f"Services and rates we actually offer: {catalog}. "
+        "Only quote prices using those rates. For area pricing: feet use W×H×rate×qty; "
+        "inches with per-sq-ft rate use (W×H×qty×rate)/144. Per piece = rate×qty. "
+        "Unit means how many copies of the same job. "
+        "If unsure of size or quantity, ask one clear question. "
+        f"Company note: {(company.greeting_message or '')[:180]}. {extra}"
     )
     return await grok_chat(system, user_text)
 
