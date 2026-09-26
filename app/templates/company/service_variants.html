@@ -1,0 +1,55 @@
+{% extends "layouts/company.html" %}
+{% block title %}Sizes – {{ service.name }} – Client-RaQ{% endblock %}
+{% block page_title %}{{ service.name }} sizes{% endblock %}
+{% set active = 'services' %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-5">
+  <a href="/company/services" class="text-sm text-[var(--primary)] hover:underline inline-block">Back to services</a>
+  <p class="text-sm text-[var(--text-secondary)] m-0 leading-relaxed">
+    Set each size and <strong>your</strong> price. The bot will show these sizes to customers (small → large). Example prices are editable.
+  </p>
+  {% if saved %}
+  <div class="p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Sizes saved.</div>
+  {% endif %}
+
+  <section class="card overflow-hidden">
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Size list</div>
+    <ul class="divide-y divide-[var(--border-subtle)] m-0 p-0 list-none">
+      {% for v in variants|default([]) %}
+      <li class="p-4">
+        <form method="post" action="/company/services/{{ service.id }}/variants/{{ v.id }}/update" class="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
+          <div class="col-span-2 sm:col-span-1">
+            <label class="block text-[11px] text-[var(--text-muted)] mb-1">Size</label>
+            <input type="text" name="label" value="{{ v.label }}" class="input-field min-h-[40px] text-sm" required>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-muted)] mb-1">Price ({{ currency }})</label>
+            <input type="number" name="price" step="0.01" min="0" value="{{ v.price }}" class="input-field min-h-[40px] text-sm" required>
+          </div>
+          <div class="flex items-center gap-2 min-h-[40px]">
+            <label class="flex items-center gap-2 text-xs">
+              <input type="checkbox" name="is_active" value="1" {% if v.is_active %}checked{% endif %}> Offer
+            </label>
+          </div>
+          <div class="flex gap-2">
+            <button type="submit" class="btn-primary min-h-[40px] text-sm flex-1">Save</button>
+            <button type="submit" formaction="/company/services/{{ service.id }}/variants/{{ v.id }}/delete" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="return confirm('Delete size?')">Del</button>
+          </div>
+        </form>
+      </li>
+      {% else %}
+      <li class="p-8 text-center text-sm text-[var(--text-muted)]">No sizes yet. Add one below.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="card p-4 sm:p-5">
+    <h3 class="text-sm font-semibold m-0 mb-3">Add size</h3>
+    <form method="post" action="/company/services/{{ service.id }}/variants/add" class="flex flex-col sm:flex-row gap-2">
+      <input type="text" name="label" required placeholder="e.g. 8x10" class="input-field min-h-[44px] flex-1">
+      <input type="number" name="price" step="0.01" min="0" value="0" required placeholder="Price" class="input-field min-h-[44px] w-full sm:w-32">
+      <button type="submit" class="btn-primary min-h-[44px] px-5">Add size</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

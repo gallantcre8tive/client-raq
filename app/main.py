@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.database import get_db, init_db
 from app.models.user import User, UserRole
 from app.models.company import Company, CompanyStatus, PaymentDetail, CompanyWhatsAppNumber
-from app.models.catalog import Service
+from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Order, Conversation, OrderStatus
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.deps import get_current_user, require_platform, require_company
@@ -556,17 +556,53 @@ async def company_services_enable(
         if description:
             existing.description = description
     else:
-        db.add(Service(
+        flow = "generic"
+        if "frame" in name.lower() or pricing_method == "fixed_size":
+            flow = "frame"
+        elif "nylon" in name.lower() or "poly bag" in name.lower():
+            flow = "nylon"
+        elif any(x in name.lower() for x in ("banner", "sav", "flex", "window")):
+            flow = "large_format"
+        elif any(x in name.lower() for x in ("shirt", "hoodie", "embroidery", "dtf", "garment")):
+            flow = "garment"
+        svc = Service(
             company_id=user.company_id,
             category=category,
             name=name.strip(),
             description=description,
             base_price=base_price,
             unit=unit,
-            pricing_method=pricing_method,
+            pricing_method=pricing_method if pricing_method != "fixed_size" else "fixed_size",
             catalog_key=catalog_key,
+            flow_type=flow,
             is_active=True,
-        ))
+        )
+        # force fixed_size when template exists
+        from app.data.size_templates import SIZE_TEMPLATES
+        from app.data.master_catalog import catalog_key as ck
+        key = catalog_key
+        if key in SIZE_TEMPLATES or any(k.endswith(name.lower().replace(" ", "-")[:20]) for k in SIZE_TEMPLATES):
+            svc.pricing_method = "fixed_size"
+            if "frame" in name.lower():
+                svc.flow_type = "frame"
+        db.add(svc)
+        await db.flush()
+        templates = SIZE_TEMPLATES.get(key) or []
+        if not templates:
+            # fuzzy match
+            for tk, rows in SIZE_TEMPLATES.items():
+                if name.lower() in tk or tk.split(":")[-1].replace("-", " ") in name.lower():
+                    templates = rows
+                    break
+        for i, (label, price) in enumerate(templates):
+            db.add(ServiceVariant(
+                service_id=svc.id,
+                label=label,
+                subtitle="inches" if "x" in label.lower() else None,
+                price=float(price or base_price or 0),
+                sort_order=i,
+                is_active=True,
+            ))
     await db.commit()
     return RedirectResponse("/company/services?saved=1", status_code=303)
 
@@ -604,6 +640,73 @@ async def company_services_remove(
         await db.delete(s)
         await db.commit()
     return RedirectResponse("/company/services?saved=1", status_code=303)
+
+
+
+@app.get("/company/services/{service_id}/variants", response_class=HTMLResponse)
+async def company_service_variants(
+    service_id: int, request: Request,
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    company = await company_ctx(user, db)
+    s = await db.get(Service, service_id)
+    if not s or s.company_id != company.id:
+        raise HTTPException(404)
+    variants = list((await db.execute(
+        select(ServiceVariant).where(ServiceVariant.service_id == s.id).order_by(ServiceVariant.sort_order, ServiceVariant.id)
+    )).scalars().all())
+    return render(request, "company/service_variants.html", {
+        "active": "services", "company_name": company.name, "user_name": user.full_name,
+        "service": s, "variants": variants, "currency": company.currency,
+        "saved": request.query_params.get("saved"),
+    })
+
+
+@app.post("/company/services/{service_id}/variants/add")
+async def company_variant_add(
+    service_id: int, label: str = Form(...), price: float = Form(0),
+    subtitle: Optional[str] = Form(None),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    s = await db.get(Service, service_id)
+    if not s or s.company_id != user.company_id:
+        raise HTTPException(404)
+    count = len((await db.execute(select(ServiceVariant).where(ServiceVariant.service_id == s.id))).scalars().all())
+    db.add(ServiceVariant(service_id=s.id, label=label.strip(), subtitle=subtitle, price=price, sort_order=count, is_active=True))
+    s.pricing_method = "fixed_size"
+    await db.commit()
+    return RedirectResponse(f"/company/services/{service_id}/variants?saved=1", status_code=303)
+
+
+@app.post("/company/services/{service_id}/variants/{variant_id}/update")
+async def company_variant_update(
+    service_id: int, variant_id: int,
+    label: str = Form(...), price: float = Form(0),
+    is_active: Optional[str] = Form(None),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    s = await db.get(Service, service_id)
+    v = await db.get(ServiceVariant, variant_id)
+    if not s or s.company_id != user.company_id or not v or v.service_id != s.id:
+        raise HTTPException(404)
+    v.label = label.strip()
+    v.price = price
+    v.is_active = is_active is not None
+    await db.commit()
+    return RedirectResponse(f"/company/services/{service_id}/variants?saved=1", status_code=303)
+
+
+@app.post("/company/services/{service_id}/variants/{variant_id}/delete")
+async def company_variant_delete(
+    service_id: int, variant_id: int,
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    s = await db.get(Service, service_id)
+    v = await db.get(ServiceVariant, variant_id)
+    if s and s.company_id == user.company_id and v and v.service_id == s.id:
+        await db.delete(v)
+        await db.commit()
+    return RedirectResponse(f"/company/services/{service_id}/variants?saved=1", status_code=303)
 
 
 
@@ -811,6 +914,7 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
         "ask_delivery": flags.get("ask_delivery", True),
         "calc_delivery_fee": flags.get("calc_delivery_fee", False),
         "offer_pidgin": flags.get("offer_pidgin", True),
+        "design_fee_default": getattr(company, "design_fee_default", 0) or 0,
         "saved": request.query_params.get("saved"),
     })
 
@@ -819,6 +923,7 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
 async def company_bot_save(
     request: Request,
     greeting: Optional[str] = Form(None), language: str = Form("both"), currency: str = Form("NGN"),
+    design_fee_default: float = Form(0),
     ask_size_help: Optional[str] = Form(None),
     ask_payment_proof: Optional[str] = Form(None),
     ask_delivery: Optional[str] = Form(None),
@@ -832,6 +937,7 @@ async def company_bot_save(
         company.greeting_message = greeting
     company.bot_language = language
     company.currency = currency
+    company.design_fee_default = float(design_fee_default or 0)
     flags = {
         "ask_size_help": ask_size_help is not None,
         "ask_payment_proof": ask_payment_proof is not None,

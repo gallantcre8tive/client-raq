@@ -5,7 +5,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.company import Company, PaymentDetail, CompanyWhatsAppNumber
-from app.models.catalog import Service
+from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Conversation, Message, Order, OrderStatus
 from app.services.grok_client import grok_chat, grok_vision
 from app.services.whatsapp_send import send_text, send_buttons, send_list, download_media
@@ -322,6 +322,47 @@ async def notify_order_status(
         await send_text(link.phone_number_id, link.access_token, order.customer_wa_id, msg)
 
 
+
+async def _variants(db: AsyncSession, service_id: int) -> list:
+    return list((await db.execute(
+        select(ServiceVariant).where(
+            ServiceVariant.service_id == service_id,
+            ServiceVariant.is_active == True,  # noqa: E712
+        ).order_by(ServiceVariant.sort_order, ServiceVariant.id)
+    )).scalars().all())
+
+
+async def _send_size_options(link, company, service, variants, to, ctx: dict) -> None:
+    """WhatsApp list of fixed sizes small → large."""
+    if not variants:
+        await send_text(
+            link.phone_number_id, link.access_token or "", to,
+            _t(ctx, f"*{service.name}* — tell me the size and quantity you need.",
+               f"*{service.name}* — tell me the size and how many you need."),
+        )
+        return
+    rows = []
+    for v in variants[:9]:
+        desc = f"{company.currency} {v.price:,.0f}"
+        if v.subtitle:
+            desc = f"{v.subtitle} · {desc}"
+        rows.append((f"var_{v.id}", v.label[:24], desc[:72]))
+    if len(variants) > 9:
+        rows.append(("var_more", "More sizes", "Ask for other sizes"))
+    body = _t(
+        ctx,
+        f"*{service.name}* — pick a size (or type it):",
+        f"*{service.name}* — choose size (or type am):",
+    )
+    await _reply(
+        link, to,
+        list_body=body,
+        list_btn=_t(ctx, "Choose size", "Choose size"),
+        list_rows=rows,
+        header=company.name[:60],
+    )
+
+
 async def handle_inbound(
     db: AsyncSession,
     *,
@@ -597,28 +638,34 @@ async def handle_inbound(
                     "service_name": chosen.name,
                     "base_price": chosen.base_price,
                     "unit": chosen.unit,
+                    "pricing_method": getattr(chosen, "pricing_method", None) or "piece",
+                    "flow_type": getattr(chosen, "flow_type", None) or "generic",
                 })
+                variants = await _variants(db, chosen.id)
+                if variants or (getattr(chosen, "pricing_method", "") == "fixed_size"):
+                    _save_ctx(conv, ctx)
+                    conv.state = "await_size"
+                    await db.commit()
+                    await _send_size_options(link, company, chosen, variants, from_wa, ctx)
+                    return
                 _save_ctx(conv, ctx)
                 conv.state = "await_details"
-                if _is_sqft_unit(chosen.unit):
+                if _is_sqft_unit(chosen.unit) or getattr(chosen, "pricing_method", "") in ("sqft", "sqin"):
                     outbound = _t(
                         ctx,
-                        f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} per square foot.\n"
-                        f"Tell me the size (e.g. *3x5*) and how many *units* (how many copies).\n"
-                        f"Example: *3x5, 5 units*",
-                        f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} per square foot.\n"
-                        f"Tell me the size (e.g. *3x5*) and how many *units* (how many copies you need).\n"
-                        f"Example: *3x5, 5 units*",
+                        f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} per area.\n"
+                        f"Send size (e.g. *3x5 ft* or *2x3 inches*) and how many *units*.\n"
+                        f"Example: *3x5 ft, 5 units*",
+                        f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} per area.\n"
+                        f"Send size (e.g. *3x5 ft* or *2x3 inches*) and how many *units*.",
                     )
                 else:
                     outbound = _t(
                         ctx,
                         f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} / {chosen.unit}.\n"
-                        f"Send details and how many *units* you need.\n"
-                        f"'Unit' means how many of the same item.",
+                        f"How many *units* do you need? (Unit = how many of the same item.)",
                         f"*{chosen.name}* — {company.currency} {chosen.base_price:,.0f} / {chosen.unit}.\n"
-                        f"Send details and how many *units* you need.\n"
-                        f"Unit na how many of that same thing you want.",
+                        f"How many *units* you need?",
                     )
 
     # Free-text intent (Grok + rules) when browsing / after language
@@ -637,7 +684,54 @@ async def handle_inbound(
                 "base_price": chosen.base_price,
                 "unit": chosen.unit,
                 "details": text,
+                "pricing_method": getattr(chosen, "pricing_method", None) or "piece",
             })
+            variants = await _variants(db, chosen.id)
+            if variants or getattr(chosen, "pricing_method", "") == "fixed_size":
+                _save_ctx(conv, ctx)
+                conv.state = "await_size"
+                await db.commit()
+                # try match size from same message
+                lowl = text.lower().replace(" ", "")
+                matched = None
+                for v in variants:
+                    if v.label.lower().replace(" ", "") in lowl:
+                        matched = v
+                        break
+                if matched:
+                    ctx["variant_id"] = matched.id
+                    ctx["variant_label"] = matched.label
+                    ctx["unit_price"] = matched.price
+                    ctx["base_price"] = matched.price
+                    qty = _parse_qty(text)
+                    if qty:
+                        ctx["qty"] = qty
+                        ctx["subtotal"] = round(matched.price * qty, 2)
+                        ctx["total"] = ctx["subtotal"]
+                        ctx["details"] = f"{chosen.name} {matched.label} x{qty}"
+                        _save_ctx(conv, ctx)
+                        conv.state = "await_artwork"
+                        outbound = _t(
+                            ctx,
+                            f"*{chosen.name}* *{matched.label}* × {qty} = *{company.currency} {ctx['total']:,.0f}*\n"
+                            f"Do you have a print-ready design, or need our team to design?",
+                            f"*{chosen.name}* *{matched.label}* × {qty} = *{company.currency} {ctx['total']:,.0f}*\n"
+                            f"You get design already or make we design am?",
+                        )
+                        await _reply(link, from_wa, outbound, buttons=[("art_have", "I have design"), ("art_need", "Need design")])
+                        db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                        await db.commit()
+                        return
+                    conv.state = "await_qty_fixed"
+                    _save_ctx(conv, ctx)
+                    outbound = _t(ctx, f"Size *{matched.label}* — {company.currency} {matched.price:,.0f} each. How many units?",
+                                  f"Size *{matched.label}* — {company.currency} {matched.price:,.0f} each. How many units?")
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                    await db.commit()
+                    await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+                    return
+                await _send_size_options(link, company, chosen, variants, from_wa, ctx)
+                return
             w, h = _parse_size(text)
             qty = _parse_qty(text) or 1
             if w and h:
@@ -696,6 +790,108 @@ async def handle_inbound(
                     conv.state = "await_intent"
 
     # Details / size / qty
+
+    # Fixed size selection (frames, nylon sizes, etc.)
+    elif state == "await_size" or (interactive_id and str(interactive_id).startswith("var_")):
+        variants = await _variants(db, int(ctx.get("service_id") or 0)) if ctx.get("service_id") else []
+        chosen_v = None
+        if interactive_id and str(interactive_id).startswith("var_") and interactive_id != "var_more":
+            try:
+                vid = int(str(interactive_id).replace("var_", ""))
+            except ValueError:
+                vid = None
+            chosen_v = next((v for v in variants if v.id == vid), None)
+        if not chosen_v and text:
+            lowl = text.lower().replace(" ", "")
+            for v in variants:
+                lab = v.label.lower().replace(" ", "")
+                if lab in lowl or lowl in lab:
+                    chosen_v = v
+                    break
+        if not chosen_v:
+            outbound = _t(ctx, "Please pick a size from the list, or type it (e.g. *8x10*).",
+                          "Abeg pick size from the list, or type am (e.g. *8x10*).")
+            svc = next((s for s in services if s.id == ctx.get("service_id")), None)
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            if svc and variants:
+                await _send_size_options(link, company, svc, variants, from_wa, ctx)
+            else:
+                await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            return
+        ctx["variant_id"] = chosen_v.id
+        ctx["variant_label"] = chosen_v.label
+        ctx["base_price"] = chosen_v.price
+        ctx["unit_price"] = chosen_v.price
+        _save_ctx(conv, ctx)
+        conv.state = "await_qty_fixed"
+        outbound = _t(
+            ctx,
+            f"*{ctx.get('service_name')}* size *{chosen_v.label}* — {company.currency} {chosen_v.price:,.0f} each.\nHow many units do you need?",
+            f"*{ctx.get('service_name')}* size *{chosen_v.label}* — {company.currency} {chosen_v.price:,.0f} each.\nHow many units you need?",
+        )
+
+    elif state == "await_qty_fixed" and text:
+        qty = _parse_qty(text) or (int(text.strip()) if text.strip().isdigit() else None)
+        if not qty or qty < 1:
+            outbound = _t(ctx, "Please send a number for quantity (e.g. *2*).", "Send number — e.g. *2*.")
+        else:
+            unit_price = float(ctx.get("unit_price") or ctx.get("base_price") or 0)
+            subtotal = round(unit_price * qty, 2)
+            ctx["qty"] = qty
+            ctx["subtotal"] = subtotal
+            ctx["total"] = subtotal
+            ctx["details"] = f"{ctx.get('service_name')} {ctx.get('variant_label')} x{qty}"
+            _save_ctx(conv, ctx)
+            conv.state = "await_artwork"
+            outbound = _t(
+                ctx,
+                f"Subtotal: *{company.currency} {subtotal:,.0f}* ({qty} × {company.currency} {unit_price:,.0f}).\n\n"
+                f"Do you have a *print-ready design*, or should our team design it for you?",
+                f"Subtotal: *{company.currency} {subtotal:,.0f}* ({qty} × {company.currency} {unit_price:,.0f}).\n\n"
+                f"You get print-ready design already, or make we design am for you?",
+            )
+            await _reply(link, from_wa, outbound, buttons=[("art_have", "I have design"), ("art_need", "Need design")])
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            return
+
+    elif state == "await_artwork" or interactive_id in ("art_have", "art_need"):
+        need = interactive_id == "art_need" or any(w in low for w in ("need design", "design for me", "you design", "una design", "create design"))
+        have = interactive_id == "art_have" or any(w in low for w in ("have design", "i have", "print ready", "my file", "artwork ready"))
+        if not need and not have:
+            outbound = _t(ctx, "Please choose: *I have design* or *Need design*.", "Choose: *I have design* or *Need design*.")
+            await _reply(link, from_wa, outbound, buttons=[("art_have", "I have design"), ("art_need", "Need design")])
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            return
+        design_fee = float(getattr(company, "design_fee_default", 0) or 0)
+        if need and design_fee > 0:
+            ctx["design_fee"] = design_fee
+            ctx["total"] = float(ctx.get("subtotal") or 0) + design_fee
+            ctx["details"] = (ctx.get("details") or "") + f" | design fee {design_fee}"
+        else:
+            ctx["design_fee"] = 0
+        if have:
+            ctx["awaiting_artwork_file"] = True
+        _save_ctx(conv, ctx)
+        conv.state = "await_fulfillment"
+        total = float(ctx.get("total") or ctx.get("subtotal") or 0)
+        note = ""
+        if need and design_fee:
+            note = f"\nDesign fee: *{company.currency} {design_fee:,.0f}*."
+        if have:
+            note += _t(ctx, "\nYou can send your design file in this chat.", "\nYou fit send design file for this chat.")
+        outbound = _t(
+            ctx,
+            f"Quote so far: *{company.currency} {total:,.0f}*.{note}\n\nPickup or delivery?",
+            f"Quote for now: *{company.currency} {total:,.0f}*.{note}\n\nPickup or delivery?",
+        )
+        await _reply(link, from_wa, outbound, buttons=[("ful_pickup", "Pickup"), ("ful_delivery", "Delivery")])
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+        await db.commit()
+        return
+
     elif state == "await_details" and text:
         ctx["details"] = (ctx.get("details") or "") + " | " + text
         w, h = _parse_size(text)

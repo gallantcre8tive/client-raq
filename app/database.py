@@ -20,6 +20,20 @@ async def get_db():
 async def ensure_schema():
     """Idempotent repairs for drifted local DBs."""
     stmts = [
+        "ALTER TABLE services ADD COLUMN IF NOT EXISTS flow_type VARCHAR(40) DEFAULT 'generic'",
+        "ALTER TABLE services ADD COLUMN IF NOT EXISTS design_fee DOUBLE PRECISION DEFAULT 0",
+        "ALTER TABLE services ADD COLUMN IF NOT EXISTS min_qty INTEGER DEFAULT 1",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS design_fee_default DOUBLE PRECISION DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS service_variants (
+        id SERIAL PRIMARY KEY,
+        service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        label VARCHAR(80) NOT NULL,
+        subtitle VARCHAR(120),
+        price DOUBLE PRECISION DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        is_active BOOLEAN DEFAULT true
+    )""",
+
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'NGN'",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS email VARCHAR(255)",

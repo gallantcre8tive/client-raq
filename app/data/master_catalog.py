@@ -107,3 +107,20 @@ def catalog_key(category: str, name: str) -> str:
 
 
 CATEGORIES = sorted({item["category"] for item in MASTER_CATALOG})
+
+# Merge frame fixed-size templates
+try:
+    from app.data.size_templates import FRAME_CATALOG_EXTRAS
+    _keys = {f"{i['category']}:{i['name']}" for i in MASTER_CATALOG}
+    for extra in FRAME_CATALOG_EXTRAS:
+        k = f"{extra['category']}:{extra['name']}"
+        if k not in _keys:
+            MASTER_CATALOG.append(extra)
+        else:
+            for i, item in enumerate(MASTER_CATALOG):
+                if f"{item['category']}:{item['name']}" == k:
+                    MASTER_CATALOG[i] = {**item, **extra}
+                    break
+    CATEGORIES = sorted({item["category"] for item in MASTER_CATALOG})
+except Exception:
+    pass

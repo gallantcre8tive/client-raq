@@ -109,4 +109,17 @@
     </div>
   </div>
 </div>
+
+<audio id="crq-notify-sound" preload="auto" class="hidden">
+  <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleTgsMLLHw9mYUi8zfM/b" type="audio/wav">
+</audio>
+<script>
+(function(){
+  function unlock(){ try{ var a=document.getElementById('crq-notify-sound'); if(a){ a.volume=0.01; a.play().then(function(){a.pause();a.currentTime=0;a.volume=0.7;}).catch(function(){}); } }catch(e){}
+    document.removeEventListener('click', unlock); }
+  document.addEventListener('click', unlock, {once:true});
+  window.crqPlayNotify = function(){ try{ var a=document.getElementById('crq-notify-sound'); if(a){ a.currentTime=0; a.play().catch(function(){}); } }catch(e){} };
+})();
+</script>
+
 {% endblock %}

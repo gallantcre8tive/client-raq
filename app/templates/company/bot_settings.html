@@ -59,6 +59,14 @@
       <span>Add base delivery fee when delivery is chosen</span>
     </label>
   </div>
+  <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">
+    <h3 class="font-semibold m-0">Design fee (optional)</h3>
+    <p class="text-xs text-[var(--text-muted)] m-0">Charged when customer asks your team to create artwork.</p>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Default design fee</label>
+      <input type="number" name="design_fee_default" step="0.01" min="0" value="{{ design_fee_default|default(0) }}" class="input-field min-h-[44px] max-w-xs">
+    </div>
+  </div>
   <button type="submit" class="btn-primary min-h-[44px] w-full sm:w-auto">Save bot settings</button>
 </form>
 {% endblock %}
