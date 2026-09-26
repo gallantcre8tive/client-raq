@@ -578,6 +578,56 @@ async def company_payments_add(
     return RedirectResponse("/company/payments", status_code=303)
 
 
+
+@app.get("/company/bot", response_class=HTMLResponse)
+async def company_bot_alias(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    return await company_bot(request, user, db)
+
+
+@app.get("/company/messages", response_class=HTMLResponse)
+async def company_messages(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    from app.models.conversation import Conversation, Message
+    company = await company_ctx(user, db)
+    convs = (await db.execute(
+        select(Conversation).where(Conversation.company_id == company.id).order_by(Conversation.updated_at.desc())
+    )).scalars().all()
+    selected_id = request.query_params.get("c")
+    messages = []
+    selected = None
+    if selected_id:
+        try:
+            cid = int(selected_id)
+        except ValueError:
+            cid = None
+        if cid:
+            selected = await db.get(Conversation, cid)
+            if selected and selected.company_id == company.id:
+                messages = list((await db.execute(
+                    select(Message).where(Message.conversation_id == cid).order_by(Message.created_at.asc())
+                )).scalars().all())
+    threads = []
+    for c in convs:
+        last = (await db.execute(
+            select(Message).where(Message.conversation_id == c.id).order_by(Message.created_at.desc()).limit(1)
+        )).scalars().first()
+        threads.append({
+            "id": c.id,
+            "wa": c.customer_wa_id,
+            "name": c.customer_name or c.customer_wa_id,
+            "preview": (last.body or "")[:80] if last else "—",
+            "state": c.state,
+        })
+    return render(request, "company/messages.html", {
+        "active": "messages",
+        "company_name": company.name,
+        "user_name": user.full_name,
+        "threads": threads,
+        "messages": messages,
+        "selected": selected,
+        "selected_id": int(selected_id) if selected_id and str(selected_id).isdigit() else None,
+    })
+
+
 @app.get("/company/chats", response_class=HTMLResponse)
 async def company_chats(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
     company = await company_ctx(user, db)

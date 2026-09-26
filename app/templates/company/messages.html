@@ -1,0 +1,50 @@
+{% extends "layouts/company.html" %}
+{% block title %}Messages – Client-RaQ{% endblock %}
+{% block page_title %}Messages{% endblock %}
+{% set active = 'messages' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
+  Live WhatsApp conversations for your company. Open a thread to read bot and customer messages.
+</p>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-[420px]">
+  <div class="card overflow-hidden lg:col-span-1 flex flex-col max-h-[70vh]">
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">Conversations</div>
+    <div class="overflow-y-auto flex-1">
+      {% if threads and threads|length > 0 %}
+        {% for t in threads %}
+        <a href="/company/messages?c={{ t.id }}"
+           class="block px-4 py-3 border-b border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] no-underline text-[var(--text-primary)] {% if selected_id==t.id %}bg-[var(--surface-subtle)]{% endif %}">
+          <div class="font-medium text-sm truncate">{{ t.name }}</div>
+          <div class="text-xs text-[var(--text-muted)] truncate mt-0.5">{{ t.preview }}</div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="p-8 text-center text-sm text-[var(--text-muted)]">No chats yet. They appear when customers message your WhatsApp number.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card lg:col-span-2 flex flex-col max-h-[70vh]">
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">
+      {% if selected %}Thread · {{ selected.customer_name or selected.customer_wa_id }}{% else %}Thread{% endif %}
+    </div>
+    <div class="flex-1 overflow-y-auto p-4 space-y-3">
+      {% if messages and messages|length > 0 %}
+        {% for m in messages %}
+        <div class="flex {% if m.direction=='outbound' %}justify-end{% else %}justify-start{% endif %}">
+          <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm {% if m.direction=='outbound' %}bg-[var(--primary)] text-white{% else %}bg-[var(--surface-subtle)] text-[var(--text-primary)]{% endif %}">
+            <div class="whitespace-pre-wrap break-words">{{ m.body or '—' }}</div>
+            {% if m.media_url %}
+            <div class="text-[10px] opacity-80 mt-1">[media / payment proof id: {{ m.media_url[:24] }}…]</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="h-full flex items-center justify-center text-sm text-[var(--text-muted)] p-6 text-center">
+          Select a conversation to view messages.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
