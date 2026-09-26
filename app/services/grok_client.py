@@ -52,7 +52,7 @@ async def grok_vision(system: str, prompt: str, image_bytes: bytes, mime: str = 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
-                f"{settings.GROK_BASE_URL.rstrip("/")}/chat/completions",
+                f"{settings.GROK_BASE_URL.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                 json={"model": settings.GROK_MODEL, "messages": messages, "max_tokens": 180},
             )

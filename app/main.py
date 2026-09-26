@@ -544,7 +544,11 @@ async def company_order_status(
         pass
     order.status_note = note
     await db.commit()
-    # TODO: notify customer via WhatsApp bot
+    try:
+        from app.services.bot_engine import notify_order_status
+        await notify_order_status(db, order, status, note)
+    except Exception:
+        pass
     return RedirectResponse(f"/company/orders/{order_id}", status_code=303)
 
 
@@ -737,6 +741,8 @@ async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
                     from_wa = msg.get("from") or ""
                     text = None
                     media_id = None
+                    button_id = None
+                    list_id = None
                     if msg.get("type") == "text":
                         text = (msg.get("text") or {}).get("body")
                     elif msg.get("type") == "image":
@@ -744,6 +750,14 @@ async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
                         text = (msg.get("image") or {}).get("caption") or ""
                     elif msg.get("type") == "document":
                         media_id = (msg.get("document") or {}).get("id")
+                    elif msg.get("type") == "interactive":
+                        inter = msg.get("interactive") or {}
+                        if inter.get("type") == "button_reply":
+                            button_id = (inter.get("button_reply") or {}).get("id")
+                            text = (inter.get("button_reply") or {}).get("title") or ""
+                        elif inter.get("type") == "list_reply":
+                            list_id = (inter.get("list_reply") or {}).get("id")
+                            text = (inter.get("list_reply") or {}).get("title") or ""
                     if phone_number_id and from_wa:
                         await handle_inbound(
                             db,
@@ -751,6 +765,8 @@ async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
                             from_wa=from_wa,
                             text=text,
                             media_id=media_id,
+                            button_id=button_id,
+                            list_id=list_id,
                         )
     except Exception as e:
         print("Webhook error:", e)

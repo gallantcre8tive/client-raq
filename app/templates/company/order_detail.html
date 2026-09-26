@@ -22,7 +22,7 @@
   </div>
   <div class="card p-6">
     <h3 class="font-semibold mb-4">Update status</h3>
-    <p class="text-xs text-[var(--text-muted)] mb-4">When you change status, the bot can notify the customer on WhatsApp (backend phase).</p>
+    <p class="text-xs text-[var(--text-muted)] mb-4">When you change status, the customer is notified on WhatsApp automatically.</p>
     <form method="post" action="/company/orders/{{ order_id }}/status" class="space-y-3">
       <select name="status" class="input-field">
         <option value="awaiting_acceptance">Awaiting acceptance</option>

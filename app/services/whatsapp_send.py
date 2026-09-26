@@ -1,19 +1,14 @@
-"""Send WhatsApp Cloud API messages."""
+"""Send WhatsApp Cloud API messages (text, buttons, lists, media)."""
 from __future__ import annotations
 import httpx
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
-async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body: str) -> bool:
-    if not phone_number_id or not access_token or not to_wa_id or not body:
+
+async def _post(phone_number_id: str, access_token: str, payload: dict) -> bool:
+    if not phone_number_id or not access_token:
         return False
     url = f"{GRAPH}/{phone_number_id}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
-        "type": "text",
-        "text": {"body": body[:4090]},
-    }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.post(
@@ -26,23 +21,107 @@ async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body
         return False
 
 
+async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body: str) -> bool:
+    if not to_wa_id or not body:
+        return False
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "text",
+        "text": {"body": body[:4090]},
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_buttons(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    body: str,
+    buttons: list[tuple[str, str]],
+    header: str | None = None,
+) -> bool:
+    """buttons: list of (id, title) max 3. title max 20 chars."""
+    if not to_wa_id or not body or not buttons:
+        return False
+    btns = []
+    for bid, title in buttons[:3]:
+        btns.append({
+            "type": "reply",
+            "reply": {"id": str(bid)[:256], "title": str(title)[:20]},
+        })
+    interactive = {
+        "type": "button",
+        "body": {"text": body[:1024]},
+        "action": {"buttons": btns},
+    }
+    if header:
+        interactive["header"] = {"type": "text", "text": header[:60]}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "interactive",
+        "interactive": interactive,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_list(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    body: str,
+    button_label: str,
+    rows: list[tuple[str, str, str]],
+    header: str | None = None,
+) -> bool:
+    """rows: list of (id, title, description) max 10. title max 24, desc max 72."""
+    if not to_wa_id or not body or not rows:
+        return False
+    section_rows = []
+    for rid, title, desc in rows[:10]:
+        row = {"id": str(rid)[:200], "title": str(title)[:24]}
+        if desc:
+            row["description"] = str(desc)[:72]
+        section_rows.append(row)
+    interactive = {
+        "type": "list",
+        "body": {"text": body[:1024]},
+        "action": {
+            "button": (button_label or "View options")[:20],
+            "sections": [{"title": "Options", "rows": section_rows}],
+        },
+    }
+    if header:
+        interactive["header"] = {"type": "text", "text": header[:60]}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "interactive",
+        "interactive": interactive,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
 async def download_media(media_id: str, access_token: str):
-    import httpx
-    GRAPH = "https://graph.facebook.com/v21.0"
     if not media_id or not access_token:
         return None
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            meta = await client.get(f"{GRAPH}/{media_id}", headers={"Authorization": f"Bearer {access_token}"})
+            meta = await client.get(
+                f"{GRAPH}/{media_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
             if meta.status_code != 200:
                 return None
-            url = meta.json().get("url")
-            mime = meta.json().get("mime_type") or "image/jpeg"
+            data = meta.json()
+            url = data.get("url")
+            mime = data.get("mime_type") or "image/jpeg"
             if not url:
                 return None
-            data = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
-            if data.status_code != 200:
+            file_r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            if file_r.status_code != 200:
                 return None
-            return data.content, mime
+            return file_r.content, mime
     except Exception:
         return None
