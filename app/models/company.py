@@ -46,7 +46,8 @@ class CompanyWhatsAppNumber(Base):
     __tablename__ = "company_whatsapp_numbers"
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
-    phone_number_id: Mapped[str] = mapped_column(String(50))
+    phone_number_id: Mapped[str] = mapped_column(String(50), index=True)
+    waba_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     display_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -1,42 +1,84 @@
 {% extends "layouts/company.html" %}
 {% block title %}WhatsApp API – Client-RaQ{% endblock %}
-{% block page_title %}WhatsApp Cloud API{% endblock %}
+{% block page_title %}WhatsApp API{% endblock %}
 {% set active = 'whatsapp' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-6">Connect Meta WhatsApp Cloud API for this company only. Credentials are isolated per tenant.</p>
-{% if saved %}<div class="mb-4 p-3 rounded-lg text-sm" style="background:var(--status-active-bg);color:var(--status-active)">WhatsApp connection saved. Bot will use these credentials.</div>{% endif %}
-<form method="post" action="/company/whatsapp" class="grid lg:grid-cols-2 gap-6">
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Connection</h3>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Phone Number ID *</label>
-      <input type="text" name="phone_number_id" required class="input-field" placeholder="From Meta API Setup" value="{{ wa.phone_number_id if wa else '' }}">
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">WhatsApp Business Account ID</label>
-      <input type="text" name="waba_id" class="input-field" placeholder="Optional">
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Access token *</label>
-      <input type="password" name="access_token" required class="input-field" placeholder="Paste token (stored for this company only)">
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Display number</label>
-      <input type="text" name="display_number" class="input-field" placeholder="+234..." value="{{ wa.display_number if wa else '' }}">
-    </div>
-    <button type="submit" class="btn-primary">Save connection</button>
-  </div>
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Webhook (platform)</h3>
-    <p class="text-sm text-[var(--text-secondary)]">After Client-RaQ is live on your domain, Meta Callback URL must be:</p>
-    <code class="block text-xs p-3 rounded-lg break-all" style="background:var(--surface-canvas);color:var(--primary)">https://clientraq.com/api/webhook/whatsapp</code>
-    <p class="text-xs text-[var(--text-muted)]">Verify token is set in platform .env (WHATSAPP_VERIFY_TOKEN). Subscribe to <strong>messages</strong>.</p>
-    <div class="flex items-center gap-2 text-sm">
-      {% if wa and wa.phone_number_id %}
+<p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
+  Connect Meta WhatsApp Cloud API for <strong class="text-[var(--text-primary)]">{{ company_name }}</strong> only.
+  Credentials stay private to this company.
+</p>
+
+{% if saved %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">
+  Connection saved. Incoming messages to this Phone Number ID will run this company’s bot.
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-suspended-bg);color:var(--status-suspended)">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="/company/whatsapp" class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+  <div class="card p-4 sm:p-6 space-y-4">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h3 class="font-semibold text-base m-0">Connection</h3>
+      {% if wa and wa.phone_number_id and wa.access_token %}
       <span class="status-pill status-active">Configured</span>
       {% else %}
       <span class="status-pill status-pending">Not connected</span>
       {% endif %}
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Phone Number ID *</label>
+      <input type="text" name="phone_number_id" required inputmode="numeric" pattern="[0-9]+" autocomplete="off"
+        class="input-field" placeholder="e.g. 123456789012345"
+        value="{{ wa.phone_number_id if wa else '' }}">
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">Meta → WhatsApp → API Setup → Phone number ID (digits only).</p>
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">WhatsApp Business Account ID</label>
+      <input type="text" name="waba_id" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+        class="input-field" placeholder="e.g. 987654321098765"
+        value="{{ wa.waba_id if wa and wa.waba_id else '' }}">
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">WABA ID — digits only. Do not put an email address here.</p>
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Access token {% if not wa or not wa.access_token %}*{% endif %}</label>
+      <input type="password" name="access_token" autocomplete="off" class="input-field"
+        placeholder="{% if wa and wa.access_token %}Leave blank to keep current token{% else %}EAAG… permanent System User token{% endif %}"
+        {% if not wa or not wa.access_token %}required{% endif %}>
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">
+        Use a <strong>System User</strong> permanent token (not the 24-hour test token). Leave blank when updating other fields to keep the saved token.
+      </p>
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Display number</label>
+      <input type="text" name="display_number" class="input-field" placeholder="+2349012345678"
+        value="{{ wa.display_number if wa else '' }}">
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">Optional. The number customers see / you test with.</p>
+    </div>
+
+    <button type="submit" class="btn-primary w-full sm:w-auto min-h-[44px]">Save connection</button>
+  </div>
+
+  <div class="card p-4 sm:p-6 space-y-4">
+    <h3 class="font-semibold text-base m-0">Webhook (platform)</h3>
+    <p class="text-sm text-[var(--text-secondary)] leading-relaxed m-0">
+      In Meta WhatsApp → Configuration, set the callback URL to:
+    </p>
+    <code class="block text-xs p-3 rounded-xl break-all leading-relaxed" style="background:var(--surface-canvas);color:var(--primary)">https://clientraq.com/api/webhook/whatsapp</code>
+    <ul class="text-xs text-[var(--text-muted)] space-y-2 list-disc pl-4 m-0 leading-relaxed">
+      <li>Verify token must match platform env <code class="text-[var(--text-secondary)]">WHATSAPP_VERIFY_TOKEN</code></li>
+      <li>Subscribe webhook field: <strong>messages</strong></li>
+      <li>One webhook serves all companies; Phone Number ID routes to this tenant</li>
+    </ul>
+    <div class="pt-2 border-t border-[var(--border-subtle)]">
+      <p class="text-xs text-[var(--text-secondary)] m-0 leading-relaxed">
+        After saving, message the business WhatsApp number from your personal phone to test the bot live.
+      </p>
     </div>
   </div>
 </form>

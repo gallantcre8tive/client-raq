@@ -611,7 +611,7 @@ async def company_bot_save(
 async def company_wa_save(
     request: Request,
     phone_number_id: str = Form(...),
-    access_token: str = Form(...),
+    access_token: Optional[str] = Form(None),
     display_number: Optional[str] = Form(None),
     waba_id: Optional[str] = Form(None),
     user: User = Depends(require_company),
@@ -619,20 +619,36 @@ async def company_wa_save(
 ):
     from app.models.company import CompanyWhatsAppNumber
     company = await company_ctx(user, db)
+    pid = (phone_number_id or "").strip()
+    if not pid.isdigit():
+        return RedirectResponse("/company/whatsapp?error=phone_id", status_code=303)
+    waba = (waba_id or "").strip() or None
+    if waba and not waba.isdigit():
+        return RedirectResponse("/company/whatsapp?error=waba", status_code=303)
+    token = (access_token or "").strip()
+    disp = (display_number or "").strip() or None
+
     existing = (await db.execute(
         select(CompanyWhatsAppNumber).where(CompanyWhatsAppNumber.company_id == company.id)
     )).scalars().first()
     if existing:
-        existing.phone_number_id = phone_number_id.strip()
-        existing.access_token = access_token.strip()
-        existing.display_number = display_number
+        existing.phone_number_id = pid
+        existing.waba_id = waba
+        existing.display_number = disp
+        if token:
+            existing.access_token = token
         existing.is_active = True
+        if not existing.access_token:
+            return RedirectResponse("/company/whatsapp?error=token", status_code=303)
     else:
+        if not token:
+            return RedirectResponse("/company/whatsapp?error=token", status_code=303)
         db.add(CompanyWhatsAppNumber(
             company_id=company.id,
-            phone_number_id=phone_number_id.strip(),
-            access_token=access_token.strip(),
-            display_number=display_number,
+            phone_number_id=pid,
+            waba_id=waba,
+            access_token=token,
+            display_number=disp,
             is_active=True,
         ))
     await db.commit()
@@ -647,9 +663,17 @@ async def company_wa(request: Request, user: User = Depends(require_company), db
         select(CompanyWhatsAppNumber).where(CompanyWhatsAppNumber.company_id == company.id)
     )).scalars().first()
     saved = request.query_params.get("saved")
+    err = request.query_params.get("error")
+    error_msg = None
+    if err == "phone_id":
+        error_msg = "Phone Number ID must be digits only (from Meta API Setup)."
+    elif err == "waba":
+        error_msg = "WhatsApp Business Account ID must be digits only (not an email)."
+    elif err == "token":
+        error_msg = "Access token is required for the first connection."
     return render(request, "company/whatsapp.html", {
         "active": "whatsapp", "company_name": company.name, "user_name": user.full_name,
-        "wa": wa, "saved": saved,
+        "wa": wa, "saved": saved, "error": error_msg,
     })
 
 

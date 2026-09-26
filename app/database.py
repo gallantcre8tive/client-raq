@@ -45,6 +45,10 @@ async def ensure_schema():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_note TEXT",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_wa_id VARCHAR(50)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)",
+        "ALTER TABLE company_whatsapp_numbers ADD COLUMN IF NOT EXISTS waba_id VARCHAR(50)",
+        "ALTER TABLE company_whatsapp_numbers ADD COLUMN IF NOT EXISTS access_token TEXT",
+        "ALTER TABLE company_whatsapp_numbers ADD COLUMN IF NOT EXISTS display_number VARCHAR(30)",
+        "ALTER TABLE company_whatsapp_numbers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
     ]
     try:
         async with engine.begin() as conn:
