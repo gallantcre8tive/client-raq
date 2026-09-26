@@ -44,9 +44,9 @@
     </div>
   </aside>
 
-  <div class="app-main flex flex-col min-w-0 w-full min-h-screen bg-[var(--surface-canvas)]">
+  <div class="app-main flex flex-col min-w-0 w-full bg-[var(--surface-canvas)] h-[100dvh] max-h-[100dvh] overflow-hidden">
     <header
-      class="sticky top-0 z-30 flex flex-row flex-nowrap items-center gap-2 h-14 min-h-[56px] max-h-14 px-3 sm:px-4 border-b border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-base)_94%,transparent)] backdrop-blur-md"
+      class="app-topbar shrink-0 z-30 flex flex-row flex-nowrap items-center gap-2 h-14 min-h-[56px] max-h-14 px-3 sm:px-4 border-b border-[var(--border-subtle)] bg-[var(--surface-base)]"
       style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right));"
     >
       <button
@@ -93,7 +93,7 @@
       </div>
     </header>
 
-    <main class="flex-1 w-full max-w-full overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6" style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: max(16px, env(safe-area-inset-bottom));">
+    <main class="app-page flex-1 w-full max-w-full min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6" style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: max(16px, env(safe-area-inset-bottom));">
       {% block content %}{% endblock %}
     </main>
   </div>

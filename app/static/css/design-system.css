@@ -596,3 +596,25 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
     height: 100vh !important;
   }
 }
+
+/* Fixed app chrome: header stays, only page body scrolls */
+.app-main {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.app-topbar {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+  background: var(--surface-base) !important;
+}
+.app-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}

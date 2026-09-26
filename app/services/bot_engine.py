@@ -90,17 +90,30 @@ def _calc_total(service, width, height, qty, size_text: str = "") -> float:
 
 
 def _is_clarifying_question(text: str) -> bool:
+    """Only true unit/price-meaning questions — not status or general chat."""
     low = (text or "").lower().strip()
     if not low:
         return False
-    if "?" in low:
-        return True
-    triggers = (
-        "what do you mean", "wetin you mean", "what is unit", "what's unit", "whats unit",
-        "mean by unit", "explain", "how much", "i don't understand", "i dont understand",
-        "i no understand", "abeg explain", "clarify", "what does", "wetin be",
+    unit_q = (
+        "what do you mean by unit", "mean by unit", "what is unit", "what's unit",
+        "whats unit", "wetin be unit", "wetin unit", "explain unit",
     )
-    return any(x in low for x in triggers)
+    if any(x in low for x in unit_q):
+        return True
+    if ("unit" in low) and any(x in low for x in ("mean", "explain", "wetin", "what is", "what's")):
+        return True
+    return False
+
+
+def _is_order_status_question(text: str) -> bool:
+    low = (text or "").lower()
+    keys = (
+        "ready", "done", "finish", "finished", "completed", "status", "update",
+        "my work", "my order", "my job", "don done", "haffa", "has my", "is my",
+        "how far my", "wetin about my", "when will", "when go", "don ready",
+        "collect", "pickup time", "ready for",
+    )
+    return any(k in low for k in keys)
 
 
 def _is_sqft_unit(unit: str | None) -> bool:
@@ -446,6 +459,59 @@ async def handle_inbound(
         await send_text(link.phone_number_id, link.access_token, from_wa, reply)
         return
 
+
+    # --- Order status questions (ready / done / my work) ---
+    if text and _is_order_status_question(text):
+        order = (await db.execute(
+            select(Order).where(
+                Order.company_id == company.id,
+                Order.customer_wa_id == from_wa,
+            ).order_by(Order.id.desc())
+        )).scalars().first()
+        if order:
+            st = order.status.value if hasattr(order.status, "value") else str(order.status)
+            st_label = st.replace("_", " ")
+            if st in ("ready", "completed"):
+                reply = _t(
+                    ctx,
+                    f"Yes — order *#{order.id}* is *{st_label}*. You can come for pickup (message us before you leave). If delivery was arranged, we will confirm timing.",
+                    f"Yes o — order *#{order.id}* *{st_label}* already. You fit come pick am (message us before you comot). If na delivery, we go confirm time.",
+                )
+            elif st in ("payment_confirmed", "in_production", "awaiting_acceptance"):
+                reply = _t(
+                    ctx,
+                    f"Order *#{order.id}* is still with us — status: *{st_label}*. We will message you the moment it is ready.",
+                    f"Order *#{order.id}* still dey our side — status: *{st_label}*. We go message you once e ready.",
+                )
+            elif st == "payment_submitted":
+                reply = _t(
+                    ctx,
+                    f"We have your payment proof for order *#{order.id}*. Our team is confirming it, then production starts.",
+                    f"We don see your payment for order *#{order.id}*. Team dey confirm am, then we start the work.",
+                )
+            else:
+                reply = _t(
+                    ctx,
+                    f"Order *#{order.id}* status: *{st_label}*. Need anything else on this job?",
+                    f"Order *#{order.id}* status na *{st_label}*. Anything else for the job?",
+                )
+            if order.status_note:
+                reply += f"\n\nNote: {order.status_note[-200:]}"
+        else:
+            # try Grok with context
+            reply = await _grok_staff(
+                company, ctx, text, services,
+                extra="Customer is asking if their work/order is ready. If no order on file, say we have no open order and offer to start a new one.",
+            ) or _t(
+                ctx,
+                "I do not see an open order on this number yet. Tell me what you ordered or start a new request.",
+                "I no see any open order for this number yet. Tell me wetin you order or make we start new one.",
+            )
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+        await db.commit()
+        await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+        return
+
     # --- Clarifying questions: answer without advancing the order ---
     if text and _is_clarifying_question(text) and state not in ("await_lang",):
         extra = ""
@@ -465,7 +531,11 @@ async def handle_inbound(
                     "Example: same banner size, you need 5 = *5 units*.",
                 )
             else:
-                grok = _t(ctx, "Happy to explain — what should I clarify?", "Which part you want make I explain?")
+                grok = _t(
+                    ctx,
+                    "Got your message. How can I help with your print job?",
+                    "I hear you. How I fit help with your print job?",
+                )
         db.add(Message(conversation_id=conv.id, direction="outbound", body=grok))
         await db.commit()
         await send_text(link.phone_number_id, link.access_token, from_wa, grok)
@@ -605,22 +675,25 @@ async def handle_inbound(
                 f"I understand — you need *{chosen.name}*. Send size and how many units.",
             )
         else:
-            grok = await _grok_staff(company, ctx, text, services)
-            if grok:
-                outbound = grok
+            low2 = text.lower().strip()
+            if low2 in ("never mind", "nevermind", "cancel", "forget", "ok", "okay", "thanks", "thank you", "ok thanks"):
+                outbound = _t(ctx, "No problem. Message anytime you need a print job.", "No problem. Message anytime you need print.")
                 conv.state = "await_intent"
             else:
-                outbound = _t(
-                    ctx,
-                    "Happy to help. You can tap a service below or just describe what you need.",
-                    "I dey here to help. Press a service below or just type wetin you need.",
+                grok = await _grok_staff(
+                    company, ctx, text, services,
+                    extra="Answer helpfully about printing/orders. If they ask about progress, use order context if any. Do not dump a numbered menu.",
                 )
-                await db.commit()
-                await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
-                await _send_services(link, company, services, from_wa, ctx)
-                db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
-                await db.commit()
-                return
+                if grok:
+                    outbound = grok
+                    conv.state = "await_intent"
+                else:
+                    outbound = _t(
+                        ctx,
+                        "I can help with that. Tell me the service (e.g. banner, sticker, frame) and size if you know it.",
+                        "I fit help. Tell me the service (banner, sticker, frame) and size if you know am.",
+                    )
+                    conv.state = "await_intent"
 
     # Details / size / qty
     elif state == "await_details" and text:
