@@ -42,11 +42,12 @@
           <div>
             <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Unit</label>
             <select name="unit" class="input-field">
-              <option>per piece</option>
-              <option>per sqm</option>
-              <option>per ft</option>
-              <option>per dozen</option>
-              <option>per set</option>
+              <option value="per piece">per piece (fixed size e.g. frame)</option>
+              <option value="per sq ft">per sq ft (banner/flex — size in feet)</option>
+              <option value="per sq ft">per sq ft (sticker — inches use ÷144)</option>
+              <option value="per sqm">per sqm</option>
+              <option value="per set">per set</option>
+              <option value="per dozen">per dozen</option>
             </select>
           </div>
         </div>

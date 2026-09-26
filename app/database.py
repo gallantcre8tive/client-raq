@@ -26,6 +26,7 @@ async def ensure_schema():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone VARCHAR(30)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS greeting_message TEXT",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bot_language VARCHAR(20) DEFAULT 'both'",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bot_flags TEXT",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS delivery_fee_base DOUBLE PRECISION DEFAULT 0",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS platform_note TEXT",
         "ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",

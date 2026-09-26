@@ -588,26 +588,53 @@ async def company_chats(request: Request, user: User = Depends(require_company),
 
 @app.get("/company/bot-settings", response_class=HTMLResponse)
 async def company_bot(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    import json
     company = await company_ctx(user, db)
+    flags = {}
+    try:
+        flags = json.loads(getattr(company, "bot_flags", None) or "{}")
+    except Exception:
+        flags = {}
     return render(request, "company/bot_settings.html", {
         "active": "bot", "company_name": company.name, "user_name": user.full_name,
         "greeting": company.greeting_message or "", "language": company.bot_language or "both",
         "currency": company.currency,
+        "ask_size_help": flags.get("ask_size_help", True),
+        "ask_payment_proof": flags.get("ask_payment_proof", True),
+        "ask_delivery": flags.get("ask_delivery", True),
+        "calc_delivery_fee": flags.get("calc_delivery_fee", False),
+        "offer_pidgin": flags.get("offer_pidgin", True),
+        "saved": request.query_params.get("saved"),
     })
 
 
 @app.post("/company/bot-settings")
 async def company_bot_save(
+    request: Request,
     greeting: Optional[str] = Form(None), language: str = Form("both"), currency: str = Form("NGN"),
+    ask_size_help: Optional[str] = Form(None),
+    ask_payment_proof: Optional[str] = Form(None),
+    ask_delivery: Optional[str] = Form(None),
+    calc_delivery_fee: Optional[str] = Form(None),
+    offer_pidgin: Optional[str] = Form(None),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    import json
     company = await company_ctx(user, db)
     if greeting is not None:
         company.greeting_message = greeting
     company.bot_language = language
     company.currency = currency
+    flags = {
+        "ask_size_help": ask_size_help is not None,
+        "ask_payment_proof": ask_payment_proof is not None,
+        "ask_delivery": ask_delivery is not None,
+        "calc_delivery_fee": calc_delivery_fee is not None,
+        "offer_pidgin": offer_pidgin is not None,
+    }
+    company.bot_flags = json.dumps(flags)
     await db.commit()
-    return RedirectResponse("/company/bot-settings", status_code=303)
+    return RedirectResponse("/company/bot-settings?saved=1", status_code=303)
 
 
 

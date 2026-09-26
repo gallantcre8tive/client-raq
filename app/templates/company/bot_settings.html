@@ -3,21 +3,26 @@
 {% block page_title %}Bot Settings{% endblock %}
 {% set active = 'bot' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-6">Control how your WhatsApp AI assistant greets customers, speaks, and uses your prices.</p>
+<p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
+  Control greeting, language, and how the WhatsApp assistant uses your prices. Changes apply on the next customer message.
+</p>
+{% if saved %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Bot settings saved.</div>
+{% endif %}
 <form method="post" action="/company/bot-settings" class="space-y-6 max-w-2xl">
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Greeting & language</h3>
+  <div class="card p-4 sm:p-6 space-y-4">
+    <h3 class="font-semibold m-0">Greeting & language</h3>
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Greeting message</label>
-      <textarea name="greeting" class="input-field" placeholder="Welcome to our print shop! Wetin you wan print today?">{{ greeting|default('') }}</textarea>
+      <textarea name="greeting" class="input-field" rows="3" placeholder="Welcome to our print shop!">{{ greeting|default('') }}</textarea>
     </div>
     <div class="grid sm:grid-cols-2 gap-4">
       <div>
-        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Primary language</label>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Primary language mode</label>
         <select name="language" class="input-field">
-          <option value="en" {% if language=='en' %}selected{% endif %}>English</option>
-          <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Nigerian Pidgin</option>
-          <option value="both">English + Pidgin (auto)</option>
+          <option value="en" {% if language=='en' %}selected{% endif %}>English only</option>
+          <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Pidgin only</option>
+          <option value="both" {% if language=='both' or not language %}selected{% endif %}>Ask customer (English or Pidgin)</option>
         </select>
       </div>
       <div>
@@ -30,18 +35,30 @@
       </div>
     </div>
   </div>
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Order flow</h3>
-    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_size_help" checked class="rounded"> Offer size guide when customer is unsure</label>
-    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_payment_proof" checked class="rounded"> Ask for payment screenshot after transfer details</label>
-    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="ask_delivery" checked class="rounded"> Ask pickup vs delivery and delivery date</label>
-    <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="calc_delivery_fee" class="rounded"> Calculate delivery fee (when you set zones later)</label>
+  <div class="card p-4 sm:p-6 space-y-3">
+    <h3 class="font-semibold m-0">Order flow options</h3>
+    <p class="text-xs text-[var(--text-muted)] m-0">Ticked options stay on after Save. Untick and Save to turn off.</p>
+    <label class="flex items-start gap-3 text-sm cursor-pointer">
+      <input type="checkbox" name="offer_pidgin" value="1" class="mt-1 rounded" {% if offer_pidgin %}checked{% endif %}>
+      <span>Offer Pidgin as a language choice (when mode is “Ask customer”)</span>
+    </label>
+    <label class="flex items-start gap-3 text-sm cursor-pointer">
+      <input type="checkbox" name="ask_size_help" value="1" class="mt-1 rounded" {% if ask_size_help %}checked{% endif %}>
+      <span>Help explain size and “unit” when customers are unsure</span>
+    </label>
+    <label class="flex items-start gap-3 text-sm cursor-pointer">
+      <input type="checkbox" name="ask_payment_proof" value="1" class="mt-1 rounded" {% if ask_payment_proof %}checked{% endif %}>
+      <span>Ask for payment screenshot after bank details</span>
+    </label>
+    <label class="flex items-start gap-3 text-sm cursor-pointer">
+      <input type="checkbox" name="ask_delivery" value="1" class="mt-1 rounded" {% if ask_delivery %}checked{% endif %}>
+      <span>Ask pickup vs delivery and date/time</span>
+    </label>
+    <label class="flex items-start gap-3 text-sm cursor-pointer">
+      <input type="checkbox" name="calc_delivery_fee" value="1" class="mt-1 rounded" {% if calc_delivery_fee %}checked{% endif %}>
+      <span>Add base delivery fee when delivery is chosen</span>
+    </label>
   </div>
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Services used by bot</h3>
-    <p class="text-xs text-[var(--text-muted)]">Active services from the Services page are quoted by the bot. Remove a service there to stop offering it.</p>
-    <a href="/company/services" class="btn-ghost h-9 text-xs inline-flex">Manage services & prices</a>
-  </div>
-  <button type="submit" class="btn-primary">Save bot settings</button>
+  <button type="submit" class="btn-primary min-h-[44px] w-full sm:w-auto">Save bot settings</button>
 </form>
 {% endblock %}

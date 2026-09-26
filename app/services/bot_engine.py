@@ -36,33 +36,71 @@ def _greet(company: Company) -> str:
     return f"Hi! Welcome to *{company.name}*. We're glad you're here."
 
 
-def _is_sqft_unit(unit: str | None) -> bool:
+def _unit_mode(unit: str | None) -> str:
     u = (unit or "").lower()
-    return any(x in u for x in ("sq", "square", "ft", "feet", "foot", "meter", "metre", "m2"))
+    if any(x in u for x in ("piece", "pcs", "each", "frame", "copy", "per pc")):
+        return "piece"
+    if any(x in u for x in ("sqm", "m2", "metre", "meter")):
+        return "sqm"
+    if any(x in u for x in ("sq", "square", "ft", "feet", "foot", "sqft")):
+        return "sqft"
+    if "ft" in u or "feet" in u:
+        return "sqft"
+    return "piece"
 
 
-def _parse_size(text: str) -> tuple[float | None, float | None]:
-    m = re.search(r"(\d+(?:\.\d+)?)\s*[x×*by]\s*(\d+(?:\.\d+)?)", text.lower().replace("ft", "").replace("feet", ""))
+def _size_in_inches(text: str) -> bool:
+    low = (text or "").lower()
+    return any(x in low for x in ("inch", "inches", " in", "in ", '"'))
+
+
+def _parse_size(text: str):
+    low = (text or "").lower()
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)", low)
+    if not m:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*by\s*(\d+(?:\.\d+)?)", low)
     if m:
         return float(m.group(1)), float(m.group(2))
     return None, None
 
 
-def _parse_qty(text: str) -> int | None:
-    m = re.search(r"(\d+)\s*(unit|units|pcs|pc|piece|pieces|qty|quantity|copy|copies)?\b", text.lower())
+def _parse_qty(text: str):
+    low = (text or "").lower()
+    m = re.search(r"(\d+)\s*(unit|units|pcs|pc|piece|pieces|qty|quantity|copy|copies)\b", low)
     if m:
         return max(1, int(m.group(1)))
-    if text.strip().isdigit():
+    if re.fullmatch(r"\d+", (text or "").strip()):
         return max(1, int(text.strip()))
     return None
 
 
-def _calc_total(service: Service, width: float | None, height: float | None, qty: int) -> float:
+def _calc_total(service, width, height, qty, size_text: str = "") -> float:
     base = float(service.base_price or 0)
-    qty = max(1, qty)
-    if _is_sqft_unit(service.unit) and width and height:
-        return round(width * height * base * qty, 2)
-    return round(base * qty, 2)
+    qty = max(1, int(qty or 1))
+    mode = _unit_mode(service.unit)
+    if mode == "piece" or not width or not height:
+        return round(base * qty, 2)
+    if mode == "sqft" and _size_in_inches(size_text or ""):
+        return round((width * height * qty * base) / 144.0, 2)
+    return round(width * height * base * qty, 2)
+
+
+def _is_clarifying_question(text: str) -> bool:
+    low = (text or "").lower().strip()
+    if not low:
+        return False
+    if "?" in low:
+        return True
+    triggers = (
+        "what do you mean", "wetin you mean", "what is unit", "what's unit", "whats unit",
+        "mean by unit", "explain", "how much", "i don't understand", "i dont understand",
+        "i no understand", "abeg explain", "clarify", "what does", "wetin be",
+    )
+    return any(x in low for x in triggers)
+
+
+def _is_sqft_unit(unit: str | None) -> bool:
+    return _unit_mode(unit) in ("sqft", "sqm")
 
 
 async def _services(db: AsyncSession, company: Company) -> list:
@@ -296,6 +334,10 @@ async def handle_inbound(
     ctx = _ctx(conv)
     low = text.lower()
     state = conv.state or "await_lang"
+    company_lang = (getattr(company, "bot_language", None) or "both").lower()
+    if company_lang in ("en", "pidgin") and not ctx.get("lang"):
+        ctx["lang"] = company_lang
+        _save_ctx(conv, ctx)
 
     # --- Coming for pickup notifications ---
     if any(p in low for p in ("on my way", "i dey come", "coming for", "coming to pick", "i'm coming", "im coming")):
@@ -372,6 +414,31 @@ async def handle_inbound(
         await send_text(link.phone_number_id, link.access_token, from_wa, reply)
         return
 
+    # --- Clarifying questions: answer without advancing the order ---
+    if text and _is_clarifying_question(text) and state not in ("await_lang",):
+        extra = ""
+        if "unit" in text.lower():
+            extra = (
+                "Explain that unit means how many copies of the same print job. "
+                "Example: 5 units = 5 of the same size. Do not move to payment."
+            )
+        grok = await _grok_staff(company, ctx, text, services, extra=extra)
+        if not grok:
+            if "unit" in text.lower():
+                grok = _t(
+                    ctx,
+                    "Unit means how many of the *same* item you want. "
+                    "Example: one banner size, ordered 5 times = *5 units*.",
+                    "Unit na how many of that *same* thing you want. "
+                    "Example: same banner size, you need 5 = *5 units*.",
+                )
+            else:
+                grok = _t(ctx, "Happy to explain — what should I clarify?", "Which part you want make I explain?")
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=grok))
+        await db.commit()
+        await send_text(link.phone_number_id, link.access_token, from_wa, grok)
+        return
+
     # ========== STATE MACHINE ==========
     outbound = None
 
@@ -392,6 +459,14 @@ async def handle_inbound(
             await _send_services(link, company, services, from_wa, ctx)
             return
         if state == "await_lang" or not ctx.get("lang"):
+            company_lang = (getattr(company, "bot_language", None) or "both").lower()
+            if company_lang in ("en", "pidgin"):
+                ctx["lang"] = company_lang
+                _save_ctx(conv, ctx)
+                conv.state = "await_intent"
+                await db.commit()
+                await _send_services(link, company, services, from_wa, ctx)
+                return
             conv.state = "await_lang"
             greet = _greet(company)
             db.add(Message(conversation_id=conv.id, direction="outbound", body=greet))
@@ -466,7 +541,7 @@ async def handle_inbound(
             if w and h:
                 ctx["width"], ctx["height"] = w, h
             ctx["qty"] = qty
-            total = _calc_total(chosen, ctx.get("width"), ctx.get("height"), qty)
+            total = _calc_total(chosen, ctx.get("width"), ctx.get("height"), qty, text)
             if w and h and _is_sqft_unit(chosen.unit):
                 ctx["total"] = total
                 ctx["subtotal"] = total
@@ -534,7 +609,7 @@ async def handle_inbound(
                 "Abeg send size like *3x5* (width x height for feet), and how many units.",
             )
         elif svc:
-            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1))
+            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text)
             ctx["total"] = total
             ctx["subtotal"] = total
             _save_ctx(conv, ctx)
@@ -595,8 +670,23 @@ async def handle_inbound(
         )
 
     elif state == "await_datetime" and text:
+        # Ignore non-schedule messages (questions already handled above)
+        if not any(x in low for x in (
+            "am", "pm", "monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday", "tomorrow", "today", "next", "morning", "evening",
+            "afternoon", ":", "/", "jan", "feb", "mar", "apr", "may", "jun",
+            "jul", "aug", "sep", "oct", "nov", "dec", "week",
+        )) and not re.search(r"\d", text):
+            outbound = _t(
+                ctx,
+                "Please send the *date and time* for pickup/delivery. Example: *Tomorrow 2pm*",
+                "Abeg send *day and time*. Example: *Tomorrow 2pm*",
+            )
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            return
         ctx["datetime"] = text
-        # split roughly
         parts = re.split(r"[,\-]| at ", text, maxsplit=1)
         ctx["date"] = parts[0].strip() if parts else text
         ctx["time"] = parts[1].strip() if len(parts) > 1 else ""

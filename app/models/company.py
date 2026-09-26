@@ -20,6 +20,7 @@ class Company(Base):
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     greeting_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     bot_language: Mapped[str] = mapped_column(String(20), default="both")
+    bot_flags: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_fee_base: Mapped[float] = mapped_column(Float, default=0)
     platform_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
