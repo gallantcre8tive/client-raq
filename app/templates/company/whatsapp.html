@@ -5,7 +5,7 @@
 {% block content %}
 <p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
   Connect Meta WhatsApp Cloud API for <strong class="text-[var(--text-primary)]">{{ company_name }}</strong> only.
-  Credentials stay private to this company.
+  Credentials stay private to this company. Your login email is only under <a href="/company/settings" class="text-[var(--primary)] hover:underline">Settings</a> — not here.
 </p>
 
 {% if saved %}
@@ -17,7 +17,11 @@
 <div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-suspended-bg);color:var(--status-suspended)">{{ error }}</div>
 {% endif %}
 
-<form method="post" action="/company/whatsapp" class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+<form method="post" action="/company/whatsapp" class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6" autocomplete="off">
+  <!-- Decoy fields: stop Chrome from stuffing email/password into Meta credentials -->
+  <input type="text" name="prevent_autofill_user" value="" style="position:absolute;left:-9999px;opacity:0;height:0;width:0" tabindex="-1" aria-hidden="true" autocomplete="username">
+  <input type="password" name="prevent_autofill_pass" value="" style="position:absolute;left:-9999px;opacity:0;height:0;width:0" tabindex="-1" aria-hidden="true" autocomplete="current-password">
+
   <div class="card p-4 sm:p-6 space-y-4">
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <h3 class="font-semibold text-base m-0">Connection</h3>
@@ -30,35 +34,42 @@
 
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Phone Number ID *</label>
-      <input type="text" name="phone_number_id" required inputmode="numeric" pattern="[0-9]+" autocomplete="off"
+      <input type="text" name="phone_number_id" required inputmode="numeric" pattern="[0-9]+"
+        autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"
         class="input-field" placeholder="e.g. 123456789012345"
         value="{{ wa.phone_number_id if wa else '' }}">
       <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">Meta → WhatsApp → API Setup → Phone number ID (digits only).</p>
     </div>
 
     <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">WhatsApp Business Account ID</label>
-      <input type="text" name="waba_id" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
-        class="input-field" placeholder="e.g. 987654321098765"
-        value="{{ wa.waba_id if wa and wa.waba_id else '' }}">
-      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">WABA ID — digits only. Do not put an email address here.</p>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">WhatsApp Business Account ID (digits only)</label>
+      <input type="text" name="waba_id" inputmode="numeric" pattern="[0-9]*"
+        autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+        class="input-field" placeholder="e.g. 987654321098765 — not an email"
+        value="{% if wa and wa.waba_id and wa.waba_id.isdigit() %}{{ wa.waba_id }}{% endif %}">
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">
+        This is <strong>not</strong> your company email. Only the numeric WABA ID from Meta. Email belongs in Settings.
+      </p>
     </div>
 
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Access token {% if not wa or not wa.access_token %}*{% endif %}</label>
-      <input type="password" name="access_token" autocomplete="off" class="input-field"
-        placeholder="{% if wa and wa.access_token %}Leave blank to keep current token{% else %}EAAG… permanent System User token{% endif %}"
+      <input type="password" name="access_token"
+        autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-form-type="other"
+        class="input-field"
+        placeholder="{% if wa and wa.access_token %}Leave blank to keep current token{% else %}EAAG… System User permanent token{% endif %}"
         {% if not wa or not wa.access_token %}required{% endif %}>
       <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">
-        Use a <strong>System User</strong> permanent token (not the 24-hour test token). Leave blank when updating other fields to keep the saved token.
+        Meta System User token only — <strong>not</strong> your Client-RaQ login password. Leave blank to keep a saved token.
       </p>
     </div>
 
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Display number</label>
-      <input type="text" name="display_number" class="input-field" placeholder="+2349012345678"
+      <input type="text" name="display_number" autocomplete="off" data-lpignore="true"
+        class="input-field" placeholder="+2349012345678"
         value="{{ wa.display_number if wa else '' }}">
-      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">Optional. The number customers see / you test with.</p>
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5 leading-snug">Optional. The WhatsApp number customers message.</p>
     </div>
 
     <button type="submit" class="btn-primary w-full sm:w-auto min-h-[44px]">Save connection</button>
