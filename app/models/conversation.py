@@ -64,6 +64,7 @@ class Order(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
     customer_wa_id: Mapped[str] = mapped_column(String(50), index=True)
+    customer_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     service_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     total: Mapped[float] = mapped_column(Float, default=0)

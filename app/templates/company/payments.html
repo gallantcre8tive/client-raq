@@ -3,37 +3,83 @@
 {% block page_title %}Bank Accounts{% endblock %}
 {% set active = 'payments' %}
 {% block content %}
-<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6" x-data="{ open: false }">
-  <p class="text-sm text-[var(--text-secondary)]">Accounts the bot sends to customers when they are ready to pay.</p>
-  <button type="button" class="btn-primary h-9 text-xs" @click="open=true">Add bank account</button>
-  <div x-show="open" x-cloak class="modal-backdrop" @click.self="open=false">
-    <div class="modal-panel p-6" @click.stop>
-      <h3 class="text-lg font-semibold mb-4">Add bank account</h3>
+<div class="max-w-3xl mx-auto space-y-5" x-data="{ open: false, editId: null }">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <p class="text-sm text-[var(--text-secondary)] m-0 leading-relaxed">
+      These details are sent to customers when they are ready to pay. You can edit or delete any account.
+    </p>
+    <button type="button" class="btn-primary min-h-[44px] px-4 shrink-0" @click="open=true">Add bank account</button>
+  </div>
+  {% if request.query_params.get('saved') %}
+  <div class="p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Bank details updated.</div>
+  {% endif %}
+
+  <div class="card overflow-hidden">
+    {% if accounts|default([]) %}
+    <ul class="divide-y divide-[var(--border-subtle)] m-0 p-0 list-none">
+      {% for a in accounts %}
+      <li class="p-4 space-y-3" x-data="{ editing: false }">
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3" x-show="!editing">
+          <div class="min-w-0">
+            <div class="font-medium">{{ a.bank_name }}</div>
+            <div class="text-sm text-[var(--text-secondary)] mt-0.5">{{ a.account_name }}</div>
+            <div class="text-sm font-tabular mt-0.5">{{ a.account_number }}</div>
+            {% if a.instructions %}<div class="text-xs text-[var(--text-muted)] mt-1">{{ a.instructions }}</div>{% endif %}
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            {% if a.is_primary %}<span class="status-pill status-active">Primary</span>{% endif %}
+            <button type="button" class="btn-ghost min-h-[40px] text-sm px-3" @click="editing=true">Edit</button>
+            <form method="post" action="/company/payments/{{ a.id }}/delete" onsubmit="return confirm('Delete this bank account?')">
+              <button type="submit" class="btn-ghost min-h-[40px] text-sm px-3 text-[var(--status-suspended)]">Delete</button>
+            </form>
+          </div>
+        </div>
+        <form method="post" action="/company/payments/{{ a.id }}/update" class="space-y-3" x-show="editing" x-cloak>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-[var(--text-muted)] mb-1">Bank name</label>
+              <input name="bank_name" required class="input-field min-h-[40px]" value="{{ a.bank_name }}">
+            </div>
+            <div>
+              <label class="block text-xs text-[var(--text-muted)] mb-1">Account name</label>
+              <input name="account_name" required class="input-field min-h-[40px]" value="{{ a.account_name }}">
+            </div>
+            <div>
+              <label class="block text-xs text-[var(--text-muted)] mb-1">Account number</label>
+              <input name="account_number" required class="input-field min-h-[40px]" value="{{ a.account_number }}">
+            </div>
+            <div>
+              <label class="block text-xs text-[var(--text-muted)] mb-1">Instructions</label>
+              <input name="instructions" class="input-field min-h-[40px]" value="{{ a.instructions or '' }}">
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button type="submit" class="btn-primary min-h-[40px] px-4 text-sm">Save changes</button>
+            <button type="button" class="btn-ghost min-h-[40px] text-sm" @click="editing=false">Cancel</button>
+          </div>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="p-8 text-center text-sm text-[var(--text-muted)]">No bank accounts yet. Add one so the bot can request payment from customers.</p>
+    {% endif %}
+  </div>
+
+  <div x-show="open" x-cloak class="modal-backdrop" @click.self="open=false" @keydown.escape.window="open=false">
+    <div class="modal-panel p-5 sm:p-6 max-w-md w-[calc(100%-2rem)]" @click.stop>
+      <h3 class="text-lg font-semibold mb-4 m-0">Add bank account</h3>
       <form method="post" action="/company/payments/add" class="space-y-4">
-        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Bank name *</label><input name="bank_name" required class="input-field"></div>
-        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Account name *</label><input name="account_name" required class="input-field"></div>
-        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Account number *</label><input name="account_number" required class="input-field"></div>
-        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Instructions (optional)</label><textarea name="instructions" class="input-field" placeholder="e.g. Use order ID as narration"></textarea></div>
-        <div class="flex gap-3 justify-end"><button type="button" class="btn-ghost" @click="open=false">Cancel</button><button type="submit" class="btn-primary">Save</button></div>
+        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Bank name *</label><input name="bank_name" required class="input-field min-h-[44px]"></div>
+        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Account name *</label><input name="account_name" required class="input-field min-h-[44px]"></div>
+        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Account number *</label><input name="account_number" required class="input-field min-h-[44px]"></div>
+        <div><label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Instructions (optional)</label><textarea name="instructions" class="input-field" rows="2" placeholder="e.g. Use order ID as narration"></textarea></div>
+        <div class="flex gap-3 justify-end">
+          <button type="button" class="btn-ghost min-h-[44px]" @click="open=false">Cancel</button>
+          <button type="submit" class="btn-primary min-h-[44px]">Save</button>
+        </div>
       </form>
     </div>
   </div>
-</div>
-<div class="card p-6">
-  {% if accounts|default([]) %}
-  <ul class="space-y-4">
-    {% for a in accounts %}
-    <li class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 rounded-xl border border-[var(--border-subtle)]">
-      <div>
-        <div class="font-medium">{{ a.bank_name }}</div>
-        <div class="text-sm text-[var(--text-secondary)]">{{ a.account_name }} · {{ a.account_number }}</div>
-      </div>
-      {% if a.is_primary %}<span class="status-pill status-active">Primary</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="text-center text-sm text-[var(--text-muted)] py-8">No bank accounts yet. Add one so the bot can request payment from customers.</p>
-  {% endif %}
 </div>
 {% endblock %}

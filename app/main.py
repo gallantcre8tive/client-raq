@@ -447,25 +447,39 @@ async def company_dashboard(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
     company = await company_ctx(user, db)
-    oc = (await db.execute(select(func.count()).select_from(Order).where(Order.company_id == company.id))).scalar() or 0
-    pending = (await db.execute(select(func.count()).select_from(Order).where(
-        Order.company_id == company.id, Order.status == OrderStatus.PAYMENT_SUBMITTED
-    ))).scalar() or 0
-    chats = (await db.execute(select(func.count()).select_from(Conversation).where(
-        Conversation.company_id == company.id
-    ))).scalar() or 0
-    recent = (await db.execute(
-        select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc()).limit(10)
-    )).scalars().all()
-    recent_orders = [
-        {"id": o.id, "customer": o.customer_name or o.customer_wa_id, "service": o.service_name or "—",
-         "status": (o.status.value if hasattr(o.status, "value") else str(o.status)), "total": f"{o.currency} {o.total_amount:,.0f}"}
-        for o in recent
-    ]
+    if not company:
+        raise HTTPException(404)
+    oc = pending = chats = 0
+    recent_orders = []
+    try:
+        oc = (await db.execute(select(func.count()).select_from(Order).where(Order.company_id == company.id))).scalar() or 0
+        pending = (await db.execute(select(func.count()).select_from(Order).where(
+            Order.company_id == company.id, Order.status == OrderStatus.PAYMENT_SUBMITTED
+        ))).scalar() or 0
+        chats = (await db.execute(select(func.count()).select_from(Conversation).where(
+            Conversation.company_id == company.id
+        ))).scalar() or 0
+        recent = list((await db.execute(
+            select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc()).limit(10)
+        )).scalars().all())
+        for o in recent:
+            amt = getattr(o, "total", None)
+            if amt is None:
+                amt = getattr(o, "total_amount", 0) or 0
+            cur = getattr(o, "currency", None) or company.currency or "NGN"
+            cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
+            st = o.status.value if hasattr(o.status, "value") else str(o.status)
+            recent_orders.append({
+                "id": o.id, "customer": cust, "service": o.service_name or "—",
+                "status": st, "total": f"{cur} {float(amt):,.0f}",
+            })
+    except Exception as e:
+        print("dashboard query:", type(e).__name__, e)
     return render(request, "company/dashboard.html", {
-        "active": "dashboard", "company_name": company.name, "user_name": user.full_name,
+        "active": "dashboard", "company_name": getattr(company, "name", "Company"),
+        "user_name": user.full_name,
         "orders_count": oc, "pending_count": pending, "chats_count": chats,
-        "recent_orders": recent_orders, "platform_note": company.platform_note,
+        "recent_orders": recent_orders, "platform_note": getattr(company, "platform_note", None),
     })
 
 
@@ -716,15 +730,28 @@ async def company_orders(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
     company = await company_ctx(user, db)
-    orders = (await db.execute(
-        select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc())
-    )).scalars().all()
-    rows = [
-        {"id": o.id, "customer": o.customer_name or o.customer_wa_id, "service": o.service_name or "—",
-         "status": (o.status.value if hasattr(o.status, "value") else str(o.status)).replace("_", " "), "status_class": "pending" if "await" in (o.status.value if hasattr(o.status, "value") else str(o.status)) or "payment" in (o.status.value if hasattr(o.status, "value") else str(o.status)) else "active",
-         "total": f"{o.currency} {o.total_amount:,.0f}"}
-        for o in orders
-    ]
+    rows = []
+    try:
+        orders = list((await db.execute(
+            select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc())
+        )).scalars().all())
+        for o in orders:
+            amt = getattr(o, "total", None)
+            if amt is None:
+                amt = getattr(o, "total_amount", 0) or 0
+            cur = getattr(o, "currency", None) or company.currency or "NGN"
+            st = o.status.value if hasattr(o.status, "value") else str(o.status)
+            sl = str(st).lower()
+            rows.append({
+                "id": o.id,
+                "customer": getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—",
+                "service": o.service_name or "—",
+                "status": sl.replace("_", " "),
+                "status_class": "pending" if ("await" in sl or "payment" in sl) else "active",
+                "total": f"{cur} {float(amt):,.0f}",
+            })
+    except Exception as e:
+        print("orders query:", type(e).__name__, e)
     return render(request, "company/orders.html", {
         "active": "orders", "company_name": company.name, "user_name": user.full_name, "orders": rows,
     })
@@ -740,9 +767,9 @@ async def company_order_detail(
         raise HTTPException(404)
     return render(request, "company/order_detail.html", {
         "active": "orders", "company_name": company.name, "user_name": user.full_name,
-        "order_id": order.id, "customer": order.customer_name or order.customer_wa_id,
-        "service": order.service_name, "total": f"{order.currency} {order.total_amount:,.0f}",
-        "status": order.status.value, "payment_proof": order.payment_proof_url,
+        "order_id": order.id, "customer": (getattr(order, "customer_name", None) or getattr(order, "customer_wa_id", None) or "—"),
+        "service": order.service_name, "total": f"{getattr(order, 'currency', None) or company.currency} {float(getattr(order, 'total', None) if getattr(order, 'total', None) is not None else getattr(order, 'total_amount', 0) or 0):,.0f}",
+        "status": order.status.value, "payment_proof": getattr(order, "payment_proof", None) or getattr(order, "payment_proof_url", None),
     })
 
 
@@ -791,8 +818,36 @@ async def company_payments_add(
         account_number=account_number, instructions=instructions, is_primary=existing is None,
     ))
     await db.commit()
-    return RedirectResponse("/company/payments", status_code=303)
+    return RedirectResponse("/company/payments?saved=1", status_code=303)
 
+@app.post("/company/payments/{pay_id}/update")
+async def company_payments_update(
+    pay_id: int,
+    bank_name: str = Form(...), account_name: str = Form(...), account_number: str = Form(...),
+    instructions: Optional[str] = Form(None),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    row = await db.get(PaymentDetail, pay_id)
+    if not row or row.company_id != user.company_id:
+        raise HTTPException(404)
+    row.bank_name = bank_name.strip()
+    row.account_name = account_name.strip()
+    row.account_number = account_number.strip()
+    row.instructions = instructions
+    await db.commit()
+    return RedirectResponse("/company/payments?saved=1", status_code=303)
+
+
+@app.post("/company/payments/{pay_id}/delete")
+async def company_payments_delete(
+    pay_id: int,
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    row = await db.get(PaymentDetail, pay_id)
+    if row and row.company_id == user.company_id:
+        await db.delete(row)
+        await db.commit()
+    return RedirectResponse("/company/payments?saved=1", status_code=303)
 
 
 @app.get("/company/bot", response_class=HTMLResponse)
