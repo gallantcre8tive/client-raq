@@ -17,7 +17,7 @@
         {% for t in threads %}
         <a href="/company/messages?c={{ t.id }}"
            class="block px-4 py-3 border-b border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] no-underline text-[var(--text-primary)] {% if selected_id==t.id %}bg-[var(--surface-subtle)]{% endif %}">
-          <div class="font-medium text-sm truncate flex items-center gap-2">{{ t.name }}{% if t.needs_human %}<span class="status-pill status-suspended text-[10px]">Needs you</span>{% endif %}</div>
+          <div class="font-medium text-sm truncate flex items-center gap-2">{{ t.name }}{% if t.needs_human %}<span class="status-pill text-[10px]" style="background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--primary)">Needs you</span>{% endif %}</div>
           <div class="text-xs text-[var(--text-muted)] truncate mt-0.5">{{ t.preview }}</div>
         </a>
         {% endfor %}
@@ -29,7 +29,7 @@
   <div class="card lg:col-span-2 flex flex-col max-h-[70vh]">
     <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0 flex items-center justify-between gap-2">
       <span>{% if selected %}{{ selected.customer_name or selected.customer_wa_id }}{% else %}Thread{% endif %}</span>
-      {% if selected and selected.is_live_takeover %}
+      {% if selected and (selected.is_live_takeover or selected.needs_human) %}
       <form method="post" action="/company/messages/release" class="m-0">
         <input type="hidden" name="conversation_id" value="{{ selected.id }}">
         <button type="submit" class="text-xs text-[var(--primary)] hover:underline">Return to bot</button>

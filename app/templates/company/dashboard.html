@@ -4,6 +4,10 @@
 {% set active = 'dashboard' %}
 {% block content %}
 
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+  <p class="text-sm text-[var(--text-secondary)] m-0">Confirmed payment revenue (updates when you mark orders paid).</p>
+  <a href="/company/revenue/pdf" class="btn-ghost min-h-[40px] text-sm px-4 inline-flex items-center justify-center">Download statement</a>
+</div>
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Revenue today</div>

@@ -62,7 +62,7 @@
       </h1>
 
       <div class="flex flex-row flex-nowrap items-center gap-1.5 shrink-0 ml-auto">
-        <div class="relative" x-data="{ notifOpen: false }" @click.outside="notifOpen = false">
+        <div class="relative" @click.outside="notifOpen = false">
           <button
             type="button"
             @click="notifOpen = !notifOpen"
@@ -79,10 +79,13 @@
                 <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications</div>
               </template>
               <template x-for="n in (notifications || [])" :key="n.id">
-                <div class="px-4 py-3 border-b border-[var(--border-subtle)] text-sm">
+                <a :href="n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard'"
+                   class="block px-4 py-3 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]"
+                   @click="markRead(n.id)">
                   <div class="font-medium" x-text="n.title"></div>
-                  <div class="text-xs text-[var(--text-muted)]" x-text="n.time"></div>
-                </div>
+                  <div class="text-xs text-[var(--text-secondary)] mt-0.5 line-clamp-2" x-text="n.body || ''"></div>
+                  <div class="text-[10px] text-[var(--text-muted)] mt-1" x-text="n.time || ''"></div>
+                </a>
               </template>
             </div>
           </div>
@@ -124,3 +127,44 @@
 </script>
 
 {% endblock %}
+
+<script>
+(function(){
+  let lastHighId = 0;
+  async function pollNotify(){
+    try {
+      const r = await fetch('/api/company/notifications');
+      if(!r.ok) return;
+      const data = await r.json();
+      const list = Array.isArray(data) ? data : (data.items || []);
+      if (window.Alpine && document.querySelector('[x-data]')) {
+        /* alpine bound via x-data on page */
+      }
+      const high = list.find(n => n.priority === 'high' && n.id > lastHighId);
+      if (high) {
+        lastHighId = high.id;
+        try {
+          if (window.crqPlayNotify) window.crqPlayNotify();
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (Ctx) {
+            const ctx = new Ctx();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'square'; o.frequency.value = 880;
+            g.gain.value = 0.35;
+            o.connect(g); g.connect(ctx.destination);
+            o.start();
+            setTimeout(function(){ o.frequency.value = 1175; }, 120);
+            setTimeout(function(){ o.stop(); ctx.close(); }, 400);
+          }
+        } catch(e) {}
+        if (window.__crqSetNotifications) window.__crqSetNotifications(list);
+      }
+      // update alpine notifications if present on window
+      if (window.__crqSetNotifications) window.__crqSetNotifications(list);
+    } catch(e) {}
+  }
+  setInterval(pollNotify, 8000);
+  document.addEventListener('DOMContentLoaded', pollNotify);
+})();
+</script>

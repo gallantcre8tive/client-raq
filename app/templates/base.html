@@ -15,6 +15,10 @@
     });
     document.documentElement.classList.toggle('dark', dark);
     document.documentElement.classList.toggle('light', !dark);
+    window.__crqSetNotifications = (list) => { notifications = list.map(n => ({...n, time: n.created_at || n.time || ''})); };
+    window.markRead = async (id) => {
+      try { await fetch('/api/company/notifications/' + id + '/read', {method:'POST'}); notifications = notifications.filter(n => n.id !== id); } catch(e) {}
+    };
   "
   :class="{ 'dark': dark, 'light': !dark }">
 <head>

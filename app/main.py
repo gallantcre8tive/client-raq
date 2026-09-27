@@ -71,7 +71,7 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
 
         async def sum_since(since):
             try:
-                q = select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.created_at >= since)
+                q = select(func.coalesce(func.sum(Order.total), 0)).where(Order.created_at >= since)
                 if company_id is not None:
                     q = q.where(Order.company_id == company_id)
                 try:
@@ -329,14 +329,35 @@ async def platform_messages(
 
 @app.post("/platform/messages")
 async def platform_messages_send(
-    company_id: int = Form(...), message: str = Form(...),
+    company_id: str = Form(...), message: str = Form(...),
     user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    c = await db.get(Company, company_id)
-    if c:
-        c.platform_note = message.strip()
-        await db.commit()
-    return RedirectResponse("/platform/messages", status_code=303)
+    """Send professional note to one company or all. Appears on dashboard + notification bell."""
+    text = (message or "").strip()
+    if not text:
+        return RedirectResponse("/platform/messages", status_code=303)
+    targets = []
+    if str(company_id) == "all":
+        targets = list((await db.execute(select(Company))).scalars().all())
+    else:
+        try:
+            cid = int(company_id)
+        except ValueError:
+            return RedirectResponse("/platform/messages", status_code=303)
+        c = await db.get(Company, cid)
+        if c:
+            targets = [c]
+    for c in targets:
+        c.platform_note = text
+        db.add(AdminNotification(
+            company_id=c.id,
+            conversation_id=None,
+            title="Message from Client-RaQ Platform",
+            body=text[:2000],
+            priority="high",
+        ))
+    await db.commit()
+    return RedirectResponse("/platform/messages?sent=1", status_code=303)
 
 
 @app.get("/platform/infrastructure", response_class=HTMLResponse)
@@ -475,11 +496,22 @@ async def company_dashboard(
             })
     except Exception as e:
         print("dashboard query:", type(e).__name__, e)
+    rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
+    try:
+        rev = await revenue_stats(db, company.id)
+    except Exception as e:
+        print("dashboard revenue:", e)
     return render(request, "company/dashboard.html", {
-        "active": "dashboard", "company_name": getattr(company, "name", "Company"),
+        "active": "dashboard",
+        "company_name": getattr(company, "name", "Company"),
         "user_name": user.full_name,
+        "currency": getattr(company, "currency", None) or "NGN",
         "orders_count": oc, "pending_count": pending, "chats_count": chats,
-        "recent_orders": recent_orders, "platform_note": getattr(company, "platform_note", None),
+        "recent_orders": recent_orders,
+        "platform_note": getattr(company, "platform_note", None),
+        "revenue_daily": rev.get("daily", 0),
+        "revenue_weekly": rev.get("weekly", 0),
+        "revenue_monthly": rev.get("monthly", 0),
     })
 
 
@@ -941,6 +973,8 @@ async def company_messages_release(
     conv = await db.get(Conversation, conversation_id)
     if conv and conv.company_id == user.company_id:
         conv.is_live_takeover = False
+        conv.needs_human = False
+        conv.handoff_reason = None
         await db.commit()
     return RedirectResponse(f"/company/messages?c={conversation_id}", status_code=303)
 
@@ -1098,21 +1132,34 @@ async def company_wa(request: Request, user: User = Depends(require_company), db
 async def company_settings(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
     company = await company_ctx(user, db)
     return render(request, "company/settings.html", {
-        "active": "settings", "company_name": company.name, "user_name": user.full_name,
-        "user_email": user.email, "success": None, "error": None,
+        "active": "settings",
+        "company_name": company.name,
+        "user_name": user.full_name,
+        "user_email": user.email,
+        "success": None,
+        "error": None,
     })
 
 
 @app.post("/company/settings")
 async def company_settings_save(
-    request: Request, full_name: str = Form(...), email: str = Form(...),
-    current_password: Optional[str] = Form(None), new_password: Optional[str] = Form(None),
+    request: Request,
+    full_name: str = Form(...),
+    email: str = Form(...),
+    company_display_name: Optional[str] = Form(None),
+    current_password: Optional[str] = Form(None),
+    new_password: Optional[str] = Form(None),
     confirm_password: Optional[str] = Form(None),
-    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
 ):
     company = await company_ctx(user, db)
     user.full_name = full_name.strip()
     user.email = email.strip().lower()
+    # Brand name in sidebar + bot context
+    new_brand = (company_display_name or "").strip()
+    if new_brand and new_brand != company.name:
+        company.name = new_brand[:150]
     err = None
     if new_password:
         if new_password != (confirm_password or ""):
@@ -1123,10 +1170,13 @@ async def company_settings_save(
             user.hashed_password = hash_password(new_password)
     if not err:
         await db.commit()
+        await db.refresh(company)
     return render(request, "company/settings.html", {
-        "active": "settings", "company_name": company.name, "user_name": user.full_name,
+        "active": "settings",
+        "company_name": company.name,
+        "user_name": user.full_name,
         "user_email": user.email,
-        "success": None if err else "Profile updated. Platform Admin can see name and email changes.",
+        "success": None if err else "Saved. Sidebar and bot now use your company display name.",
         "error": err,
     })
 
@@ -1271,6 +1321,91 @@ async def company_notification_read(
         n.is_read = True
         await db.commit()
     return {"ok": True}
+
+
+
+@app.get("/company/revenue/pdf")
+async def company_revenue_pdf(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    """Download statement-style PDF of confirmed revenue (today / week / month / detail)."""
+    from fastapi.responses import Response
+    from datetime import datetime, timezone, timedelta
+    company = await company_ctx(user, db)
+    rev = await revenue_stats(db, company.id)
+    paid_statuses = [
+        OrderStatus.PAYMENT_CONFIRMED, OrderStatus.IN_PRODUCTION,
+        OrderStatus.READY, OrderStatus.COMPLETED,
+    ]
+    orders = list((await db.execute(
+        select(Order).where(
+            Order.company_id == company.id,
+            Order.status.in_(paid_statuses),
+        ).order_by(Order.created_at.desc()).limit(200)
+    )).scalars().all())
+    cur = company.currency or "NGN"
+    lines = [
+        f"CLIENT-RaQ REVENUE STATEMENT",
+        f"Company: {company.name}",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        f"",
+        f"SUMMARY",
+        f"  Today:   {cur} {rev['daily']:,.2f}",
+        f"  Week:    {cur} {rev['weekly']:,.2f}",
+        f"  Month:   {cur} {rev['monthly']:,.2f}",
+        f"",
+        f"CONFIRMED ORDERS (payment confirmed and later)",
+        f"{'ID':>6}  {'Date':12}  {'Customer':22}  {'Service':24}  {'Amount':>14}  Status",
+        "-" * 90,
+    ]
+    for o in orders:
+        amt = float(getattr(o, "total", 0) or 0)
+        dt = o.created_at.strftime("%Y-%m-%d") if o.created_at else "—"
+        cust = (getattr(o, "customer_name", None) or o.customer_wa_id or "—")[:20]
+        svc = (o.service_name or "—")[:22]
+        st = o.status.value if hasattr(o.status, "value") else str(o.status)
+        lines.append(f"{o.id:6d}  {dt:12}  {cust:22}  {svc:24}  {cur} {amt:>10,.2f}  {st}")
+    if not orders:
+        lines.append("(No confirmed paid orders yet)")
+    lines.append("")
+    lines.append("This statement lists amounts confirmed by your team (payment_confirmed and later statuses).")
+    body = "\n".join(lines)
+    # Simple text PDF-compatible download (true PDF needs reportlab; text is reliable statement)
+    # Prefer application/pdf with minimal PDF if possible
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.units import mm
+        import io
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=A4)
+        w, h = A4
+        y = h - 20 * mm
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(20 * mm, y, "Client-RaQ Revenue Statement")
+        y -= 8 * mm
+        c.setFont("Helvetica", 10)
+        for line in lines[1:]:
+            if y < 15 * mm:
+                c.showPage()
+                c.setFont("Helvetica", 10)
+                y = h - 20 * mm
+            c.drawString(15 * mm, y, line[:110])
+            y -= 5 * mm
+        c.save()
+        data = buf.getvalue()
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="revenue-{company.slug or company.id}.pdf"'},
+        )
+    except Exception:
+        return Response(
+            content=body.encode("utf-8"),
+            media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="revenue-{company.id}.txt"'},
+        )
+
 
 
 @app.get("/health")

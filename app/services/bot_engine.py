@@ -450,7 +450,7 @@ async def handle_inbound(
     if text and not interactive_id and state not in structured_states - {"await_details", "open", "await_intent", "await_service", "order_placed", "await_enquiry"}:
         # prefer AI for exploratory / natural chat states
         pass
-    free_ai_states = {"await_intent", "await_service", "open", "order_placed", "await_enquiry", "await_details", None, ""}
+    free_ai_states = {"await_intent", "await_service", "open", "order_placed", "await_enquiry", "await_details", "completed", "done", None, ""}
     if text and not interactive_id and (state in free_ai_states or state not in structured_states):
         try:
             from app.services.ai_orchestrator import run_ai_turn

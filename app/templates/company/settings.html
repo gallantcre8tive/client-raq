@@ -16,9 +16,15 @@
 
 <form method="post" action="/company/settings" class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
   <div class="card p-4 sm:p-6 space-y-4">
-    <h3 class="font-semibold text-base m-0">Profile</h3>
+    <h3 class="font-semibold text-base m-0">Company brand</h3>
     <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Full name</label>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Company display name</label>
+      <input type="text" name="company_display_name" required class="input-field" value="{{ company_name|default('') }}" autocomplete="organization">
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5">Shows in the sidebar, dashboard, and bot replies to customers.</p>
+    </div>
+    <h3 class="font-semibold text-base m-0 pt-2">Your login profile</h3>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Your full name</label>
       <input type="text" name="full_name" required class="input-field" value="{{ user_name|default('') }}" autocomplete="name">
     </div>
     <div>
