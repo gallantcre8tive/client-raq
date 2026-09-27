@@ -11,15 +11,15 @@
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Revenue today</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_daily|default(0)) }}</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_daily|default(0)|int }}</div>
   </div>
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This week</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_weekly|default(0)) }}</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_weekly|default(0)|int }}</div>
   </div>
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This month</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ '%.0f'|format(revenue_monthly|default(0)) }}</div>
+    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_monthly|default(0)|int }}</div>
   </div>
 </div>
 

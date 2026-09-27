@@ -3,6 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,7 +33,11 @@ templates = Jinja2Templates(directory=str(BASE / "templates"))
 def render(request: Request, name: str, context: dict | None = None, status_code: int = 200):
     ctx = dict(context or {})
     ctx["request"] = request
-    return templates.TemplateResponse(request=request, name=name, context=ctx, status_code=status_code)
+    try:
+        return templates.TemplateResponse(request=request, name=name, context=ctx, status_code=status_code)
+    except TypeError:
+        # Older Starlette/Jinja2 API
+        return templates.TemplateResponse(name, ctx, status_code=status_code)
 
 
 def set_session(response: RedirectResponse, user_id: int) -> RedirectResponse:
@@ -59,7 +64,6 @@ async def startup():
 
 # ---------- Public ----------
 
-from datetime import datetime, timedelta, timezone
 
 async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict:
     zero = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
@@ -71,19 +75,26 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
 
         async def sum_since(since):
             try:
-                q = select(func.coalesce(func.sum(Order.total), 0)).where(Order.created_at >= since)
-                if company_id is not None:
-                    q = q.where(Order.company_id == company_id)
+                from sqlalchemy import text as sa_text
+                # Prefer ORM total; fall back if column missing on older DBs
                 try:
+                    q = select(func.coalesce(func.sum(Order.total), 0)).where(Order.created_at >= since)
+                    if company_id is not None:
+                        q = q.where(Order.company_id == company_id)
                     q = q.where(Order.status.in_([
                         OrderStatus.PAYMENT_CONFIRMED,
                         OrderStatus.IN_PRODUCTION,
                         OrderStatus.READY,
                         OrderStatus.COMPLETED,
                     ]))
-                except Exception:
-                    pass
-                return float((await db.execute(q)).scalar() or 0)
+                    return float((await db.execute(q)).scalar() or 0)
+                except Exception as inner:
+                    print("revenue orm sum:", inner)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    return 0.0
             except Exception as e:
                 print("revenue sum_since:", e)
                 try:
@@ -459,59 +470,152 @@ async def company_logout():
 
 # ---------- Company pages ----------
 async def company_ctx(user: User, db: AsyncSession):
-    company = await db.get(Company, user.company_id)
-    return company
+    try:
+        company = await db.get(Company, user.company_id)
+        return company
+    except Exception as e:
+        print("company_ctx:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # Last resort: load by id with only core columns via text
+        try:
+            from sqlalchemy import text
+            row = (await db.execute(text(
+                "SELECT id, name, slug, currency, platform_note, status FROM companies WHERE id = :id"
+            ), {"id": user.company_id})).mappings().first()
+            if not row:
+                return None
+            c = Company()
+            c.id = row["id"]
+            c.name = row["name"]
+            c.slug = row.get("slug")
+            c.currency = row.get("currency") or "NGN"
+            c.platform_note = row.get("platform_note")
+            c.status = row.get("status") or "active"
+            return c
+        except Exception as e2:
+            print("company_ctx fallback:", e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return None
 
 
 @app.get("/company/dashboard", response_class=HTMLResponse)
 async def company_dashboard(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    company = await company_ctx(user, db)
+    """Never 500 — empty zeros if DB columns/queries lag behind code."""
+    company = None
+    try:
+        company = await company_ctx(user, db)
+    except Exception as e:
+        print("dashboard company_ctx:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     if not company:
-        raise HTTPException(404)
+        # minimal fallback page context
+        return render(request, "company/dashboard.html", {
+            "active": "dashboard",
+            "company_name": "Company",
+            "user_name": getattr(user, "full_name", None) or "Admin",
+            "currency": "NGN",
+            "orders_count": 0, "pending_count": 0, "chats_count": 0,
+            "recent_orders": [], "platform_note": None,
+            "revenue_daily": 0, "revenue_weekly": 0, "revenue_monthly": 0,
+        })
+
     oc = pending = chats = 0
     recent_orders = []
     try:
-        oc = (await db.execute(select(func.count()).select_from(Order).where(Order.company_id == company.id))).scalar() or 0
-        pending = (await db.execute(select(func.count()).select_from(Order).where(
-            Order.company_id == company.id, Order.status == OrderStatus.PAYMENT_SUBMITTED
-        ))).scalar() or 0
-        chats = (await db.execute(select(func.count()).select_from(Conversation).where(
-            Conversation.company_id == company.id
-        ))).scalar() or 0
+        oc = (await db.execute(
+            select(func.count()).select_from(Order).where(Order.company_id == company.id)
+        )).scalar() or 0
+    except Exception as e:
+        print("dashboard oc:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        pending = (await db.execute(
+            select(func.count()).select_from(Order).where(
+                Order.company_id == company.id,
+                Order.status == OrderStatus.PAYMENT_SUBMITTED,
+            )
+        )).scalar() or 0
+    except Exception as e:
+        print("dashboard pending:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        chats = (await db.execute(
+            select(func.count()).select_from(Conversation).where(Conversation.company_id == company.id)
+        )).scalar() or 0
+    except Exception as e:
+        print("dashboard chats:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
         recent = list((await db.execute(
             select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc()).limit(10)
         )).scalars().all())
         for o in recent:
-            amt = getattr(o, "total", None)
-            if amt is None:
-                amt = getattr(o, "total_amount", 0) or 0
-            cur = getattr(o, "currency", None) or company.currency or "NGN"
-            cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
-            st = o.status.value if hasattr(o.status, "value") else str(o.status)
-            recent_orders.append({
-                "id": o.id, "customer": cust, "service": o.service_name or "—",
-                "status": st, "total": f"{cur} {float(amt):,.0f}",
-            })
+            try:
+                amt = getattr(o, "total", None)
+                if amt is None:
+                    amt = getattr(o, "total_amount", 0) or 0
+                cur = getattr(o, "currency", None) or getattr(company, "currency", None) or "NGN"
+                cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
+                st = o.status.value if hasattr(getattr(o, "status", None), "value") else str(getattr(o, "status", "") or "")
+                recent_orders.append({
+                    "id": o.id,
+                    "customer": cust,
+                    "service": getattr(o, "service_name", None) or "—",
+                    "status": st,
+                    "total": f"{cur} {float(amt or 0):,.0f}",
+                })
+            except Exception:
+                continue
     except Exception as e:
-        print("dashboard query:", type(e).__name__, e)
+        print("dashboard recent:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
     try:
         rev = await revenue_stats(db, company.id)
     except Exception as e:
         print("dashboard revenue:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     return render(request, "company/dashboard.html", {
         "active": "dashboard",
-        "company_name": getattr(company, "name", "Company"),
-        "user_name": user.full_name,
+        "company_name": getattr(company, "name", None) or "Company",
+        "user_name": getattr(user, "full_name", None) or "Admin",
         "currency": getattr(company, "currency", None) or "NGN",
-        "orders_count": oc, "pending_count": pending, "chats_count": chats,
+        "orders_count": int(oc or 0),
+        "pending_count": int(pending or 0),
+        "chats_count": int(chats or 0),
         "recent_orders": recent_orders,
         "platform_note": getattr(company, "platform_note", None),
-        "revenue_daily": rev.get("daily", 0),
-        "revenue_weekly": rev.get("weekly", 0),
-        "revenue_monthly": rev.get("monthly", 0),
+        "revenue_daily": float(rev.get("daily") or 0),
+        "revenue_weekly": float(rev.get("weekly") or 0),
+        "revenue_monthly": float(rev.get("monthly") or 0),
     })
 
 
