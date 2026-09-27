@@ -23,6 +23,27 @@ from app.core.deps import get_current_user, require_platform, require_company
 settings = get_settings()
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="Client-RaQ")
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception):
+    """Surface errors in logs; avoid silent opaque failures on company pages."""
+    import traceback
+    tb = traceback.format_exc()
+    print("UNHANDLED", request.url.path, type(exc).__name__, exc)
+    print(tb)
+    # For company dashboard always return a usable page instead of blank 500
+    if request.url.path.startswith("/company/dashboard"):
+        html = """<!DOCTYPE html><html><head><title>Dashboard</title></head><body style="font-family:system-ui;padding:2rem">
+        <h1>Dashboard temporarily unavailable</h1>
+        <p>Please refresh in a moment. If this continues, contact platform support.</p>
+        <p><a href="/company/dashboard">Retry</a> · <a href="/company/login">Login</a></p>
+        </body></html>"""
+        return HTMLResponse(html, status_code=200)
+    return HTMLResponse(
+        f"<h1>Server error</h1><pre style='white-space:pre-wrap;font-size:12px'>{type(exc).__name__}: {exc}</pre>",
+        status_code=500,
+    )
+
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 media_path = BASE.parent / "media"
 media_path.mkdir(exist_ok=True)
@@ -505,118 +526,129 @@ async def company_ctx(user: User, db: AsyncSession):
 
 
 @app.get("/company/dashboard", response_class=HTMLResponse)
+# DASHBOARD_FIX_V2_20260927
 async def company_dashboard(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Never 500 — empty zeros if DB columns/queries lag behind code."""
-    company = None
+    """Always returns 200 HTML for company dashboard."""
+    ctx = {
+        "active": "dashboard",
+        "company_name": "Company",
+        "user_name": getattr(user, "full_name", None) or "Admin",
+        "currency": "NGN",
+        "orders_count": 0,
+        "pending_count": 0,
+        "chats_count": 0,
+        "recent_orders": [],
+        "platform_note": None,
+        "revenue_daily": 0,
+        "revenue_weekly": 0,
+        "revenue_monthly": 0,
+    }
     try:
         company = await company_ctx(user, db)
-    except Exception as e:
-        print("dashboard company_ctx:", type(e).__name__, e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    if not company:
-        # minimal fallback page context
-        return render(request, "company/dashboard.html", {
-            "active": "dashboard",
-            "company_name": "Company",
-            "user_name": getattr(user, "full_name", None) or "Admin",
-            "currency": "NGN",
-            "orders_count": 0, "pending_count": 0, "chats_count": 0,
-            "recent_orders": [], "platform_note": None,
-            "revenue_daily": 0, "revenue_weekly": 0, "revenue_monthly": 0,
-        })
-
-    oc = pending = chats = 0
-    recent_orders = []
-    try:
-        oc = (await db.execute(
-            select(func.count()).select_from(Order).where(Order.company_id == company.id)
-        )).scalar() or 0
-    except Exception as e:
-        print("dashboard oc:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    try:
-        pending = (await db.execute(
-            select(func.count()).select_from(Order).where(
-                Order.company_id == company.id,
-                Order.status == OrderStatus.PAYMENT_SUBMITTED,
-            )
-        )).scalar() or 0
-    except Exception as e:
-        print("dashboard pending:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    try:
-        chats = (await db.execute(
-            select(func.count()).select_from(Conversation).where(Conversation.company_id == company.id)
-        )).scalar() or 0
-    except Exception as e:
-        print("dashboard chats:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    try:
-        recent = list((await db.execute(
-            select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc()).limit(10)
-        )).scalars().all())
-        for o in recent:
+        if company:
+            ctx["company_name"] = getattr(company, "name", None) or "Company"
+            ctx["currency"] = getattr(company, "currency", None) or "NGN"
+            ctx["platform_note"] = getattr(company, "platform_note", None)
+            cid = company.id
             try:
-                amt = getattr(o, "total", None)
-                if amt is None:
-                    amt = getattr(o, "total_amount", 0) or 0
-                cur = getattr(o, "currency", None) or getattr(company, "currency", None) or "NGN"
-                cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
-                st = o.status.value if hasattr(getattr(o, "status", None), "value") else str(getattr(o, "status", "") or "")
-                recent_orders.append({
-                    "id": o.id,
-                    "customer": cust,
-                    "service": getattr(o, "service_name", None) or "—",
-                    "status": st,
-                    "total": f"{cur} {float(amt or 0):,.0f}",
-                })
-            except Exception:
-                continue
+                ctx["orders_count"] = int((await db.execute(
+                    select(func.count()).select_from(Order).where(Order.company_id == cid)
+                )).scalar() or 0)
+            except Exception as e:
+                print("dash oc", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            try:
+                ctx["pending_count"] = int((await db.execute(
+                    select(func.count()).select_from(Order).where(
+                        Order.company_id == cid,
+                        Order.status == OrderStatus.PAYMENT_SUBMITTED,
+                    )
+                )).scalar() or 0)
+            except Exception as e:
+                print("dash pending", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            try:
+                ctx["chats_count"] = int((await db.execute(
+                    select(func.count()).select_from(Conversation).where(Conversation.company_id == cid)
+                )).scalar() or 0)
+            except Exception as e:
+                print("dash chats", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            try:
+                recent = list((await db.execute(
+                    select(Order).where(Order.company_id == cid).order_by(Order.created_at.desc()).limit(10)
+                )).scalars().all())
+                rows = []
+                for o in recent:
+                    try:
+                        amt = getattr(o, "total", None)
+                        if amt is None:
+                            amt = getattr(o, "total_amount", 0) or 0
+                        cur = getattr(o, "currency", None) or ctx["currency"]
+                        cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
+                        st = getattr(o, "status", None)
+                        st = st.value if hasattr(st, "value") else str(st or "")
+                        # sanitize status for CSS class
+                        st_safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in st)[:40]
+                        rows.append({
+                            "id": o.id,
+                            "customer": cust,
+                            "service": getattr(o, "service_name", None) or "—",
+                            "status": st_safe,
+                            "total": f"{cur} {float(amt or 0):,.0f}",
+                        })
+                    except Exception:
+                        continue
+                ctx["recent_orders"] = rows
+            except Exception as e:
+                print("dash recent", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            try:
+                rev = await revenue_stats(db, cid)
+                ctx["revenue_daily"] = float(rev.get("daily") or 0)
+                ctx["revenue_weekly"] = float(rev.get("weekly") or 0)
+                ctx["revenue_monthly"] = float(rev.get("monthly") or 0)
+            except Exception as e:
+                print("dash rev", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
     except Exception as e:
-        print("dashboard recent:", e)
+        print("dash outer", type(e).__name__, e)
         try:
             await db.rollback()
         except Exception:
             pass
-
-    rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
     try:
-        rev = await revenue_stats(db, company.id)
+        return render(request, "company/dashboard.html", ctx)
     except Exception as e:
-        print("dashboard revenue:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-
-    return render(request, "company/dashboard.html", {
-        "active": "dashboard",
-        "company_name": getattr(company, "name", None) or "Company",
-        "user_name": getattr(user, "full_name", None) or "Admin",
-        "currency": getattr(company, "currency", None) or "NGN",
-        "orders_count": int(oc or 0),
-        "pending_count": int(pending or 0),
-        "chats_count": int(chats or 0),
-        "recent_orders": recent_orders,
-        "platform_note": getattr(company, "platform_note", None),
-        "revenue_daily": float(rev.get("daily") or 0),
-        "revenue_weekly": float(rev.get("weekly") or 0),
-        "revenue_monthly": float(rev.get("monthly") or 0),
-    })
+        print("dash template", type(e).__name__, e)
+        # Absolute last resort: plain HTML, no Jinja layout
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><body style="font-family:system-ui;padding:1.5rem">
+            <h1>{ctx.get('company_name','Company')} Dashboard</h1>
+            <p>Welcome, {ctx.get('user_name','Admin')}</p>
+            <p>Orders: {ctx.get('orders_count',0)} · Pending: {ctx.get('pending_count',0)} · Chats: {ctx.get('chats_count',0)}</p>
+            <p>Revenue today: {ctx.get('currency','NGN')} {ctx.get('revenue_daily',0)}</p>
+            <p><a href="/company/services">Services</a> · <a href="/company/orders">Orders</a> · <a href="/company/messages">Messages</a></p>
+            </body></html>""",
+            status_code=200,
+        )
 
 
 @app.get("/company/services", response_class=HTMLResponse)

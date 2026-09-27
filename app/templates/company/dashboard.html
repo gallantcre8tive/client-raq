@@ -3,6 +3,7 @@
 {% block page_title %}Dashboard{% endblock %}
 {% set active = 'dashboard' %}
 {% block content %}
+{# FIX_V2 #}
 
 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
   <p class="text-sm text-[var(--text-secondary)] m-0">Confirmed payment revenue (updates when you mark orders paid).</p>
@@ -81,7 +82,7 @@
           <td class="px-5 py-3">#{{ o.id }}</td>
           <td class="px-5 py-3">{{ o.customer }}</td>
           <td class="px-5 py-3">{{ o.service }}</td>
-          <td class="px-5 py-3"><span class="status-pill status-{{ o.status }}">{{ o.status }}</span></td>
+          <td class="px-5 py-3"><span class="status-pill">{{ o.status }}</span></td>
           <td class="px-5 py-3 font-tabular">{{ o.total }}</td>
           <td class="px-5 py-3"><a href="/company/orders/{{ o.id }}" class="text-[var(--primary)] text-xs font-medium hover:underline">View</a></td>
         </tr>
