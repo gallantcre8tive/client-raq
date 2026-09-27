@@ -31,7 +31,7 @@ def _api_key() -> str:
 
 def _model() -> str:
     s = get_settings()
-    return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-2-latest").strip()
+    return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-4-fast").strip()
 
 
 def _base_url() -> str:
@@ -201,10 +201,27 @@ async def understand_message(
     ]
     raw = await _chat(messages, temperature=0.15, max_tokens=500)
     if not raw:
+        log.warning("grok_understand_empty")
         return None
     data = _extract_json(raw)
     if not data:
-        return None
+        # Model returned prose instead of JSON — still usable as weak understanding
+        log.warning("grok_understand_not_json snippet=%s", raw[:200])
+        low = (customer_message or "").lower()
+        intent = "price_request" if any(w in low for w in ("how much", "price", "cost", "how much for", "quote")) else "printing_request"
+        if any(w in low for w in ("hello", "hi ", "hey", "good morning", "good evening")):
+            intent = "greeting"
+        data = {
+            "intent": intent,
+            "confidence": 0.6,
+            "language": "pidgin" if any(w in low for w in ("abeg", "wan", "dey", "naf", "oo", "pls")) else "en",
+            "service_guess": None,
+            "quantity": None,
+            "size_text": customer_message,
+            "missing_information": [],
+            "needs_human": False,
+            "raw_fallback": raw[:500],
+        }
     intent = str(data.get("intent") or "unknown").lower().strip()
     if intent not in INTENTS:
         intent = "unknown"

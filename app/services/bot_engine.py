@@ -508,7 +508,14 @@ async def handle_inbound(
                 "delivery_question", "turnaround_question", "payment_question",
                 "modification_request", "complaint", "clarifying",
             )
-            if ai_reply and conf >= 0.45 and intent in topic_change_intents + ("affirm", "deny"):
+            # Prefer any solid AI reply for free text (especially price / new product asks)
+            price_like = any(w in (text or "").lower() for w in (
+                "how much", "price", "cost", "quote", "nylon", "sticker", "banner",
+                "frame", "flex", "jotter", "pen", "cloth", "tshirt", "t-shirt",
+            ))
+            if ai_reply and (conf >= 0.4 or price_like) and (
+                intent in topic_change_intents + ("affirm", "deny", "unknown", "") or price_like
+            ):
                 # Customer asked a NEW product/price while mid-flow → soft reset old cart fields
                 if intent in ("printing_request", "price_request", "quotation_request", "product_availability"):
                     for k in (
@@ -541,6 +548,53 @@ async def handle_inbound(
             # Low confidence / no reply → fall through to rule engine with updated ctx
         except Exception:
             pass
+
+
+    # ── Last-chance: free-text price/product ask must not die on Pickup buttons ──
+    if text and not interactive_id:
+        low_all = text.lower()
+        if any(w in low_all for w in ("how much", "price", "cost", "quote", "nylon", "sticker", "banner", "frame")):
+            # Soft-reset fulfillment lock so customer can start a new quote
+            if state in structured_states or state == "await_fulfillment":
+                try:
+                    from app.services.ai_orchestrator import run_ai_turn
+                    understanding, facts, ai_reply = await run_ai_turn(
+                        db, company, services, ctx, conv.id, from_wa, text,
+                    )
+                    if ai_reply:
+                        for k in ("fulfillment", "address", "datetime", "date", "time"):
+                            ctx.pop(k, None)
+                        _save_ctx(conv, ctx)
+                        conv.state = "await_service"
+                        db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply))
+                        await db.commit()
+                        await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply)
+                        return
+                except Exception as e:
+                    print("last_chance_ai", type(e).__name__, e)
+                # Rule-based mini quote if AI still empty
+                for svc in services:
+                    name = (svc.name or "").lower()
+                    if any(k in low_all and k in name for k in ("nylon", "sticker", "banner", "frame", "flex", "jotter")):
+                        price = float(getattr(svc, "base_price", 0) or 0)
+                        unit = getattr(svc, "pricing_unit", None) or getattr(svc, "unit", "") or ""
+                        reply = _t(
+                            ctx,
+                            f"For *{svc.name}*: from *{company.currency} {price:,.0f}* {unit}. "
+                            f"Tell me size and quantity for exact total.",
+                            f"For *{svc.name}*: from *{company.currency} {price:,.0f}* {unit}. "
+                            f"Tell me size and quantity make I give exact total.",
+                        )
+                        for k in ("fulfillment", "address", "datetime"):
+                            ctx.pop(k, None)
+                        ctx["service_id"] = svc.id
+                        ctx["service_name"] = svc.name
+                        _save_ctx(conv, ctx)
+                        conv.state = "await_details"
+                        db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+                        await db.commit()
+                        await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+                        return
 
     # --- Coming for pickup notifications ---
     if any(p in low for p in ("on my way", "i dey come", "coming for", "coming to pick", "i'm coming", "im coming")):
