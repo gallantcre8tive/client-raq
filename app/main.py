@@ -1464,55 +1464,107 @@ async def company_notification_read(
 async def company_revenue_pdf(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Download statement-style PDF of confirmed revenue (today / week / month / detail)."""
+    """Statement download — no lazy ORM IO (avoids MissingGreenlet on async SQLAlchemy)."""
     from fastapi.responses import Response
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
+
     company = await company_ctx(user, db)
-    rev = await revenue_stats(db, company.id)
-    paid_statuses = [
-        OrderStatus.PAYMENT_CONFIRMED, OrderStatus.IN_PRODUCTION,
-        OrderStatus.READY, OrderStatus.COMPLETED,
-    ]
-    orders = list((await db.execute(
-        select(Order).where(
-            Order.company_id == company.id,
-            Order.status.in_(paid_statuses),
-        ).order_by(Order.created_at.desc()).limit(200)
-    )).scalars().all())
-    cur = company.currency or "NGN"
+    if not company:
+        raise HTTPException(404, "Company not found")
+
+    # Snapshot company fields NOW as plain Python (no later ORM access)
+    company_id = int(company.id)
+    company_name = str(getattr(company, "name", None) or "Company")
+    company_slug = str(getattr(company, "slug", None) or company_id)
+    cur = str(getattr(company, "currency", None) or "NGN")
+
+    rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
+    try:
+        rev = await revenue_stats(db, company_id)
+    except Exception as e:
+        print("revenue_pdf stats:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    rows = []
+    try:
+        paid = [
+            OrderStatus.PAYMENT_CONFIRMED,
+            OrderStatus.IN_PRODUCTION,
+            OrderStatus.READY,
+            OrderStatus.COMPLETED,
+        ]
+        result = await db.execute(
+            select(Order).where(
+                Order.company_id == company_id,
+                Order.status.in_(paid),
+            ).order_by(Order.created_at.desc()).limit(200)
+        )
+        orders = list(result.scalars().all())
+        for o in orders:
+            # Materialize every field while still in async context
+            st = getattr(o, "status", None)
+            if hasattr(st, "value"):
+                st = st.value
+            else:
+                st = str(st or "")
+            created = getattr(o, "created_at", None)
+            dt_s = created.strftime("%Y-%m-%d") if created is not None else "—"
+            amt = getattr(o, "total", None)
+            if amt is None:
+                amt = getattr(o, "total_amount", 0) or 0
+            cust = getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—"
+            svc = getattr(o, "service_name", None) or "—"
+            rows.append({
+                "id": int(o.id),
+                "date": dt_s,
+                "customer": str(cust)[:20],
+                "service": str(svc)[:22],
+                "amount": float(amt or 0),
+                "status": str(st),
+            })
+    except Exception as e:
+        print("revenue_pdf orders:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # From here: pure Python only — safe for reportlab sync code
     lines = [
-        f"CLIENT-RaQ REVENUE STATEMENT",
-        f"Company: {company.name}",
+        "CLIENT-RaQ REVENUE STATEMENT",
+        f"Company: {company_name}",
         f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-        f"",
-        f"SUMMARY",
-        f"  Today:   {cur} {rev['daily']:,.2f}",
-        f"  Week:    {cur} {rev['weekly']:,.2f}",
-        f"  Month:   {cur} {rev['monthly']:,.2f}",
-        f"",
-        f"CONFIRMED ORDERS (payment confirmed and later)",
+        "",
+        "SUMMARY",
+        f"  Today:   {cur} {float(rev.get('daily') or 0):,.2f}",
+        f"  Week:    {cur} {float(rev.get('weekly') or 0):,.2f}",
+        f"  Month:   {cur} {float(rev.get('monthly') or 0):,.2f}",
+        "",
+        "CONFIRMED ORDERS (payment confirmed and later)",
         f"{'ID':>6}  {'Date':12}  {'Customer':22}  {'Service':24}  {'Amount':>14}  Status",
         "-" * 90,
     ]
-    for o in orders:
-        amt = float(getattr(o, "total", 0) or 0)
-        dt = o.created_at.strftime("%Y-%m-%d") if o.created_at else "—"
-        cust = (getattr(o, "customer_name", None) or o.customer_wa_id or "—")[:20]
-        svc = (o.service_name or "—")[:22]
-        st = o.status.value if hasattr(o.status, "value") else str(o.status)
-        lines.append(f"{o.id:6d}  {dt:12}  {cust:22}  {svc:24}  {cur} {amt:>10,.2f}  {st}")
-    if not orders:
+    for r in rows:
+        lines.append(
+            f"{r['id']:6d}  {r['date']:12}  {r['customer']:22}  {r['service']:24}  "
+            f"{cur} {r['amount']:>10,.2f}  {r['status']}"
+        )
+    if not rows:
         lines.append("(No confirmed paid orders yet)")
     lines.append("")
-    lines.append("This statement lists amounts confirmed by your team (payment_confirmed and later statuses).")
+    lines.append("Amounts are from orders marked payment_confirmed or later.")
     body = "\n".join(lines)
-    # Simple text PDF-compatible download (true PDF needs reportlab; text is reliable statement)
-    # Prefer application/pdf with minimal PDF if possible
+    fname_base = f"revenue-{company_slug}"
+
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
         from reportlab.lib.units import mm
         import io
+
         buf = io.BytesIO()
         c = canvas.Canvas(buf, pagesize=A4)
         w, h = A4
@@ -1520,28 +1572,29 @@ async def company_revenue_pdf(
         c.setFont("Helvetica-Bold", 14)
         c.drawString(20 * mm, y, "Client-RaQ Revenue Statement")
         y -= 8 * mm
-        c.setFont("Helvetica", 10)
+        c.setFont("Helvetica", 9)
         for line in lines[1:]:
             if y < 15 * mm:
                 c.showPage()
-                c.setFont("Helvetica", 10)
+                c.setFont("Helvetica", 9)
                 y = h - 20 * mm
-            c.drawString(15 * mm, y, line[:110])
+            # reportlab needs latin-1 safe-ish strings
+            safe = line[:110].encode("latin-1", "replace").decode("latin-1")
+            c.drawString(15 * mm, y, safe)
             y -= 5 * mm
         c.save()
-        data = buf.getvalue()
         return Response(
-            content=data,
+            content=buf.getvalue(),
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="revenue-{company.slug or company.id}.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="{fname_base}.pdf"'},
         )
-    except Exception:
+    except Exception as e:
+        print("revenue_pdf reportlab:", e)
         return Response(
             content=body.encode("utf-8"),
-            media_type="text/plain",
-            headers={"Content-Disposition": f'attachment; filename="revenue-{company.id}.txt"'},
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname_base}.txt"'},
         )
-
 
 
 @app.get("/health")
