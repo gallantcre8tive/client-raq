@@ -256,24 +256,57 @@ async def generate_reply(
     understanding: dict[str, Any],
     verified_facts: dict[str, Any],
     customer_message: str,
+    custom_instructions: str = "",
+    business_hours: str = "",
+    location: str = "",
+    enquiry_whatsapp: str = "",
+    enquiry_phone: str = "",
+    enquiry_note: str = "",
 ) -> str | None:
-    payload = {
-        "company_name": company_name,
-        "tone": tone_hint,
-        "customer_message": customer_message,
-        "conversation_state": conversation_state,
+    """Natural customer-facing reply grounded in verified_facts."""
+    lang = (understanding or {}).get("language") or conversation_state.get("lang") or "en"
+    if lang == "pidgin" or (conversation_state.get("lang") == "pidgin"):
+        lang_rule = "Reply in natural Nigerian Pidgin only (not broken English). Short and warm."
+    else:
+        lang_rule = "Reply in clear simple English. Short and warm."
+
+    # Sanitize zero prices in facts for the model
+    facts = dict(verified_facts or {})
+    for k in ("unit_price", "total", "subtotal", "design_fee", "delivery_fee"):
+        try:
+            if float(facts.get(k) or 0) <= 0:
+                facts[k] = None
+        except Exception:
+            facts[k] = None
+    if facts.get("verified_quote") and not facts.get("total"):
+        facts["verified_quote"] = False
+        facts["price_note"] = "Price not set or incomplete — ask size and quantity; do not state 0."
+
+    system = REPLY_SYSTEM + f"\nCompany name: {company_name}\n{lang_rule}\nTone: {tone_hint}"
+    if custom_instructions:
+        system += f"\nShop rules: {custom_instructions[:600]}"
+    if business_hours:
+        system += f"\nHours: {business_hours}"
+    if location:
+        system += f"\nLocation: {location}"
+    if enquiry_whatsapp or enquiry_phone:
+        system += f"\nEnquiry WhatsApp: {enquiry_whatsapp or '—'} | Call: {enquiry_phone or '—'} | Note: {enquiry_note or ''}"
+
+    user_payload = {
+        "customer_just_said": customer_message,
         "understanding": understanding,
-        "verified_facts": verified_facts,
-        "recent_messages": recent_messages[-8:],
+        "verified_facts": facts,
+        "conversation_state": {
+            k: conversation_state.get(k)
+            for k in ("service_name", "qty", "size", "variant_label", "design_status", "fulfillment", "lang", "total")
+            if conversation_state.get(k) is not None
+        },
+        "recent_messages": (recent_messages or [])[-6:],
     }
     messages = [
-        {"role": "system", "content": REPLY_SYSTEM},
-        {
-            "role": "user",
-            "content": (
-                "Write the next WhatsApp message to the customer using only verified_facts for prices/status.\n"
-                + json.dumps(payload, ensure_ascii=False)
-            ),
-        },
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
     ]
     return await _chat(messages, temperature=0.45, max_tokens=400)
+
+

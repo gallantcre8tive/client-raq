@@ -125,3 +125,21 @@ async def download_media(media_id: str, access_token: str):
             return file_r.content, mime
     except Exception:
         return None
+
+
+async def send_typing(phone_number_id: str, access_token: str, to_wa_id: str, message_id: str | None = None) -> bool:
+    """Show WhatsApp typing indicator (Cloud API)."""
+    if not phone_number_id or not access_token or not to_wa_id:
+        return False
+    to = to_wa_id.replace("+", "").replace(" ", "")
+    # Mark as read + typing when we have message id
+    if message_id:
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+            "typing_indicator": {"type": "text"},
+        }
+    else:
+        return False
+    return await _post(phone_number_id, access_token, payload)

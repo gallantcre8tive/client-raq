@@ -46,6 +46,9 @@ async def ensure_schema():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bot_personality VARCHAR(40) DEFAULT 'friendly'",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_hours TEXT",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS about_text TEXT",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS enquiry_whatsapp VARCHAR(40)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS enquiry_phone VARCHAR(40)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS enquiry_note VARCHAR(300)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS location_text VARCHAR(300)",
         "ALTER TABLE payment_details ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
 

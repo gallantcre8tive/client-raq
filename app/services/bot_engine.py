@@ -8,7 +8,7 @@ from app.models.company import Company, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Conversation, Message, Order, OrderStatus
 from app.services.grok_client import grok_chat, grok_vision
-from app.services.whatsapp_send import send_text, send_buttons, send_list, download_media
+from app.services.whatsapp_send import send_text, send_buttons, send_list, send_typing, download_media
 
 
 def _ctx(conv: Conversation) -> dict:
@@ -456,7 +456,41 @@ async def handle_inbound(
     if company_lang in ("en", "pidgin") and not ctx.get("lang"):
         ctx["lang"] = company_lang
         _save_ctx(conv, ctx)
+    if text and any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf", "una")):
+        ctx["lang"] = "pidgin"
+        _save_ctx(conv, ctx)
 
+    if text and not interactive_id and wa_message_id:
+        try:
+            await send_typing(link.phone_number_id, link.access_token, from_wa, wa_message_id)
+        except Exception:
+            pass
+
+    # Menu / greetings open service list (do not treat as qty)
+    if text and not interactive_id and text.lower().strip() in ("menu", "services", "start", "hi", "hello", "hey", "good morning", "good evening"):
+        for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
+            ctx.pop(k, None)
+        _save_ctx(conv, ctx)
+        conv.state = "await_service"
+        rows = []
+        for s in services:
+            if getattr(s, "is_active", True) is False:
+                continue
+            rows.append((f"svc_{s.id}", (s.name or "Service")[:24], (getattr(s, "description", None) or "")[:72]))
+            if len(rows) >= 10:
+                break
+        body = _t(
+            ctx,
+            f"Welcome to *{company.name}*. Choose a service or type what you need (e.g. nylon, banner, sticker):",
+            f"Welcome to *{company.name}*. Choose service or type wetin you need (e.g. nylon, banner, sticker):",
+        )
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+        await db.commit()
+        if rows:
+            await send_list(link.phone_number_id, link.access_token, from_wa, body, "View services", rows, header=(company.name or "")[:60])
+        else:
+            await send_text(link.phone_number_id, link.access_token, from_wa, body)
+        return
 
     # ── Fast path: price / product asks get an instant rule reply (never silent) ──
     low_fast = (text or "").lower()
@@ -467,6 +501,30 @@ async def handle_inbound(
         )
     )
     if price_like:
+        # Prefer Grok natural answer first
+        try:
+            from app.services.ai_orchestrator import run_ai_turn
+            understanding, facts, ai_reply = await run_ai_turn(
+                db, company, services, ctx, conv.id, from_wa, text,
+            )
+            if ai_reply and len(ai_reply.strip()) > 8:
+                # Drop old fulfillment lock when new quote starts
+                for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
+                    ctx.pop(k, None)
+                if understanding and understanding.get("language") == "pidgin":
+                    ctx["lang"] = "pidgin"
+                _save_ctx(conv, ctx)
+                if facts.get("verified_quote") and float(facts.get("total") or 0) > 0:
+                    conv.state = "await_artwork" if not ctx.get("design_status") else "await_fulfillment"
+                else:
+                    conv.state = "await_details"
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply.strip()))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply.strip())
+                return
+        except Exception as e:
+            print("price_ai_first", type(e).__name__, e)
+
         matched = None
         for svc in services:
             name = (svc.name or "").lower()
@@ -492,15 +550,22 @@ async def handle_inbound(
             ctx["service_name"] = matched.name
             _save_ctx(conv, ctx)
             conv.state = "await_details"
-            reply = _t(
-                ctx,
-                f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
-                f"Tell me the *size* and *quantity* so I can give your exact total.\n"
-                f"(You can also type *menu* to see all services.)",
-                f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
-                f"Tell me *size* and *quantity* make I give exact total.\n"
-                f"(Type *menu* if you wan see all services.)",
-            )
+            if price > 0:
+                reply = _t(
+                    ctx,
+                    f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
+                    f"Tell me the *size* and *quantity* so I can give your exact total.",
+                    f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
+                    f"Tell me *size* and *quantity* make I give exact total.",
+                )
+            else:
+                reply = _t(
+                    ctx,
+                    f"Yes we do *{matched.name}*. Tell me *size* and *quantity* and I will calculate your price.\n"
+                    f"(Or type *menu* for other services.)",
+                    f"Yes we dey do *{matched.name}*. Tell me *size* and *quantity* make I calculate the price.\n"
+                    f"(Or type *menu* for other services.)",
+                )
             db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
             await db.commit()
             await send_text(link.phone_number_id, link.access_token, from_wa, reply)
@@ -566,10 +631,18 @@ async def handle_inbound(
                     body=f"{from_wa}: {(text or '')[:200]}",
                     priority="high",
                 ))
+                eq = []
+                if getattr(company, "enquiry_whatsapp", None):
+                    eq.append(f"WhatsApp: {company.enquiry_whatsapp}")
+                if getattr(company, "enquiry_phone", None):
+                    eq.append(f"Call: {company.enquiry_phone}")
+                eq_line = ("\n" + " | ".join(eq)) if eq else ""
+                note = (getattr(company, "enquiry_note", None) or "").strip()
+                note_line = f"\n{note}" if note else ""
                 reply = ai_reply or _t(
                     ctx,
-                    "A team member will take over this chat shortly. Thank you for your patience.",
-                    "Someone from our team go join this chat soon. Thank you.",
+                    f"A team member will take over this chat shortly. Thank you for your patience.{eq_line}{note_line}",
+                    f"Someone from our team go join this chat soon. Thank you.{eq_line}{note_line}",
                 )
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
                 await db.commit()

@@ -1143,6 +1143,9 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
         "offer_pidgin": flags.get("offer_pidgin", True),
         "design_fee_default": getattr(company, "design_fee_default", 0) or 0,
         "custom_ai_instructions": getattr(company, "custom_ai_instructions", None) or "",
+        "enquiry_whatsapp": getattr(company, "enquiry_whatsapp", None) or "",
+        "enquiry_phone": getattr(company, "enquiry_phone", None) or "",
+        "enquiry_note": getattr(company, "enquiry_note", None) or "",
         "bot_personality": getattr(company, "bot_personality", None) or "friendly",
         "business_hours": getattr(company, "business_hours", None) or "",
         "about_text": getattr(company, "about_text", None) or "",
@@ -1161,6 +1164,9 @@ async def company_bot_save(
     business_hours: Optional[str] = Form(None),
     about_text: Optional[str] = Form(None),
     location_text: Optional[str] = Form(None),
+    enquiry_whatsapp: Optional[str] = Form(None),
+    enquiry_phone: Optional[str] = Form(None),
+    enquiry_note: Optional[str] = Form(None),
 
     ask_size_help: Optional[str] = Form(None),
     ask_payment_proof: Optional[str] = Form(None),
@@ -1177,6 +1183,9 @@ async def company_bot_save(
     company.currency = currency
     company.design_fee_default = float(design_fee_default or 0)
     company.custom_ai_instructions = (custom_ai_instructions or "").strip() or None
+    company.enquiry_whatsapp = (enquiry_whatsapp or "").strip() or None
+    company.enquiry_phone = (enquiry_phone or "").strip() or None
+    company.enquiry_note = (enquiry_note or "").strip() or None
     company.bot_personality = bot_personality or "friendly"
     company.business_hours = (business_hours or "").strip() or None
     company.about_text = (about_text or "").strip() or None

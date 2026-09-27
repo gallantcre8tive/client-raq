@@ -364,5 +364,11 @@ async def run_ai_turn(
         understanding=understanding,
         verified_facts=facts,
         customer_message=customer_message,
+        custom_instructions=custom,
+        business_hours=getattr(company, "business_hours", None) or "",
+        location=getattr(company, "location_text", None) or "",
+        enquiry_whatsapp=getattr(company, "enquiry_whatsapp", None) or "",
+        enquiry_phone=getattr(company, "enquiry_phone", None) or "",
+        enquiry_note=getattr(company, "enquiry_note", None) or "",
     )
     return understanding, facts, reply
