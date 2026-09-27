@@ -43,13 +43,13 @@ async def _chat(
     messages: list[dict],
     *,
     temperature: float = 0.3,
-    max_tokens: int = 700,
+    max_tokens: int = 450,
 ) -> str | None:
     key = _api_key()
     if not key:
         return None
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=18.0) as client:
             r = await client.post(
                 f"{_base_url()}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},

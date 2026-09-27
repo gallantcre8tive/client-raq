@@ -387,6 +387,13 @@ async def handle_inbound(
         return
     st = company.status if isinstance(company.status, str) else getattr(company.status, "value", "active")
     if st == "suspended":
+        try:
+            await send_text(
+                link.phone_number_id, link.access_token, from_wa,
+                "This business WhatsApp is temporarily unavailable. Please try again later.",
+            )
+        except Exception:
+            pass
         return
 
     interactive_id = button_id or list_id
@@ -429,7 +436,17 @@ async def handle_inbound(
         pass
 
     if getattr(conv, "is_live_takeover", False):
-        await db.commit()
+        # Still acknowledge so customer never sees silence
+        try:
+            ack = "A team member is handling this chat. They will reply here shortly."
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=ack))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, ack)
+        except Exception:
+            try:
+                await db.commit()
+            except Exception:
+                pass
         return
 
     ctx = _ctx(conv)
@@ -440,6 +457,71 @@ async def handle_inbound(
         ctx["lang"] = company_lang
         _save_ctx(conv, ctx)
 
+
+    # ── Fast path: price / product asks get an instant rule reply (never silent) ──
+    low_fast = (text or "").lower()
+    price_like = bool(text) and not interactive_id and any(
+        w in low_fast for w in (
+            "how much", "price", "cost", "quote", "nylon", "sticker", "banner",
+            "frame", "flex", "jotter", "cloth", "pen", "sav", "roll-up", "rollup",
+        )
+    )
+    if price_like:
+        matched = None
+        for svc in services:
+            name = (svc.name or "").lower()
+            keys = ("nylon", "sticker", "banner", "frame", "flex", "jotter", "cloth", "pen", "sav", "roll")
+            if any(k in low_fast and k in name for k in keys):
+                matched = svc
+                break
+        if matched is None:
+            # fuzzy: any service name word in message
+            for svc in services:
+                for part in (svc.name or "").lower().replace("-", " ").split():
+                    if len(part) > 3 and part in low_fast:
+                        matched = svc
+                        break
+                if matched:
+                    break
+        if matched:
+            price = float(getattr(matched, "base_price", 0) or 0)
+            unit = getattr(matched, "pricing_unit", None) or getattr(matched, "unit", None) or "per unit"
+            for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
+                ctx.pop(k, None)
+            ctx["service_id"] = matched.id
+            ctx["service_name"] = matched.name
+            _save_ctx(conv, ctx)
+            conv.state = "await_details"
+            reply = _t(
+                ctx,
+                f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
+                f"Tell me the *size* and *quantity* so I can give your exact total.\n"
+                f"(You can also type *menu* to see all services.)",
+                f"For *{matched.name}* — from *{company.currency} {price:,.0f}* ({unit}).\n"
+                f"Tell me *size* and *quantity* make I give exact total.\n"
+                f"(Type *menu* if you wan see all services.)",
+            )
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+            return
+        else:
+            # No matching service — list what they offer instead of silence
+            names = [s.name for s in services[:8] if getattr(s, "is_active", True)]
+            list_txt = ", ".join(names) if names else "our print services"
+            reply = _t(
+                ctx,
+                f"I can quote that. We offer: {list_txt}.\nWhich one do you want, and what size/quantity?",
+                f"I fit quote am. We get: {list_txt}.\nWhich one you wan, size and quantity?",
+            )
+            for k in ("fulfillment", "address", "datetime", "date", "time"):
+                ctx.pop(k, None)
+            _save_ctx(conv, ctx)
+            conv.state = "await_service"
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+            return
 
     # ── Two-stage Grok understanding ──
     # Buttons stay rule-based. Free text ALWAYS goes through Grok first so the
@@ -1204,9 +1286,19 @@ async def handle_inbound(
         grok = await _grok_staff(company, ctx, text or "hello", services) if text else None
         outbound = grok or _t(ctx, "How can we help you today?", "How we fit help you today?")
 
-    if outbound:
+    if not outbound:
+        outbound = _t(
+            ctx,
+            "How can we help? Type *menu* for services, or tell me what you want to print (e.g. nylon, banner, sticker).",
+            "How we fit help? Type *menu* for services, or tell me wetin you wan print (e.g. nylon, banner, sticker).",
+        )
+    try:
         db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
         await db.commit()
         await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
-    else:
-        await db.commit()
+    except Exception as e:
+        print("outbound_send_fail", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
