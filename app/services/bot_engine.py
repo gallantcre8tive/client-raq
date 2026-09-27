@@ -458,8 +458,23 @@ async def handle_inbound(
                 db, company, services, ctx, conv.id, from_wa, text,
             )
             _save_ctx(conv, ctx)
-            if understanding and understanding.get("intent") == "human_agent_request":
+            if understanding and (
+                understanding.get("intent") == "human_agent_request"
+                or understanding.get("needs_human")
+                or ctx.get("requires_human")
+                or float(understanding.get("confidence") or 1) < 0.35
+            ):
+                from app.models.conversation import AdminNotification
                 conv.is_live_takeover = True
+                conv.needs_human = True
+                conv.handoff_reason = (understanding.get("intent") or "needs_human")[:200]
+                db.add(AdminNotification(
+                    company_id=company.id,
+                    conversation_id=conv.id,
+                    title="Customer needs attention",
+                    body=f"{from_wa}: {(text or '')[:200]}",
+                    priority="high",
+                ))
                 reply = ai_reply or _t(
                     ctx,
                     "A team member will take over this chat shortly. Thank you for your patience.",

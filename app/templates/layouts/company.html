@@ -26,6 +26,7 @@
     <nav class="flex-1 p-2.5 space-y-0.5 overflow-y-auto" @click="if (window.innerWidth < 1024) sidebarOpen = false">
       <a href="/company/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
       <a href="/company/orders" class="nav-item {% if active=='orders' %}active{% endif %}">{{ icon('receipt') }} Orders</a>
+      <a href="/company/broadcast" class="nav-item {% if active=='broadcast' %}active{% endif %}">{{ icon('bell') }} Broadcast</a>
       <a href="/company/messages" class="nav-item {% if active=='messages' %}active{% endif %}">{{ icon('messages-square') }} Messages</a>
       <a href="/company/services" class="nav-item {% if active=='services' %}active{% endif %}">{{ icon('printer') }} Services</a>
       <a href="/company/payments" class="nav-item {% if active=='payments' %}active{% endif %}">{{ icon('credit-card') }} Payments</a>

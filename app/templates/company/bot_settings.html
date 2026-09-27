@@ -59,6 +59,36 @@
       <span>Add base delivery fee when delivery is chosen</span>
     </label>
   </div>
+  
+  <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">
+    <h3 class="font-semibold m-0">AI personality</h3>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Tone</label>
+      <select name="bot_personality" class="input-field min-h-[44px]">
+        <option value="friendly" {% if bot_personality|default('friendly')=='friendly' %}selected{% endif %}>Friendly</option>
+        <option value="professional" {% if bot_personality|default('')=='professional' %}selected{% endif %}>Professional</option>
+        <option value="casual" {% if bot_personality|default('')=='casual' %}selected{% endif %}>Casual</option>
+        <option value="friendly_nigerian" {% if bot_personality|default('')=='friendly_nigerian' %}selected{% endif %}>Friendly Nigerian</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Custom AI instructions</label>
+      <textarea name="custom_ai_instructions" rows="4" class="input-field" placeholder="e.g. Always mention we open Mon–Sat 8am–6pm. Never promise same-day without confirmation.">{{ custom_ai_instructions|default('') }}</textarea>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Business hours</label>
+      <input type="text" name="business_hours" class="input-field min-h-[44px]" value="{{ business_hours|default('') }}" placeholder="Mon–Sat 8am–6pm">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Location / address</label>
+      <input type="text" name="location_text" class="input-field min-h-[44px]" value="{{ location_text|default('') }}" placeholder="Shop address for customers">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">About / description</label>
+      <textarea name="about_text" rows="2" class="input-field">{{ about_text|default('') }}</textarea>
+    </div>
+  </div>
+
   <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">
     <h3 class="font-semibold m-0">Design fee (optional)</h3>
     <p class="text-xs text-[var(--text-muted)] m-0">Charged when customer asks your team to create artwork.</p>

@@ -22,6 +22,11 @@ class Company(Base):
     bot_language: Mapped[str] = mapped_column(String(20), default="both")
     bot_flags: Mapped[str | None] = mapped_column(Text, nullable=True)
     design_fee_default: Mapped[float] = mapped_column(Float, default=0)
+    custom_ai_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bot_personality: Mapped[str] = mapped_column(String(40), default="friendly")
+    business_hours: Mapped[str | None] = mapped_column(Text, nullable=True)
+    about_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
     delivery_fee_base: Mapped[float] = mapped_column(Float, default=0)
     platform_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
@@ -42,6 +47,7 @@ class PaymentDetail(Base):
     account_number: Mapped[str] = mapped_column(String(30))
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     company = relationship("Company", back_populates="payment_details")
 
 class CompanyWhatsAppNumber(Base):

@@ -20,6 +20,34 @@ async def get_db():
 async def ensure_schema():
     """Idempotent repairs for drifted local DBs."""
     stmts = [
+        """CREATE TABLE IF NOT EXISTS broadcasts (
+        id SERIAL PRIMARY KEY, company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+        message TEXT, recipient_count INTEGER DEFAULT 0, success_count INTEGER DEFAULT 0,
+        fail_count INTEGER DEFAULT 0, created_by VARCHAR(150), created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+
+        """CREATE TABLE IF NOT EXISTS admin_notifications (
+        id SERIAL PRIMARY KEY, company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+        conversation_id INTEGER, title VARCHAR(200), body TEXT, priority VARCHAR(20) DEFAULT 'normal',
+        is_read BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+
+        """CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY, company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+        wa_id VARCHAR(50), profile_name VARCHAR(150), language_preference VARCHAR(20),
+        total_conversations INTEGER DEFAULT 0, last_order_id INTEGER,
+        first_seen TIMESTAMPTZ DEFAULT NOW(), last_seen TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+
+        "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS needs_human BOOLEAN DEFAULT false",
+        "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS handoff_reason VARCHAR(300)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS custom_ai_instructions TEXT",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bot_personality VARCHAR(40) DEFAULT 'friendly'",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_hours TEXT",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS about_text TEXT",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS location_text VARCHAR(300)",
+        "ALTER TABLE payment_details ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
+
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS flow_type VARCHAR(40) DEFAULT 'generic'",
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS design_fee DOUBLE PRECISION DEFAULT 0",
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS min_qty INTEGER DEFAULT 1",

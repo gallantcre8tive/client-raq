@@ -14,6 +14,7 @@ from app.database import get_db, init_db
 from app.models.user import User, UserRole
 from app.models.company import Company, CompanyStatus, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
+from app.models.conversation import AdminNotification, Broadcast, Customer, Conversation, Message, Order
 from app.models.conversation import Order, Conversation, OrderStatus
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.deps import get_current_user, require_platform, require_company
@@ -829,6 +830,7 @@ async def company_messages(request: Request, user: User = Depends(require_compan
             "id": c.id,
             "wa": c.customer_wa_id,
             "name": c.customer_name or c.customer_wa_id,
+            "needs_human": bool(getattr(c, "needs_human", False) or getattr(c, "is_live_takeover", False)),
             "preview": (last.body or "")[:80] if last else "—",
             "state": c.state,
         })
@@ -915,6 +917,11 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
         "calc_delivery_fee": flags.get("calc_delivery_fee", False),
         "offer_pidgin": flags.get("offer_pidgin", True),
         "design_fee_default": getattr(company, "design_fee_default", 0) or 0,
+        "custom_ai_instructions": getattr(company, "custom_ai_instructions", None) or "",
+        "bot_personality": getattr(company, "bot_personality", None) or "friendly",
+        "business_hours": getattr(company, "business_hours", None) or "",
+        "about_text": getattr(company, "about_text", None) or "",
+        "location_text": getattr(company, "location_text", None) or "",
         "saved": request.query_params.get("saved"),
     })
 
@@ -924,6 +931,12 @@ async def company_bot_save(
     request: Request,
     greeting: Optional[str] = Form(None), language: str = Form("both"), currency: str = Form("NGN"),
     design_fee_default: float = Form(0),
+    custom_ai_instructions: Optional[str] = Form(None),
+    bot_personality: str = Form("friendly"),
+    business_hours: Optional[str] = Form(None),
+    about_text: Optional[str] = Form(None),
+    location_text: Optional[str] = Form(None),
+
     ask_size_help: Optional[str] = Form(None),
     ask_payment_proof: Optional[str] = Form(None),
     ask_delivery: Optional[str] = Form(None),
@@ -938,6 +951,11 @@ async def company_bot_save(
     company.bot_language = language
     company.currency = currency
     company.design_fee_default = float(design_fee_default or 0)
+    company.custom_ai_instructions = (custom_ai_instructions or "").strip() or None
+    company.bot_personality = bot_personality or "friendly"
+    company.business_hours = (business_hours or "").strip() or None
+    company.about_text = (about_text or "").strip() or None
+    company.location_text = (location_text or "").strip() or None
     flags = {
         "ask_size_help": ask_size_help is not None,
         "ask_payment_proof": ask_payment_proof is not None,
@@ -1112,6 +1130,92 @@ async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         print("Webhook error:", e)
     return {"status": "ok"}
+
+
+
+@app.get("/company/broadcast", response_class=HTMLResponse)
+async def company_broadcast_page(
+    request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    company = await company_ctx(user, db)
+    past = list((await db.execute(
+        select(Broadcast).where(Broadcast.company_id == company.id).order_by(Broadcast.id.desc()).limit(20)
+    )).scalars().all())
+    cust_count = len((await db.execute(
+        select(Conversation.customer_wa_id).where(Conversation.company_id == company.id).distinct()
+    )).scalars().all())
+    return render(request, "company/broadcast.html", {
+        "active": "broadcast", "company_name": company.name, "user_name": user.full_name,
+        "past": past, "customer_count": cust_count, "saved": request.query_params.get("saved"),
+        "sent": request.query_params.get("sent"),
+    })
+
+
+@app.post("/company/broadcast/send")
+async def company_broadcast_send(
+    message: str = Form(...),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from app.models.company import CompanyWhatsAppNumber
+    from app.services.whatsapp_send import send_text
+    company = await company_ctx(user, db)
+    text = (message or "").strip()
+    if not text:
+        return RedirectResponse("/company/broadcast", status_code=303)
+    link = (await db.execute(
+        select(CompanyWhatsAppNumber).where(
+            CompanyWhatsAppNumber.company_id == company.id,
+            CompanyWhatsAppNumber.is_active == True,
+        )
+    )).scalars().first()
+    recipients = list((await db.execute(
+        select(Conversation.customer_wa_id).where(Conversation.company_id == company.id).distinct()
+    )).scalars().all())
+    ok = fail = 0
+    if link and link.access_token:
+        for wa in recipients:
+            try:
+                await send_text(link.phone_number_id, link.access_token, wa, text)
+                ok += 1
+            except Exception:
+                fail += 1
+    else:
+        fail = len(recipients)
+    db.add(Broadcast(
+        company_id=company.id, message=text,
+        recipient_count=len(recipients), success_count=ok, fail_count=fail,
+        created_by=user.full_name or user.email,
+    ))
+    await db.commit()
+    return RedirectResponse(f"/company/broadcast?sent=1", status_code=303)
+
+
+@app.get("/api/company/notifications")
+async def company_notifications_api(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    rows = list((await db.execute(
+        select(AdminNotification).where(
+            AdminNotification.company_id == user.company_id,
+            AdminNotification.is_read == False,
+        ).order_by(AdminNotification.id.desc()).limit(30)
+    )).scalars().all())
+    return [
+        {"id": n.id, "title": n.title, "body": n.body, "priority": n.priority,
+         "conversation_id": n.conversation_id, "created_at": n.created_at.isoformat() if n.created_at else None}
+        for n in rows
+    ]
+
+
+@app.post("/api/company/notifications/{nid}/read")
+async def company_notification_read(
+    nid: int, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    n = await db.get(AdminNotification, nid)
+    if n and n.company_id == user.company_id:
+        n.is_read = True
+        await db.commit()
+    return {"ok": True}
 
 
 @app.get("/health")

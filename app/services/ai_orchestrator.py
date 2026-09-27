@@ -43,12 +43,15 @@ def services_summary(services: list, currency: str) -> str:
 
 
 def apply_understanding_to_state(ctx: dict, u: dict) -> dict:
-    """Merge structured AI result into conversation context without wiping unknowns."""
+    """Merge structured AI result into state. Latest explicit values win; never clear known fields with null."""
     if not u:
         return ctx
     if u.get("product"):
         ctx["ai_product"] = str(u["product"])
-    if u.get("quantity"):
+        if not ctx.get("service_name"):
+            ctx["service_name"] = str(u["product"])
+    # quantity: only update when AI extracted a number (corrections like "make that 500")
+    if u.get("quantity") is not None:
         try:
             ctx["qty"] = max(1, int(u["quantity"]))
         except Exception:
@@ -68,16 +71,42 @@ def apply_understanding_to_state(ctx: dict, u: dict) -> dict:
             pass
     if u.get("size_unit"):
         ctx["size_unit"] = u["size_unit"]
-    if u.get("design_status") in ("has_design", "needs_design", "received"):
-        ctx["design_status"] = u["design_status"]
+    if u.get("design_status") in ("has_design", "needs_design", "received", "customer_has_design"):
+        ds = u["design_status"]
+        if ds == "customer_has_design":
+            ds = "has_design"
+        ctx["design_status"] = ds
     if u.get("fulfillment") in ("pickup", "delivery"):
         ctx["fulfillment"] = u["fulfillment"]
     if u.get("delivery_location"):
         ctx["delivery_location"] = str(u["delivery_location"])
     if u.get("language") in ("en", "pidgin"):
         ctx["lang"] = u["language"]
+    # sides / material / color if present
+    for key in ("sides", "material", "color", "printing_type", "printing_color"):
+        if u.get(key):
+            ctx[key] = u[key]
+    # compute missing only for fields still empty
+    known = []
+    if ctx.get("service_name") or ctx.get("ai_product") or ctx.get("service_id"):
+        known.append("service")
+    if ctx.get("qty"):
+        known.append("quantity")
+    if ctx.get("variant_label") or ctx.get("size_text") or (ctx.get("width") and ctx.get("height")):
+        known.append("size")
+    if ctx.get("design_status"):
+        known.append("design")
+    missing = list(u.get("missing_information") or [])
+    # strip already-known from missing (critical: never re-ask qty if set)
+    missing = [m for m in missing if m not in ("quantity", "qty") or not ctx.get("qty")]
+    if ctx.get("qty") and "quantity" in missing:
+        missing = [m for m in missing if m != "quantity"]
+    if (ctx.get("variant_label") or ctx.get("size_text")) and "size" in missing:
+        missing = [m for m in missing if m != "size"]
+    ctx["missing_fields"] = missing
     ctx["last_intent"] = u.get("intent")
     ctx["ai_confidence"] = u.get("confidence")
+    ctx["requires_human"] = bool(u.get("needs_human") or u.get("requires_human"))
     return ctx
 
 
@@ -279,6 +308,8 @@ async def run_ai_turn(
     """
     recent = await load_recent_messages(db, conversation_id)
     summary = services_summary(services, company.currency)
+    custom = (getattr(company, "custom_ai_instructions", None) or "")[:800]
+    personality = getattr(company, "bot_personality", None) or "friendly"
     understanding = await understand_message(
         customer_message=customer_message,
         conversation_state=ctx,
@@ -286,17 +317,44 @@ async def run_ai_turn(
         company_name=company.name,
         services_summary=summary,
         currency=company.currency,
+        custom_instructions=custom,
+        personality=personality,
+        business_hours=getattr(company, "business_hours", None) or "",
+        location=getattr(company, "location_text", None) or "",
     )
     if not understanding:
         return None, {}, None
 
     apply_understanding_to_state(ctx, understanding)
     facts = await build_verified_facts(db, company, services, ctx, understanding, from_wa)
+    facts["already_known"] = {
+        "qty": ctx.get("qty"), "size": ctx.get("variant_label") or ctx.get("size_text"),
+        "service": ctx.get("service_name"), "design_status": ctx.get("design_status"),
+    }
+    facts["do_not_reask"] = [k for k,v in {"quantity": ctx.get("qty"), "size": ctx.get("variant_label") or ctx.get("size_text"), "service": ctx.get("service_name")}.items() if v]
+    facts["business_hours"] = getattr(company, "business_hours", None)
+    facts["location"] = getattr(company, "location_text", None)
+    facts["about"] = getattr(company, "about_text", None)
 
-    tone = "pidgin" if ctx.get("lang") == "pidgin" else "clear friendly English"
-    if understanding.get("language") == "pidgin":
-        tone = "natural Nigerian Pidgin, short and warm"
+    personality = getattr(company, "bot_personality", None) or "friendly"
+    if understanding.get("language") == "pidgin" or ctx.get("lang") == "pidgin":
         ctx["lang"] = "pidgin"
+        tone = f"natural Nigerian Pidgin, {personality} tone, short and warm"
+    else:
+        tone = f"{personality} professional English for a print shop"
+
+    # CRITICAL: tell Grok what is already known so it never re-asks
+    facts_known = {
+        "already_have_quantity": ctx.get("qty"),
+        "already_have_size": ctx.get("variant_label") or ctx.get("size_text"),
+        "already_have_service": ctx.get("service_name"),
+        "already_have_design_status": ctx.get("design_status"),
+        "do_not_ask_again_for": [k for k, v in {
+            "quantity": ctx.get("qty"),
+            "size": ctx.get("variant_label") or ctx.get("size_text"),
+            "service": ctx.get("service_name"),
+        }.items() if v],
+    }
 
     reply = await generate_reply(
         company_name=company.name,

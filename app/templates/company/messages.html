@@ -17,7 +17,7 @@
         {% for t in threads %}
         <a href="/company/messages?c={{ t.id }}"
            class="block px-4 py-3 border-b border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] no-underline text-[var(--text-primary)] {% if selected_id==t.id %}bg-[var(--surface-subtle)]{% endif %}">
-          <div class="font-medium text-sm truncate">{{ t.name }}</div>
+          <div class="font-medium text-sm truncate flex items-center gap-2">{{ t.name }}{% if t.needs_human %}<span class="status-pill status-suspended text-[10px]">Needs you</span>{% endif %}</div>
           <div class="text-xs text-[var(--text-muted)] truncate mt-0.5">{{ t.preview }}</div>
         </a>
         {% endfor %}

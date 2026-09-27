@@ -162,6 +162,9 @@ Rules:
 - Never invent prices or claim an order is complete.
 - Prefer extracting all facts from the message; only list truly missing fields.
 - quantity: treat "1k" as 1000, "2k" as 2000 when context is print qty.
+- If conversation_state already has quantity, size, or service, keep them and do NOT put them in missing_information.
+- Corrections like "make that 500" update quantity only.
+- This works for ANY printing service (banners, flyers, frames, shirts, etc.), not only nylon.
 """
 
 
@@ -173,6 +176,10 @@ async def understand_message(
     company_name: str,
     services_summary: str,
     currency: str,
+    custom_instructions: str = "",
+    personality: str = "friendly",
+    business_hours: str = "",
+    location: str = "",
 ) -> dict | None:
     payload = {
         "customer_message": customer_message,
@@ -181,6 +188,11 @@ async def understand_message(
         "company_name": company_name,
         "currency": currency,
         "available_services": services_summary,
+        "custom_instructions": custom_instructions,
+        "personality": personality,
+        "business_hours": business_hours,
+        "location": location,
+        "CRITICAL": "If conversation_state already has quantity or size, do NOT list them in missing_information. Never ask again for fields already present.",
     }
     messages = [
         {"role": "system", "content": UNDERSTAND_SYSTEM},
@@ -209,6 +221,8 @@ async def understand_message(
 REPLY_SYSTEM = """You are a real customer-care staff at a printing/branding company on WhatsApp.
 Never say you are an AI or bot. Never invent prices, services, or order statuses.
 Only use verified_facts from the backend for money, services, and status.
+NEVER ask again for fields listed in verified_facts.do_not_reask or already_known.
+If quantity is already known, acknowledge it and ask only what is still missing.
 Match the customer's language (English or Nigerian Pidgin). Keep replies short (1-4 sentences).
 Be warm and professional. Ask at most one clear question if something is missing.
 Do not use markdown tables. Light *bold* is ok for WhatsApp.
