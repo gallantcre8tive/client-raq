@@ -61,11 +61,12 @@ async def _chat(
                 },
             )
             if r.status_code == 429 or r.status_code >= 500:
-                log.warning("grok_http_%s", r.status_code)
+                log.warning("grok_http_%s body=%s", r.status_code, (r.text or "")[:300])
                 return None
             if r.status_code >= 400:
-                log.warning("grok_client_error %s", r.status_code)
+                log.warning("grok_client_error %s body=%s", r.status_code, (r.text or "")[:400])
                 return None
+            log.info("grok_ok model=%s chars=%s", _model(), len((r.text or "")))
             data = r.json()
             return (data["choices"][0]["message"]["content"] or "").strip()
     except Exception as e:
