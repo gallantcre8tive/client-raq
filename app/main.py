@@ -1107,6 +1107,7 @@ async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
                             media_id=media_id,
                             button_id=button_id,
                             list_id=list_id,
+                            wa_message_id=msg.get("id"),
                         )
     except Exception as e:
         print("Webhook error:", e)

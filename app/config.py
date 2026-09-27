@@ -12,8 +12,10 @@ class Settings(BaseSettings):
     SUPPORT_WHATSAPP: str = "+2349169158961"
     WHATSAPP_VERIFY_TOKEN: str = "client_raq_verify"
     GROK_API_KEY: str = ""
+    XAI_API_KEY: str = ""  # alias — either GROK_API_KEY or XAI_API_KEY works
     GROK_BASE_URL: str = "https://api.x.ai/v1"
     GROK_MODEL: str = "grok-2-latest"
+    XAI_MODEL: str = ""
     SESSION_COOKIE: str = "crq_session"
 
     class Config:

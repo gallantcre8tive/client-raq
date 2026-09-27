@@ -372,6 +372,7 @@ async def handle_inbound(
     media_id: str | None = None,
     button_id: str | None = None,
     list_id: str | None = None,
+    wa_message_id: str | None = None,
 ) -> None:
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(
@@ -405,13 +406,27 @@ async def handle_inbound(
         db.add(conv)
         await db.flush()
 
+    if wa_message_id:
+        dup = (await db.execute(
+            select(Message).where(
+                Message.conversation_id == conv.id,
+                Message.media_url == f"wamid:{wa_message_id}",
+            ).limit(1)
+        )).scalars().first()
+        if dup:
+            return
+
     db.add(Message(
         conversation_id=conv.id,
         direction="inbound",
         body=display_in,
-        media_url=media_id,
+        media_url=(f"wamid:{wa_message_id}" if wa_message_id and not media_id else media_id),
     ))
     await db.flush()
+
+    if wa_message_id:
+        # count duplicates (same wamid already stored before this insert would need check first)
+        pass
 
     if getattr(conv, "is_live_takeover", False):
         await db.commit()
@@ -424,6 +439,70 @@ async def handle_inbound(
     if company_lang in ("en", "pidgin") and not ctx.get("lang"):
         ctx["lang"] = company_lang
         _save_ctx(conv, ctx)
+
+
+    # ── Two-stage Grok understanding (free text only; buttons keep rule flow) ──
+    structured_states = {
+        "await_lang", "await_size", "await_qty_fixed", "await_artwork",
+        "await_fulfillment", "await_schedule", "await_payment", "await_proof",
+        "await_details",
+    }
+    if text and not interactive_id and state not in structured_states - {"await_details", "open", "await_intent", "await_service", "order_placed", "await_enquiry"}:
+        # prefer AI for exploratory / natural chat states
+        pass
+    free_ai_states = {"await_intent", "await_service", "open", "order_placed", "await_enquiry", "await_details", None, ""}
+    if text and not interactive_id and (state in free_ai_states or state not in structured_states):
+        try:
+            from app.services.ai_orchestrator import run_ai_turn
+            understanding, facts, ai_reply = await run_ai_turn(
+                db, company, services, ctx, conv.id, from_wa, text,
+            )
+            _save_ctx(conv, ctx)
+            if understanding and understanding.get("intent") == "human_agent_request":
+                conv.is_live_takeover = True
+                reply = ai_reply or _t(
+                    ctx,
+                    "A team member will take over this chat shortly. Thank you for your patience.",
+                    "Someone from our team go join this chat soon. Thank you.",
+                )
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+                return
+            if understanding and understanding.get("intent") == "order_status" and facts.get("latest_order"):
+                if ai_reply:
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply))
+                    await db.commit()
+                    await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply)
+                    return
+            # If AI extracted service + quote and confidence high, use natural reply
+            conf = float((understanding or {}).get("confidence") or 0)
+            intent = (understanding or {}).get("intent") or ""
+            if ai_reply and conf >= 0.55 and intent in (
+                "printing_request", "price_request", "quotation_request",
+                "general_question", "greeting", "product_availability",
+                "delivery_question", "turnaround_question", "payment_question",
+                "modification_request", "complaint", "clarifying", "affirm", "deny",
+            ):
+                # Advance state lightly when we have a verified quote
+                if facts.get("verified_quote") and intent in ("printing_request", "price_request", "quotation_request"):
+                    conv.state = "await_artwork" if not ctx.get("design_status") else "await_fulfillment"
+                elif intent == "greeting":
+                    conv.state = "await_intent"
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply)
+                # After quote, offer design buttons if appropriate
+                if facts.get("verified_quote") and conv.state == "await_artwork":
+                    await _reply(
+                        link, from_wa,
+                        _t(ctx, "Do you have a print-ready design?", "You get print-ready design?"),
+                        buttons=[("art_have", "I have design"), ("art_need", "Need design")],
+                    )
+                return
+            # Low confidence / no reply → fall through to rule engine with updated ctx
+        except Exception:
+            pass
 
     # --- Coming for pickup notifications ---
     if any(p in low for p in ("on my way", "i dey come", "coming for", "coming to pick", "i'm coming", "im coming")):
