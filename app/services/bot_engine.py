@@ -441,17 +441,26 @@ async def handle_inbound(
         _save_ctx(conv, ctx)
 
 
-    # ── Two-stage Grok understanding (free text only; buttons keep rule flow) ──
+    # ── Two-stage Grok understanding ──
+    # Buttons stay rule-based. Free text ALWAYS goes through Grok first so the
+    # customer can change topic mid-flow (e.g. ask nylon price while on Pickup).
     structured_states = {
         "await_lang", "await_size", "await_qty_fixed", "await_artwork",
         "await_fulfillment", "await_schedule", "await_payment", "await_proof",
-        "await_details",
+        "await_details", "await_datetime", "await_address",
     }
-    if text and not interactive_id and state not in structured_states - {"await_details", "open", "await_intent", "await_service", "order_placed", "await_enquiry"}:
-        # prefer AI for exploratory / natural chat states
-        pass
-    free_ai_states = {"await_intent", "await_service", "open", "order_placed", "await_enquiry", "await_details", "completed", "done", None, ""}
-    if text and not interactive_id and (state in free_ai_states or state not in structured_states):
+    # Short answers that clearly complete the current step — let rules handle them
+    step_answers = {
+        "await_fulfillment": ("pickup", "delivery", "deliver", "come collect", "i go come", "i will come"),
+        "await_lang": ("english", "pidgin", "en", "normal english"),
+        "await_artwork": ("need design", "print ready", "i have design", "no design", "design ready"),
+    }
+    text_is_step_answer = False
+    if text and state in step_answers:
+        tl = text.lower().strip()
+        text_is_step_answer = any(k in tl for k in step_answers[state]) and len(tl) < 40
+
+    if text and not interactive_id and not text_is_step_answer:
         try:
             from app.services.ai_orchestrator import run_ai_turn
             understanding, facts, ai_reply = await run_ai_turn(
@@ -490,24 +499,38 @@ async def handle_inbound(
                     await db.commit()
                     await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply)
                     return
-            # If AI extracted service + quote and confidence high, use natural reply
+            # If AI understood the free text, prefer natural reply over rigid step prompts
             conf = float((understanding or {}).get("confidence") or 0)
             intent = (understanding or {}).get("intent") or ""
-            if ai_reply and conf >= 0.55 and intent in (
+            topic_change_intents = (
                 "printing_request", "price_request", "quotation_request",
-                "general_question", "greeting", "product_availability",
+                "product_availability", "general_question", "greeting",
                 "delivery_question", "turnaround_question", "payment_question",
-                "modification_request", "complaint", "clarifying", "affirm", "deny",
-            ):
-                # Advance state lightly when we have a verified quote
-                if facts.get("verified_quote") and intent in ("printing_request", "price_request", "quotation_request"):
-                    conv.state = "await_artwork" if not ctx.get("design_status") else "await_fulfillment"
+                "modification_request", "complaint", "clarifying",
+            )
+            if ai_reply and conf >= 0.45 and intent in topic_change_intents + ("affirm", "deny"):
+                # Customer asked a NEW product/price while mid-flow → soft reset old cart fields
+                if intent in ("printing_request", "price_request", "quotation_request", "product_availability"):
+                    for k in (
+                        "fulfillment", "address", "datetime", "date", "time",
+                        "payment_proof", "subtotal", "delivery_fee",
+                    ):
+                        ctx.pop(k, None)
+                    # If AI/facts point at a different service name, clear size/qty from previous job
+                    new_svc = (facts or {}).get("service_name") or (understanding or {}).get("service_name")
+                    if new_svc and ctx.get("service_name") and str(new_svc).lower() not in str(ctx.get("service_name")).lower():
+                        for k in ("size", "qty", "width", "height", "unit", "design_status", "design_fee", "total", "details"):
+                            ctx.pop(k, None)
+                    _save_ctx(conv, ctx)
+                    if facts.get("verified_quote"):
+                        conv.state = "await_artwork" if not ctx.get("design_status") else "await_fulfillment"
+                    else:
+                        conv.state = "await_service"
                 elif intent == "greeting":
                     conv.state = "await_intent"
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply))
                 await db.commit()
                 await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply)
-                # After quote, offer design buttons if appropriate
                 if facts.get("verified_quote") and conv.state == "await_artwork":
                     await _reply(
                         link, from_wa,
@@ -1030,7 +1053,15 @@ async def handle_inbound(
         is_del = interactive_id == "ful_delivery" or any(w in low for w in ("deliver", "delivery", "send"))
         is_pick = interactive_id == "ful_pickup" or any(w in low for w in ("pickup", "pick up", "collect"))
         if not is_del and not is_pick:
-            outbound = _t(ctx, "Please choose *Pickup* or *Delivery*.", "Choose *Pickup* or *Delivery*.")
+            # Free text that is not pickup/delivery (AI path should have handled topic changes).
+            # Acknowledge and re-offer buttons so the chat never feels stuck.
+            outbound = _t(
+                ctx,
+                "I can help with that. For this current order, please choose *Pickup* or *Delivery* below — "
+                "or tell me clearly if you want to start a *new* quote (e.g. nylon, sticker, banner).",
+                "I fit help you. For this order now, choose *Pickup* or *Delivery* below — "
+                "or tell me if you wan start *new* quote (e.g. nylon, sticker, banner).",
+            )
             await _reply(link, from_wa, outbound, buttons=[("ful_pickup", "Pickup"), ("ful_delivery", "Delivery")])
             db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
             await db.commit()
