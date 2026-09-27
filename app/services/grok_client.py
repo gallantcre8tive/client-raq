@@ -31,7 +31,7 @@ def _api_key() -> str:
 
 def _model() -> str:
     s = get_settings()
-    return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-4-fast").strip()
+    return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-4-fast-non-reasoning").strip()
 
 
 def _base_url() -> str:
