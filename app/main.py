@@ -87,55 +87,60 @@ async def startup():
 
 
 async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict:
-    zero = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
-    try:
-        now = datetime.now(timezone.utc)
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = day_start - timedelta(days=day_start.weekday())
-        month_start = day_start.replace(day=1)
+    """Sum confirmed revenue. Works if DB has orders.total OR orders.total_amount."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import text
 
-        async def sum_since(since):
+    now = datetime.now(timezone.utc)
+    day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week0 = day0 - timedelta(days=day0.weekday())
+    month0 = day0.replace(day=1)
+    paid = ("PAYMENT_CONFIRMED", "IN_PRODUCTION", "READY", "COMPLETED",
+            "payment_confirmed", "in_production", "ready", "completed")
+
+    async def _sum_since(since) -> float:
+        # Prefer total, fall back to total_amount — never crash the dashboard
+        try:
+            sql = text("""
+                SELECT COALESCE(SUM(COALESCE(NULLIF(total, 0), total_amount, 0)), 0) AS s
+                FROM orders
+                WHERE created_at >= :since
+                  AND (:cid IS NULL OR company_id = :cid)
+                  AND status::text = ANY(:statuses)
+            """)
+            r = await db.execute(sql, {"since": since, "cid": company_id, "statuses": list(paid)})
+            val = r.scalar()
+            return float(val or 0)
+        except Exception as e1:
+            print("revenue sum primary:", type(e1).__name__, e1)
             try:
-                from sqlalchemy import text as sa_text
-                # Prefer ORM total; fall back if column missing on older DBs
-                try:
-                    q = select(func.coalesce(func.sum(Order.total), 0)).where(Order.created_at >= since)
-                    if company_id is not None:
-                        q = q.where(Order.company_id == company_id)
-                    q = q.where(Order.status.in_([
-                        OrderStatus.PAYMENT_CONFIRMED,
-                        OrderStatus.IN_PRODUCTION,
-                        OrderStatus.READY,
-                        OrderStatus.COMPLETED,
-                    ]))
-                    return float((await db.execute(q)).scalar() or 0)
-                except Exception as inner:
-                    print("revenue orm sum:", inner)
-                    try:
-                        await db.rollback()
-                    except Exception:
-                        pass
-                    return 0.0
-            except Exception as e:
-                print("revenue sum_since:", e)
+                await db.rollback()
+            except Exception:
+                pass
+            try:
+                sql2 = text("""
+                    SELECT COALESCE(SUM(COALESCE(total_amount, 0)), 0) AS s
+                    FROM orders
+                    WHERE created_at >= :since
+                      AND (:cid IS NULL OR company_id = :cid)
+                      AND status::text = ANY(:statuses)
+                """)
+                r = await db.execute(sql2, {"since": since, "cid": company_id, "statuses": list(paid)})
+                return float(r.scalar() or 0)
+            except Exception as e2:
+                print("revenue sum fallback:", type(e2).__name__, e2)
                 try:
                     await db.rollback()
                 except Exception:
                     pass
                 return 0.0
 
-        return {
-            "daily": await sum_since(day_start),
-            "weekly": await sum_since(week_start),
-            "monthly": await sum_since(month_start),
-        }
-    except Exception as e:
-        print("revenue_stats:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-        return zero
+    return {
+        "daily": await _sum_since(day0),
+        "weekly": await _sum_since(week0),
+        "monthly": await _sum_since(month0),
+    }
+
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -530,6 +535,11 @@ async def company_ctx(user: User, db: AsyncSession):
 async def company_dashboard(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    try:
+        from app.database import ensure_schema
+        await ensure_schema()
+    except Exception as _es:
+        print('dash_ensure', _es)
     """Always returns 200 HTML for company dashboard."""
     ctx = {
         "active": "dashboard",
@@ -913,6 +923,11 @@ async def company_variant_delete(
 async def company_orders(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    try:
+        from app.database import ensure_schema
+        await ensure_schema()
+    except Exception as _es:
+        print('orders_ensure', _es)
     company = await company_ctx(user, db)
     rows = []
     try:
