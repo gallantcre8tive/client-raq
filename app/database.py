@@ -104,6 +104,12 @@ async def ensure_schema():
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_wa_id VARCHAR(50)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150)",
         "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'normal'",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS body TEXT",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS title VARCHAR(200)",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS conversation_id INTEGER",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS company_id INTEGER",
+
         "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS link_path VARCHAR(300)",
         "UPDATE users SET role = 'platform_admin' WHERE role::text IN ('PLATFORM_ADMIN','Platform_Admin','platformadmin')",
         "UPDATE users SET role = 'company_admin' WHERE role::text IN ('COMPANY_ADMIN','Company_Admin','companyadmin')",
