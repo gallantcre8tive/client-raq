@@ -52,6 +52,13 @@ async def ensure_schema():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS location_text VARCHAR(300)",
         "ALTER TABLE payment_details ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
 
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(40)",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id INTEGER",
+        "ALTER TABLE services ADD COLUMN IF NOT EXISTS reference_image_url VARCHAR(500)",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'normal'",
+        "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS link_path VARCHAR(300)",
+
+
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS flow_type VARCHAR(40) DEFAULT 'generic'",
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS design_fee DOUBLE PRECISION DEFAULT 0",
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS min_qty INTEGER DEFAULT 1",

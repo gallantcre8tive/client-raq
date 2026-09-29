@@ -1452,22 +1452,33 @@ async def company_notification_read(
 
 
 @app.get("/company/revenue/pdf")
+async def company_revenue_pdf_redirect():
+    return RedirectResponse("/company/revenue/statement", status_code=303)
+
+
+@app.post("/company/revenue/pdf")
 async def company_revenue_pdf(
-    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+    password: str = Form(...),
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Statement download — no lazy ORM IO (avoids MissingGreenlet on async SQLAlchemy)."""
+    """Bank-style Client RaQ statement. Requires company admin password."""
     from fastapi.responses import Response
     from datetime import datetime, timezone
+    from io import BytesIO
+
+    if not verify_password(password, user.hashed_password):
+        return RedirectResponse("/company/revenue/statement?error=bad_password", status_code=303)
 
     company = await company_ctx(user, db)
     if not company:
         raise HTTPException(404, "Company not found")
 
-    # Snapshot company fields NOW as plain Python (no later ORM access)
     company_id = int(company.id)
     company_name = str(getattr(company, "name", None) or "Company")
     company_slug = str(getattr(company, "slug", None) or company_id)
     cur = str(getattr(company, "currency", None) or "NGN")
+    country = str(getattr(company, "country", None) or "")
 
     rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
     try:
@@ -1491,18 +1502,14 @@ async def company_revenue_pdf(
             select(Order).where(
                 Order.company_id == company_id,
                 Order.status.in_(paid),
-            ).order_by(Order.created_at.desc()).limit(200)
+            ).order_by(Order.created_at.desc()).limit(300)
         )
         orders = list(result.scalars().all())
         for o in orders:
-            # Materialize every field while still in async context
             st = getattr(o, "status", None)
-            if hasattr(st, "value"):
-                st = st.value
-            else:
-                st = str(st or "")
+            st = st.value if hasattr(st, "value") else str(st or "")
             created = getattr(o, "created_at", None)
-            dt_s = created.strftime("%Y-%m-%d") if created is not None else "—"
+            dt_s = created.strftime("%d %b %Y") if created is not None else "—"
             amt = getattr(o, "total", None)
             if amt is None:
                 amt = getattr(o, "total_amount", 0) or 0
@@ -1511,10 +1518,10 @@ async def company_revenue_pdf(
             rows.append({
                 "id": int(o.id),
                 "date": dt_s,
-                "customer": str(cust)[:20],
-                "service": str(svc)[:22],
+                "customer": str(cust)[:28],
+                "service": str(svc)[:26],
                 "amount": float(amt or 0),
-                "status": str(st),
+                "status": str(st).replace("_", " ").title(),
             })
     except Exception as e:
         print("revenue_pdf orders:", e)
@@ -1523,69 +1530,201 @@ async def company_revenue_pdf(
         except Exception:
             pass
 
-    # From here: pure Python only — safe for reportlab sync code
-    lines = [
-        "CLIENT-RaQ REVENUE STATEMENT",
-        f"Company: {company_name}",
-        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-        "",
-        "SUMMARY",
-        f"  Today:   {cur} {float(rev.get('daily') or 0):,.2f}",
-        f"  Week:    {cur} {float(rev.get('weekly') or 0):,.2f}",
-        f"  Month:   {cur} {float(rev.get('monthly') or 0):,.2f}",
-        "",
-        "CONFIRMED ORDERS (payment confirmed and later)",
-        f"{'ID':>6}  {'Date':12}  {'Customer':22}  {'Service':24}  {'Amount':>14}  Status",
-        "-" * 90,
-    ]
-    for r in rows:
-        lines.append(
-            f"{r['id']:6d}  {r['date']:12}  {r['customer']:22}  {r['service']:24}  "
-            f"{cur} {r['amount']:>10,.2f}  {r['status']}"
-        )
-    if not rows:
-        lines.append("(No confirmed paid orders yet)")
-    lines.append("")
-    lines.append("Amounts are from orders marked payment_confirmed or later.")
-    body = "\n".join(lines)
-    fname_base = f"revenue-{company_slug}"
+    total_all = sum(r["amount"] for r in rows)
+    generated = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
+    stmt_ref = f"CRQ-{company_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}"
 
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
         from reportlab.lib.units import mm
-        import io
+        from reportlab.lib.colors import HexColor, white, black
 
-        buf = io.BytesIO()
+        buf = BytesIO()
         c = canvas.Canvas(buf, pagesize=A4)
-        w, h = A4
-        y = h - 20 * mm
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(20 * mm, y, "Client-RaQ Revenue Statement")
-        y -= 8 * mm
+        width, height = A4
+        try:
+            c.setEncrypt(password)
+        except Exception:
+            pass
+
+        navy = HexColor("#0B1F3A")
+        accent = HexColor("#1B4F72")
+        light = HexColor("#F4F6F8")
+        muted = HexColor("#5D6D7E")
+        line_c = HexColor("#D5D8DC")
+        green = HexColor("#0E6655")
+
+        def draw_header(page_no: int):
+            c.setFillColor(navy)
+            c.rect(0, height - 32 * mm, width, 32 * mm, fill=1, stroke=0)
+            c.setFillColor(white)
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(18 * mm, height - 14 * mm, "Client RaQ")
+            c.setFont("Helvetica", 9)
+            c.drawString(18 * mm, height - 20 * mm, "Revenue statement")
+            c.setFont("Helvetica", 8)
+            c.drawRightString(width - 18 * mm, height - 14 * mm, company_name)
+            c.drawRightString(width - 18 * mm, height - 19 * mm, f"Ref: {stmt_ref}")
+            c.setFillColor(accent)
+            c.rect(0, height - 34 * mm, width, 2 * mm, fill=1, stroke=0)
+
+        def draw_footer(page_no: int):
+            c.setStrokeColor(line_c)
+            c.line(18 * mm, 14 * mm, width - 18 * mm, 14 * mm)
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 7)
+            c.drawString(18 * mm, 9 * mm, "Generated by Client RaQ · Confidential · For account holder only")
+            c.drawRightString(width - 18 * mm, 9 * mm, f"Page {page_no}")
+
+        page = 1
+        draw_header(page)
+        y = height - 42 * mm
+
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(18 * mm, y, "Account summary")
+        y -= 6 * mm
         c.setFont("Helvetica", 9)
-        for line in lines[1:]:
-            if y < 15 * mm:
-                c.showPage()
-                c.setFont("Helvetica", 9)
-                y = h - 20 * mm
-            # reportlab needs latin-1 safe-ish strings
-            safe = line[:110].encode("latin-1", "replace").decode("latin-1")
-            c.drawString(15 * mm, y, safe)
-            y -= 5 * mm
+        c.setFillColor(muted)
+        c.drawString(18 * mm, y, f"Business: {company_name}")
+        y -= 4.5 * mm
+        if country:
+            c.drawString(18 * mm, y, f"Country: {country}")
+            y -= 4.5 * mm
+        c.drawString(18 * mm, y, f"Currency: {cur}")
+        y -= 4.5 * mm
+        c.drawString(18 * mm, y, f"Generated: {generated}")
+        y -= 8 * mm
+
+        box_w = (width - 36 * mm - 6 * mm) / 3
+        labels = [("Today", rev.get("daily", 0)), ("This week", rev.get("weekly", 0)), ("This month", rev.get("monthly", 0))]
+        x0 = 18 * mm
+        for i, (lab, val) in enumerate(labels):
+            x = x0 + i * (box_w + 3 * mm)
+            c.setFillColor(light)
+            c.roundRect(x, y - 16 * mm, box_w, 18 * mm, 3, fill=1, stroke=0)
+            c.setFillColor(muted)
+            c.setFont("Helvetica", 8)
+            c.drawString(x + 3 * mm, y - 4 * mm, lab)
+            c.setFillColor(navy)
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(x + 3 * mm, y - 11 * mm, f"{cur} {float(val or 0):,.0f}")
+        y -= 26 * mm
+
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(18 * mm, y, "Confirmed payment activity")
+        y -= 6 * mm
+
+        c.setFillColor(navy)
+        c.rect(18 * mm, y - 5 * mm, width - 36 * mm, 7 * mm, fill=1, stroke=0)
+        c.setFillColor(white)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(20 * mm, y - 3.2 * mm, "Date")
+        c.drawString(42 * mm, y - 3.2 * mm, "Ref")
+        c.drawString(58 * mm, y - 3.2 * mm, "Customer")
+        c.drawString(100 * mm, y - 3.2 * mm, "Service")
+        c.drawRightString(width - 42 * mm, y - 3.2 * mm, "Amount")
+        c.drawString(width - 38 * mm, y - 3.2 * mm, "Status")
+        y -= 9 * mm
+
+        c.setFont("Helvetica", 8)
+        if not rows:
+            c.setFillColor(muted)
+            c.drawString(20 * mm, y, "No confirmed payment orders in this period.")
+            y -= 6 * mm
+        else:
+            for r in rows:
+                if y < 28 * mm:
+                    draw_footer(page)
+                    c.showPage()
+                    page += 1
+                    draw_header(page)
+                    y = height - 42 * mm
+                    c.setFillColor(navy)
+                    c.rect(18 * mm, y - 5 * mm, width - 36 * mm, 7 * mm, fill=1, stroke=0)
+                    c.setFillColor(white)
+                    c.setFont("Helvetica-Bold", 8)
+                    c.drawString(20 * mm, y - 3.2 * mm, "Date")
+                    c.drawString(42 * mm, y - 3.2 * mm, "Ref")
+                    c.drawString(58 * mm, y - 3.2 * mm, "Customer")
+                    c.drawString(100 * mm, y - 3.2 * mm, "Service")
+                    c.drawRightString(width - 42 * mm, y - 3.2 * mm, "Amount")
+                    c.drawString(width - 38 * mm, y - 3.2 * mm, "Status")
+                    y -= 9 * mm
+                    c.setFont("Helvetica", 8)
+                c.setFillColor(black)
+                c.drawString(20 * mm, y, r["date"][:12])
+                c.drawString(42 * mm, y, f"#{r['id']}")
+                c.drawString(58 * mm, y, r["customer"][:22])
+                c.drawString(100 * mm, y, r["service"][:20])
+                c.setFillColor(green)
+                c.drawRightString(width - 42 * mm, y, f"{r['amount']:,.0f}")
+                c.setFillColor(muted)
+                c.drawString(width - 38 * mm, y, r["status"][:12])
+                c.setStrokeColor(line_c)
+                c.line(18 * mm, y - 1.8 * mm, width - 18 * mm, y - 1.8 * mm)
+                y -= 6 * mm
+
+        y -= 4 * mm
+        if y < 40 * mm:
+            draw_footer(page)
+            c.showPage()
+            page += 1
+            draw_header(page)
+            y = height - 42 * mm
+        c.setFillColor(light)
+        c.roundRect(18 * mm, y - 14 * mm, width - 36 * mm, 16 * mm, 3, fill=1, stroke=0)
+        c.setFillColor(navy)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(22 * mm, y - 6 * mm, "Total (listed confirmed orders)")
+        c.drawRightString(width - 22 * mm, y - 6 * mm, f"{cur} {total_all:,.0f}")
+        c.setFont("Helvetica", 8)
+        c.setFillColor(muted)
+        c.drawString(22 * mm, y - 11 * mm, "Includes payment confirmed and later production statuses only.")
+
+        y -= 24 * mm
+        c.setFillColor(muted)
+        c.setFont("Helvetica", 7)
+        for line in (
+            "This statement is generated from your Client RaQ order records.",
+            "It is not a bank document. Use it for internal bookkeeping and client reconciliation.",
+            "PDF is password-protected with your company admin login password.",
+            "Client RaQ · clientraq.com",
+        ):
+            if y < 20 * mm:
+                break
+            c.drawString(18 * mm, y, line)
+            y -= 3.5 * mm
+
+        draw_footer(page)
         c.save()
+        pdf_bytes = buf.getvalue()
+        safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in company_slug)[:40]
         return Response(
-            content=buf.getvalue(),
+            content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{fname_base}.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="ClientRaQ_Statement_{safe_name}.pdf"'},
         )
     except Exception as e:
         print("revenue_pdf reportlab:", e)
-        return Response(
-            content=body.encode("utf-8"),
-            media_type="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{fname_base}.txt"'},
-        )
+        lines = [
+            "CLIENT RAQ REVENUE STATEMENT",
+            f"Company: {company_name}",
+            f"Ref: {stmt_ref}",
+            f"Generated: {generated}",
+            f"Today: {cur} {float(rev.get('daily', 0) or 0):,.0f}",
+            f"Week: {cur} {float(rev.get('weekly', 0) or 0):,.0f}",
+            f"Month: {cur} {float(rev.get('monthly', 0) or 0):,.0f}",
+            "",
+            "Orders:",
+        ]
+        for r in rows:
+            lines.append(f"{r['date']} #{r['id']} {r['customer']} {r['service']} {r['amount']:,.0f} {r['status']}")
+        lines.append(f"Total: {cur} {total_all:,.0f}")
+        return Response("\n".join(lines), media_type="text/plain; charset=utf-8")
+
 
 
 @app.get("/health")

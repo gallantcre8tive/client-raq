@@ -1,0 +1,61 @@
+{% extends "layouts/company.html" %}
+{% block title %}Service setup guide – Client-RaQ{% endblock %}
+{% block page_title %}Service pricing guide{% endblock %}
+{% set active = 'services' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed max-w-3xl">
+  How to configure prices so the WhatsApp bot calculates correctly. Match the method to the product — banner is not the same as frame.
+</p>
+<a href="/company/services" class="text-sm text-[var(--primary)] hover:underline mb-6 inline-block">Back to services</a>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+  {% for key, g in guides.items() %}
+  <div class="card p-5" id="guide-{{ key }}">
+    <h2 class="text-base font-semibold mb-1">{{ g.title }}</h2>
+    <p class="text-sm text-[var(--text-secondary)] mb-3">{{ g.summary }}</p>
+    <p class="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2">How to set</p>
+    <ol class="list-decimal pl-5 text-sm space-y-1.5 mb-3 text-[var(--text-primary)]">
+      {% for step in g.how_to_set %}
+      <li>{{ step }}</li>
+      {% endfor %}
+    </ol>
+    <p class="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">Bot formula</p>
+    <p class="text-sm font-mono mb-3 p-2 rounded-lg bg-[var(--surface-subtle)]">{{ g.bot_formula }}</p>
+    <p class="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">Examples</p>
+    <ul class="list-disc pl-5 text-sm space-y-1 mb-3">
+      {% for ex in g.examples %}
+      <li>{{ ex }}</li>
+      {% endfor %}
+    </ul>
+    <p class="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">Avoid</p>
+    <ul class="list-disc pl-5 text-sm space-y-1 text-[var(--text-secondary)]">
+      {% for m in g.mistakes %}
+      <li>{{ m }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card p-5 max-w-3xl">
+  <h2 class="text-base font-semibold mb-2">Quick map</h2>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+          <th class="py-2 pr-3">Product</th>
+          <th class="py-2 pr-3">Method</th>
+          <th class="py-2">What you enter</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="border-b border-[var(--border-subtle)]"><td class="py-2 pr-3">Flex / Banner / Mesh / SAV</td><td class="py-2 pr-3">Per sq ft</td><td class="py-2">One rate (e.g. 250)</td></tr>
+        <tr class="border-b border-[var(--border-subtle)]"><td class="py-2 pr-3">Frame / Acrylic / Box A2–A5</td><td class="py-2 pr-3">Variants</td><td class="py-2">Each size + price</td></tr>
+        <tr class="border-b border-[var(--border-subtle)]"><td class="py-2 pr-3">Nylon / pens / caps</td><td class="py-2 pr-3">Per piece</td><td class="py-2">Price × quantity</td></tr>
+        <tr class="border-b border-[var(--border-subtle)]"><td class="py-2 pr-3">Business cards / flyers</td><td class="py-2 pr-3">Tier / variants</td><td class="py-2">Pack sizes or per piece</td></tr>
+        <tr><td class="py-2 pr-3">Full vehicle brand</td><td class="py-2 pr-3">Custom</td><td class="py-2">Bot escalates to staff</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

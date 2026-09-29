@@ -1,0 +1,29 @@
+{% extends "layouts/company.html" %}
+{% block title %}Revenue statement – Client-RaQ{% endblock %}
+{% block page_title %}Download statement{% endblock %}
+{% set active = 'dashboard' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-4 max-w-xl leading-relaxed">
+  Download a Client RaQ revenue statement (bank-style PDF). Enter your company admin password to generate and open the file.
+</p>
+{% if error == 'bad_password' %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:color-mix(in srgb,#c0392b 12%,transparent);color:#c0392b">
+  Incorrect password. Use the same password you use to sign in to company admin.
+</div>
+{% endif %}
+<div class="card p-6 max-w-md">
+  <form method="post" action="/company/revenue/pdf" class="space-y-4">
+    <div>
+      <label class="text-sm font-medium block mb-1.5">Admin password</label>
+      <input type="password" name="password" required autocomplete="current-password"
+             class="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+             placeholder="Your login password">
+      <p class="text-xs text-[var(--text-muted)] mt-1.5">PDF is protected with this password (like a bank e-statement).</p>
+    </div>
+    <button type="submit" class="btn-primary min-h-[44px] w-full">Download PDF statement</button>
+  </form>
+  <p class="text-xs text-[var(--text-muted)] mt-4">
+    <a href="/company/dashboard" class="text-[var(--primary)] hover:underline">Back to dashboard</a>
+  </p>
+</div>
+{% endblock %}
