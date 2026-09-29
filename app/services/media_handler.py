@@ -68,7 +68,7 @@ async def store_whatsapp_media(
     fname = f"{uuid.uuid4().hex}{_ext_from_mime(mime)}"
     path = company_dir / fname
     path.write_bytes(content)
-    rel = f"{company_id}/{fname}"
+    rel = f"{company_id}/{fname}"  # served at /media/{company_id}/{fname}
     att = Attachment(
         company_id=company_id,
         customer_wa_id=customer_wa_id,

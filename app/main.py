@@ -63,9 +63,15 @@ async def unhandled_exception(request: Request, exc: Exception):
     )
 
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
-media_path = BASE.parent / "media"
-media_path.mkdir(exist_ok=True)
-app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
+# Serve WhatsApp / admin uploads (MEDIA_ROOT, default "uploads")
+from app.config import get_settings as _gs
+_media_root = Path(_gs().MEDIA_ROOT)
+if not _media_root.is_absolute():
+    _media_root = (BASE / _media_root).resolve()
+_media_root.mkdir(parents=True, exist_ok=True)
+# also keep legacy folder
+(BASE.parent / "media").mkdir(exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(_media_root)), name="media")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
 
@@ -1393,15 +1399,17 @@ async def company_bot_alias(request: Request, user: User = Depends(require_compa
     return await company_bot(request, user, db)
 
 
+
 @app.get("/company/messages", response_class=HTMLResponse)
 async def company_messages(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
-    from app.models.conversation import Conversation, Message
+    from app.models.conversation import Conversation, Message, Attachment, Order
+    from pathlib import Path as _P
     company = await company_ctx(user, db)
     convs = (await db.execute(
         select(Conversation).where(Conversation.company_id == company.id).order_by(Conversation.updated_at.desc())
     )).scalars().all()
     selected_id = request.query_params.get("c")
-    messages = []
+    messages_view = []
     selected = None
     if selected_id:
         try:
@@ -1411,20 +1419,98 @@ async def company_messages(request: Request, user: User = Depends(require_compan
         if cid:
             selected = await db.get(Conversation, cid)
             if selected and selected.company_id == company.id:
-                messages = list((await db.execute(
+                rows = list((await db.execute(
                     select(Message).where(Message.conversation_id == cid).order_by(Message.created_at.asc())
                 )).scalars().all())
+                for m in rows:
+                    body = m.body or ""
+                    media_src = None
+                    media_kind = None
+                    media_name = None
+                    # Prefer attachment_id
+                    att = None
+                    aid = getattr(m, "attachment_id", None)
+                    if aid:
+                        att = await db.get(Attachment, aid)
+                    # Or media_url pointing to local path /media/...
+                    mu = getattr(m, "media_url", None) or ""
+                    if att and getattr(att, "storage_path", None):
+                        sp = str(att.storage_path).replace("\\", "/").lstrip("/")
+                        # storage is usually company_id/filename under uploads/
+                        if sp.startswith("media/"):
+                            media_src = "/" + sp
+                        elif sp.startswith("/media/"):
+                            media_src = sp
+                        elif sp.startswith("uploads/"):
+                            media_src = "/media/" + sp[len("uploads/"):]
+                        else:
+                            # company_id/file.jpg or bare filename
+                            media_src = "/media/" + sp
+                        mime = (att.mime_type or "").lower()
+                        if mime.startswith("image/"):
+                            media_kind = "image"
+                        elif mime.startswith("video/"):
+                            media_kind = "video"
+                        elif mime.startswith("audio/"):
+                            media_kind = "audio"
+                        else:
+                            media_kind = "document"
+                        media_name = att.original_name
+                        if body in ("[media]", "[image]", "[document]", "[audio]", ""):
+                            body = att.original_name or ("Image" if media_kind == "image" else "Attachment")
+                    elif mu.startswith("/media/") or mu.startswith("http"):
+                        media_src = mu
+                        media_kind = "image" if any(x in mu.lower() for x in (".jpg", ".jpeg", ".png", ".webp", ".gif")) else "document"
+                    elif mu and not mu.startswith("wamid:"):
+                        # local filename
+                        media_src = "/media/" + _P(mu).name
+                        media_kind = "image"
+
+                    order_summary = None
+                    # light: last confirmed order for this customer on outbound payment messages
+                    if m.direction == "outbound" and body and "payment" in body.lower():
+                        try:
+                            od = (await db.execute(
+                                select(Order).where(
+                                    Order.company_id == company.id,
+                                    Order.customer_wa_id == selected.customer_wa_id,
+                                ).order_by(Order.id.desc()).limit(1)
+                            )).scalars().first()
+                            if od:
+                                order_summary = (
+                                    f"{od.service_name or 'Order'} · "
+                                    f"{getattr(od, 'details', None) or ''} · "
+                                    f"{od.currency or company.currency} {float(od.total or od.total_amount or 0):,.0f}"
+                                ).strip(" ·")
+                        except Exception:
+                            pass
+
+                    messages_view.append({
+                        "direction": m.direction,
+                        "body": body,
+                        "media_src": media_src,
+                        "media_kind": media_kind,
+                        "media_name": media_name,
+                        "order_summary": order_summary,
+                    })
     threads = []
     for c in convs:
         last = (await db.execute(
             select(Message).where(Message.conversation_id == c.id).order_by(Message.created_at.desc()).limit(1)
         )).scalars().first()
+        preview = "—"
+        if last:
+            b = last.body or ""
+            if b in ("[media]", "[image]", "") and getattr(last, "media_url", None):
+                preview = "📎 Attachment"
+            else:
+                preview = (b or "—")[:80]
         threads.append({
             "id": c.id,
             "wa": c.customer_wa_id,
             "name": c.customer_name or c.customer_wa_id,
             "needs_human": bool(getattr(c, "needs_human", False) or getattr(c, "is_live_takeover", False)),
-            "preview": (last.body or "")[:80] if last else "—",
+            "preview": preview,
             "state": c.state,
         })
     return render(request, "company/messages.html", {
@@ -1432,42 +1518,103 @@ async def company_messages(request: Request, user: User = Depends(require_compan
         "company_name": company.name,
         "user_name": user.full_name,
         "threads": threads,
-        "messages": messages,
+        "messages": messages_view,
         "selected": selected,
         "selected_id": int(selected_id) if selected_id and str(selected_id).isdigit() else None,
     })
 
 
 
+
 @app.post("/company/messages/reply")
 async def company_messages_reply(
+    request: Request,
     conversation_id: int = Form(...),
     body: str = Form(""),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    from app.models.conversation import Conversation, Message
+    from app.models.conversation import Conversation, Message, Attachment
     from app.models.company import CompanyWhatsAppNumber
-    from app.services.whatsapp_send import send_text
+    from app.services.whatsapp_send import send_text, send_image
+    from app.config import get_settings
+    import uuid, aiofiles
+    from pathlib import Path as _P
+
     company = await company_ctx(user, db)
     conv = await db.get(Conversation, conversation_id)
     if not conv or conv.company_id != company.id:
         raise HTTPException(404)
+
+    form = await request.form()
+    upload = form.get("file")
     text = (body or "").strip()
-    if not text:
-        return RedirectResponse(f"/company/messages?c={conversation_id}", status_code=303)
-    # mark staff takeover so bot does not auto-reply next customer msg until cleared - optional soft flag
+
     conv.is_live_takeover = True
-    db.add(Message(conversation_id=conv.id, direction="outbound", body=text))
+    conv.needs_human = True
+
+    media_url = None
+    att_id = None
+    settings = get_settings()
+    media_root = _P(getattr(settings, "MEDIA_ROOT", "uploads"))
+    media_root.mkdir(parents=True, exist_ok=True)
+
+    if upload is not None and hasattr(upload, "filename") and upload.filename:
+        raw = await upload.read()
+        if raw:
+            ext = _P(upload.filename).suffix or ".bin"
+            fname = f"admin_{company.id}_{uuid.uuid4().hex[:12]}{ext}"
+            dest = media_root / fname
+            async with aiofiles.open(dest, "wb") as f:
+                await f.write(raw)
+            rel = f"/media/{fname}"
+            media_url = rel
+            mime = getattr(upload, "content_type", None) or "application/octet-stream"
+            att = Attachment(
+                company_id=company.id,
+                customer_wa_id=conv.customer_wa_id,
+                conversation_id=conv.id,
+                kind="admin_upload",
+                original_name=upload.filename,
+                mime_type=mime,
+                storage_path=rel,
+                size_bytes=len(raw),
+            )
+            db.add(att)
+            await db.flush()
+            att_id = att.id
+
+    display = text or (upload.filename if upload and getattr(upload, "filename", None) else "Attachment")
+    db.add(Message(
+        conversation_id=conv.id,
+        direction="outbound",
+        body=display,
+        media_url=media_url,
+        attachment_id=att_id,
+    ))
     await db.commit()
+
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(
             CompanyWhatsAppNumber.company_id == company.id,
-            CompanyWhatsAppNumber.is_active == True,
+            CompanyWhatsAppNumber.is_active == True,  # noqa: E712
         )
     )).scalars().first()
     if link and link.access_token:
-        await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, text)
+        try:
+            if media_url and (upload and getattr(upload, "content_type", "") or "").startswith("image"):
+                # WhatsApp needs public URL — if /media is on same domain it may work for Cloud API link
+                base = str(request.base_url).rstrip("/")
+                public = base + media_url
+                await send_image(link.phone_number_id, link.access_token, conv.customer_wa_id, image_url=public, caption=text or "")
+            elif text:
+                await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, text)
+            elif text == "" and media_url:
+                await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, "📎 Sent you a file from our team.")
+        except Exception as e:
+            print("admin_reply_wa", type(e).__name__, e)
+
     return RedirectResponse(f"/company/messages?c={conversation_id}&sent=1", status_code=303)
+
 
 
 @app.post("/company/messages/release")

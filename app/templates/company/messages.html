@@ -3,64 +3,91 @@
 {% block page_title %}Messages{% endblock %}
 {% set active = 'messages' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-  WhatsApp conversations. Reply as your team — the bot pauses auto-replies while you have taken over.
-</p>
-{% if request.query_params.get('sent') %}
-<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Message sent to customer.</div>
-{% endif %}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-[420px]">
-  <div class="card overflow-hidden lg:col-span-1 flex flex-col max-h-[70vh]">
+<p class="text-sm text-[var(--text-secondary)] mb-4">WhatsApp conversations. Reply as your team — the bot pauses auto-replies while you have taken over. Images and files appear in the thread.</p>
+<div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[min(70vh,640px)]">
+  <div class="card overflow-hidden flex flex-col max-h-[min(70vh,640px)]">
     <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">Conversations</div>
     <div class="overflow-y-auto flex-1">
-      {% if threads and threads|length > 0 %}
-        {% for t in threads %}
-        <a href="/company/messages?c={{ t.id }}"
-           class="block px-4 py-3 border-b border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] no-underline text-[var(--text-primary)] {% if selected_id==t.id %}bg-[var(--surface-subtle)]{% endif %}">
-          <div class="font-medium text-sm truncate flex items-center gap-2">{{ t.name }}{% if t.needs_human %}<span class="status-pill text-[10px]" style="background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--primary)">Needs you</span>{% endif %}</div>
-          <div class="text-xs text-[var(--text-muted)] truncate mt-0.5">{{ t.preview }}</div>
-        </a>
-        {% endfor %}
+      {% for t in threads|default([]) %}
+      <a href="/company/messages?c={{ t.id }}" class="block px-4 py-3 border-b border-[var(--border-subtle)] no-underline hover:bg-[var(--surface-subtle)] {% if selected_id==t.id %}bg-[var(--surface-subtle)]{% endif %}">
+        <div class="flex items-center justify-between gap-2">
+          <span class="font-medium text-sm text-[var(--text-primary)] truncate">{{ t.name or t.wa }}</span>
+          {% if t.needs_human %}<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">Live</span>{% endif %}
+        </div>
+        <div class="text-xs text-[var(--text-muted)] mt-0.5 truncate">{{ t.preview }}</div>
+      </a>
       {% else %}
-        <div class="p-8 text-center text-sm text-[var(--text-muted)]">No chats yet. They appear when customers message your WhatsApp number.</div>
-      {% endif %}
+      <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No conversations yet</div>
+      {% endfor %}
     </div>
   </div>
-  <div class="card lg:col-span-2 flex flex-col max-h-[70vh]">
-    <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0 flex items-center justify-between gap-2">
-      <span>{% if selected %}{{ selected.customer_name or selected.customer_wa_id }}{% else %}Thread{% endif %}</span>
-      {% if selected and (selected.is_live_takeover or selected.needs_human) %}
-      <form method="post" action="/company/messages/release" class="m-0">
-        <input type="hidden" name="conversation_id" value="{{ selected.id }}">
-        <button type="submit" class="text-xs text-[var(--primary)] hover:underline">Return to bot</button>
-      </form>
-      {% endif %}
+
+  <div class="card overflow-hidden flex flex-col max-h-[min(70vh,640px)] min-h-[420px]">
+    {% if selected %}
+    <div class="px-4 py-3 border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div class="font-semibold text-sm truncate">{{ selected.customer_name or selected.customer_wa_id }}</div>
+      <div class="flex items-center gap-2">
+        {% if selected.is_live_takeover or selected.needs_human %}
+        <form method="post" action="/company/messages/release" class="inline">
+          <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+          <button type="submit" class="text-xs text-[var(--primary)] hover:underline">Return to bot</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
-    <div class="flex-1 overflow-y-auto p-4 space-y-3">
+    <div class="flex-1 overflow-y-auto p-4 space-y-3" id="crq-msg-scroll">
       {% if messages and messages|length > 0 %}
         {% for m in messages %}
         <div class="flex {% if m.direction=='outbound' %}justify-end{% else %}justify-start{% endif %}">
           <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm {% if m.direction=='outbound' %}bg-[var(--primary)] text-white{% else %}bg-[var(--surface-subtle)] text-[var(--text-primary)]{% endif %}">
-            <div class="whitespace-pre-wrap break-words">{{ m.body or '—' }}</div>
-            {% if m.media_url %}
-            <div class="text-[10px] opacity-80 mt-1">[attachment / media]</div>
+            {% if m.media_kind == 'image' and m.media_src %}
+            <a href="{{ m.media_src }}" target="_blank" rel="noopener" class="block mb-2">
+              <img src="{{ m.media_src }}" alt="Attachment" class="max-w-full max-h-56 rounded-lg object-contain bg-black/10">
+            </a>
+            {% elif m.media_kind == 'video' and m.media_src %}
+            <video controls class="max-w-full max-h-56 rounded-lg mb-2" src="{{ m.media_src }}"></video>
+            {% elif m.media_kind == 'audio' and m.media_src %}
+            <audio controls class="w-full max-w-xs mb-2" src="{{ m.media_src }}"></audio>
+            {% elif m.media_kind == 'document' and m.media_src %}
+            <a href="{{ m.media_src }}" target="_blank" class="text-xs underline opacity-90 block mb-1">Open file{% if m.media_name %}: {{ m.media_name }}{% endif %}</a>
+            {% endif %}
+            {% if m.body and m.body not in ('[media]', '[image]', '[document]', '[audio]', '—') %}
+            <div class="whitespace-pre-wrap break-words">{{ m.body }}</div>
+            {% elif not m.media_src %}
+            <div class="whitespace-pre-wrap break-words opacity-70">{{ m.body or '—' }}</div>
+            {% endif %}
+            {% if m.order_summary %}
+            <div class="mt-2 pt-2 border-t border-white/20 text-[11px] opacity-95 whitespace-pre-wrap">{{ m.order_summary }}</div>
             {% endif %}
           </div>
         </div>
         {% endfor %}
       {% else %}
         <div class="h-full flex items-center justify-center text-sm text-[var(--text-muted)] p-6 text-center">
-          Select a conversation to view messages.
+          No messages in this thread yet.
         </div>
       {% endif %}
     </div>
-    {% if selected %}
-    <form method="post" action="/company/messages/reply" class="p-3 border-t border-[var(--border-subtle)] flex gap-2 shrink-0">
+    <form method="post" action="/company/messages/reply" enctype="multipart/form-data" class="p-3 border-t border-[var(--border-subtle)] flex flex-col gap-2 shrink-0">
       <input type="hidden" name="conversation_id" value="{{ selected.id }}">
-      <input type="text" name="body" required class="input-field flex-1" placeholder="Type a reply to the customer…" autocomplete="off">
-      <button type="submit" class="btn-primary h-10 shrink-0">Send</button>
+      <div class="flex gap-2 items-end">
+        <label class="shrink-0 w-10 h-10 rounded-xl border border-[var(--border-subtle)] inline-flex items-center justify-center cursor-pointer hover:bg-[var(--surface-subtle)]" title="Attach image or file">
+          <input type="file" name="file" accept="image/*,video/*,.pdf,.doc,.docx" class="hidden" onchange="document.getElementById('crq-file-label').textContent = this.files[0] ? this.files[0].name : 'Attach'">
+          <span class="text-lg leading-none">+</span>
+        </label>
+        <input type="text" name="body" class="input-field flex-1" placeholder="Type a reply to the customer…" autocomplete="off">
+        <button type="submit" class="btn-primary h-10 shrink-0">Send</button>
+      </div>
+      <div id="crq-file-label" class="text-[11px] text-[var(--text-muted)] px-1">Optional: attach image, video or PDF</div>
     </form>
+    {% else %}
+    <div class="flex-1 flex items-center justify-center text-sm text-[var(--text-muted)] p-6 text-center">
+      Select a conversation to view messages.
+    </div>
     {% endif %}
   </div>
 </div>
+<script>
+(function(){ var el=document.getElementById('crq-msg-scroll'); if(el) el.scrollTop = el.scrollHeight; })();
+</script>
 {% endblock %}

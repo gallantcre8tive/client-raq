@@ -472,6 +472,7 @@ async def handle_inbound(
         direction="inbound",
         body=display_in,
         media_url=(f"wamid:{wa_message_id}" if wa_message_id and not media_id else media_id),
+        # attachment_id set below after media_handler if available
     ))
     await db.flush()
 
@@ -597,6 +598,22 @@ async def handle_inbound(
             if att:
                 ctx["last_attachment_id"] = att.id
                 ctx["last_attachment_kind"] = att.kind
+                # Link attachment to the inbound message we just stored
+                try:
+                    last_in = (await db.execute(
+                        select(Message).where(
+                            Message.conversation_id == conv.id,
+                            Message.direction == "inbound",
+                        ).order_by(Message.id.desc()).limit(1)
+                    )).scalars().first()
+                    if last_in:
+                        last_in.attachment_id = att.id
+                        if getattr(att, "storage_path", None):
+                            last_in.media_url = att.storage_path
+                        if last_in.body in ("[media]", "[image]", "", None):
+                            last_in.body = att.original_name or att.kind or "Attachment"
+                except Exception as _le:
+                    print("link_inbound_att", _le)
                 if att.kind == "payment_proof":
                     ctx["payment_proof"] = str(att.id)
                 if att.kind in ("design", "document", "reference_image"):
@@ -721,13 +738,29 @@ async def handle_inbound(
                     except Exception as e:
                         print("ref_send", type(e).__name__, e)
 
-                # Offer pickup/delivery buttons only after locked quote and not already fulfillment chosen
-                if (
+                # Pickup/delivery buttons ONLY when customer is ready for fulfillment —
+                # never while they are asking a side question or pausing the flow.
+                low_msg = (text or "").lower()
+                pause_words = (
+                    "wait", "hold", "question", "ask", "please", "abeg", "one more",
+                    "another", "also want", "add", "instead", "change", "modify",
+                    "wetin", "how much", "price", "can i", "i wan ask", "i want to ask",
+                )
+                is_pause = any(w in low_msg for w in pause_words) and not any(
+                    w in low_msg for w in ("pickup", "delivery", "deliver", "i go come", "collect")
+                )
+                if is_pause:
+                    ctx["flow_paused"] = True
+                    _save_ctx(conv, ctx)
+                elif (
                     ctx.get("quote_locked")
                     and float(ctx.get("locked_total") or 0) > 0
                     and not ctx.get("fulfillment")
-                    and conv.state in ("await_fulfillment", "await_details", "await_service")
+                    and not ctx.get("flow_paused")
+                    and conv.state == "await_fulfillment"
+                    and any(w in (reply or "").lower() for w in ("pickup", "delivery", "collect", "come for"))
                 ):
+                    # Only attach buttons if the AI reply itself is about fulfillment
                     try:
                         await send_buttons(
                             link.phone_number_id,
@@ -738,6 +771,19 @@ async def handle_inbound(
                         )
                     except Exception:
                         pass
+                elif (
+                    ctx.get("flow_paused")
+                    and ctx.get("quote_locked")
+                    and not ctx.get("fulfillment")
+                ):
+                    # After a pause, gently resume only if customer answered and is back to order
+                    resume_ok = any(w in low_msg for w in (
+                        "ok", "okay", "continue", "proceed", "go on", "yes", "alright",
+                        "pickup", "delivery", "done", "na im", "make we continue",
+                    ))
+                    if resume_ok:
+                        ctx["flow_paused"] = False
+                        _save_ctx(conv, ctx)
                 return
         except Exception as e:
             print("agent_path", type(e).__name__, e)
