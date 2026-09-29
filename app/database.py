@@ -72,6 +72,10 @@ async def ensure_schema():
         created_at TIMESTAMPTZ DEFAULT NOW()
     )""",
         "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS needs_human BOOLEAN DEFAULT false",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url VARCHAR(500)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_proof VARCHAR(500)",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS schedule_note VARCHAR(200)",
         "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS handoff_reason VARCHAR(300)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS custom_ai_instructions TEXT",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bot_personality VARCHAR(40) DEFAULT 'friendly'",

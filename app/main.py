@@ -112,7 +112,7 @@ async def startup():
 
 
 async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict:
-    """Sum confirmed revenue. Works if DB has orders.total OR orders.total_amount."""
+    """Sum confirmed revenue. Avoid asyncpg NULL-typed params; never crash dashboard."""
     from datetime import datetime, timezone, timedelta
     from sqlalchemy import text
 
@@ -120,29 +120,35 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
     day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week0 = day0 - timedelta(days=day0.weekday())
     month0 = day0.replace(day=1)
-    paid = ("PAYMENT_CONFIRMED", "IN_PRODUCTION", "READY", "COMPLETED",
-            "payment_confirmed", "in_production", "ready", "completed")
+    paid_statuses = (
+        "PAYMENT_CONFIRMED", "IN_PRODUCTION", "READY", "COMPLETED",
+        "payment_confirmed", "in_production", "ready", "completed",
+    )
 
     async def _sum_since(since) -> float:
-        # Prefer total, fall back to total_amount — never crash the dashboard
         try:
-            sql = text("""
-                SELECT COALESCE(SUM(
-                    COALESCE(total, total_amount, 0)
-                ), 0) AS s
-                FROM orders
-                WHERE created_at >= :since
-                  AND (:cid IS NULL OR company_id = :cid)
-                  AND (
-                    status::text IN (
-                      'PAYMENT_CONFIRMED','IN_PRODUCTION','READY','COMPLETED',
-                      'payment_confirmed','in_production','ready','completed'
-                    )
-                  )
-            """)
-            r = await db.execute(sql, {"since": since, "cid": company_id})
-            val = r.scalar()
-            return float(val or 0)
+            if company_id is None:
+                sql = text("""
+                    SELECT COALESCE(SUM(COALESCE(total, total_amount, 0)), 0) AS s
+                    FROM orders
+                    WHERE created_at >= :since
+                      AND status::text = ANY(:statuses)
+                """)
+                r = await db.execute(sql, {"since": since, "statuses": list(paid_statuses)})
+            else:
+                sql = text("""
+                    SELECT COALESCE(SUM(COALESCE(total, total_amount, 0)), 0) AS s
+                    FROM orders
+                    WHERE created_at >= :since
+                      AND company_id = :cid
+                      AND status::text = ANY(:statuses)
+                """)
+                r = await db.execute(sql, {
+                    "since": since,
+                    "cid": int(company_id),
+                    "statuses": list(paid_statuses),
+                })
+            return float(r.scalar() or 0)
         except Exception as e1:
             print("revenue sum primary:", type(e1).__name__, e1)
             try:
@@ -150,13 +156,19 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
             except Exception:
                 pass
             try:
-                sql2 = text("""
-                    SELECT COALESCE(SUM(COALESCE(total_amount, total, 0)), 0) AS s
-                    FROM orders
-                    WHERE created_at >= :since
-                      AND (:cid IS NULL OR company_id = :cid)
-                """)
-                r = await db.execute(sql2, {"since": since, "cid": company_id})
+                if company_id is None:
+                    sql2 = text("""
+                        SELECT COALESCE(SUM(COALESCE(total_amount, total, 0)), 0) AS s
+                        FROM orders WHERE created_at >= :since
+                    """)
+                    r = await db.execute(sql2, {"since": since})
+                else:
+                    sql2 = text("""
+                        SELECT COALESCE(SUM(COALESCE(total_amount, total, 0)), 0) AS s
+                        FROM orders
+                        WHERE created_at >= :since AND company_id = :cid
+                    """)
+                    r = await db.execute(sql2, {"since": since, "cid": int(company_id)})
                 return float(r.scalar() or 0)
             except Exception as e2:
                 print("revenue sum fallback:", type(e2).__name__, e2)
@@ -171,6 +183,7 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
         "weekly": await _sum_since(week0),
         "monthly": await _sum_since(month0),
     }
+
 
 
 
@@ -1818,6 +1831,30 @@ async def company_notifications_api(
             "created_at": time_s,
             "time": time_s,
         })
+    # Fallback: surface platform_messages history if admin_notifications insert failed earlier
+    if not out:
+        try:
+            from app.models.platform_message import PlatformMessage
+            pm = list((await db.execute(
+                select(PlatformMessage).where(PlatformMessage.company_id == int(cid))
+                .order_by(PlatformMessage.id.desc()).limit(10)
+            )).scalars().all())
+            for m in pm:
+                created = getattr(m, "created_at", None)
+                time_s = created.strftime("%d %b %Y %H:%M") if created else ""
+                out.append({
+                    "id": 1000000 + int(m.id),
+                    "title": "Message from Client-RaQ Platform",
+                    "body": m.body or "",
+                    "priority": "high",
+                    "kind": "platform",
+                    "conversation_id": None,
+                    "link": "/company/dashboard",
+                    "created_at": time_s,
+                    "time": time_s,
+                })
+        except Exception as pe:
+            print("notif platform_messages fallback:", pe)
     return out
 
 

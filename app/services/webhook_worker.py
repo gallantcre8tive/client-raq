@@ -13,6 +13,7 @@ log = logging.getLogger("client_raq.webhook_bg")
 async def process_whatsapp_payload(body: dict[str, Any]) -> None:
     """Run outside the webhook request lifecycle with its own DB session."""
     if not body:
+        log.info("webhook_empty_body")
         return
     try:
         async with AsyncSessionLocal() as db:
@@ -21,7 +22,13 @@ async def process_whatsapp_payload(body: dict[str, Any]) -> None:
                     value = change.get("value", {}) or {}
                     metadata = value.get("metadata", {}) or {}
                     phone_number_id = metadata.get("phone_number_id") or ""
-                    for msg in value.get("messages", []) or []:
+                    msgs = value.get("messages", []) or []
+                    log.info(
+                        "webhook_batch phone_number_id=%s messages=%s",
+                        phone_number_id,
+                        len(msgs),
+                    )
+                    for msg in msgs:
                         await _one_message(db, phone_number_id, msg)
     except Exception as e:
         log.exception("bg_webhook %s", e)
@@ -29,14 +36,25 @@ async def process_whatsapp_payload(body: dict[str, Any]) -> None:
 
 async def _one_message(db, phone_number_id: str, msg: dict) -> None:
     from_wa = msg.get("from") or ""
+    wa_message_id = msg.get("id")
+    log.info(
+        "webhook_msg id=%s from=%s type=%s phone_number_id=%s",
+        wa_message_id,
+        from_wa,
+        msg.get("type"),
+        phone_number_id,
+    )
     if not phone_number_id or not from_wa:
+        log.warning("webhook_skip missing phone_number_id or from")
         return
+
     text = None
     media_id = None
     media_kind = None
     button_id = None
     list_id = None
     msg_type = msg.get("type") or ""
+
     if msg_type == "text":
         text = (msg.get("text") or {}).get("body")
     elif msg_type == "image":
@@ -65,6 +83,10 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
         elif inter.get("type") == "list_reply":
             list_id = (inter.get("list_reply") or {}).get("id")
             text = (inter.get("list_reply") or {}).get("title") or ""
+    else:
+        log.info("webhook_unsupported_type %s", msg_type)
+        # Still try handle with empty text so we can send a fallback
+
     try:
         await handle_inbound(
             db,
@@ -75,7 +97,16 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
             media_kind=media_kind,
             button_id=button_id,
             list_id=list_id,
-            wa_message_id=msg.get("id"),
+            wa_message_id=wa_message_id,
         )
+        try:
+            await db.commit()
+        except Exception:
+            pass
+        log.info("webhook_done id=%s", wa_message_id)
     except Exception as e:
-        log.exception("handle_inbound %s", e)
+        log.exception("handle_inbound failed id=%s err=%s", wa_message_id, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass

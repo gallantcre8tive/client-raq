@@ -75,7 +75,8 @@ async def _chat_with_tools(messages: list[dict], tools: list[dict] | None = None
         body["tools"] = tools
         body["tool_choice"] = "auto"
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            log.info("grok_request model=%s msgs=%s tools=%s", _model(), len(messages), bool(tools))
             r = await client.post(
                 f"{_base()}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},

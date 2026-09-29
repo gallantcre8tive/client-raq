@@ -424,6 +424,7 @@ async def handle_inbound(
         )
     )).scalar_one_or_none()
     if not link or not link.access_token:
+        print("bot_trace no_whatsapp_link phone_number_id=%r" % (phone_number_id,))
         return
     company = await db.get(Company, link.company_id)
     if not company:
@@ -656,6 +657,9 @@ async def handle_inbound(
                 {"direction": m.direction, "body": m.body or ""}
                 for m in reversed(recent_rows)
             ]
+            print("bot_trace agent_start company=%s conv=%s wa=%s text=%r" % (
+                company.id, conv.id, from_wa, (text or "")[:80],
+            ))
             reply, ctx, needs_human = await run_agent(
                 db,
                 company=company,
@@ -666,9 +670,31 @@ async def handle_inbound(
                 recent=recent,
                 attachment_note=attachment_note,
             )
+            print("bot_trace agent_done reply_len=%s needs_human=%s" % (
+                len(reply or ""), needs_human,
+            ))
             _save_ctx(conv, ctx)
             if needs_human:
                 conv.is_live_takeover = True
+                try:
+                    from app.models.conversation import AdminNotification
+                    db.add(AdminNotification(
+                        company_id=company.id,
+                        conversation_id=conv.id,
+                        title="Customer needs your attention",
+                        body=(text or attachment_note or "Customer message needs a human reply")[:500],
+                        priority="high",
+                    ))
+                    await db.flush()
+                except Exception as ne:
+                    print("needs_human_notify", ne)
+            if not reply:
+                # Grok returned empty — never leave customer silent
+                reply = (
+                    f"Hi! Welcome to *{company.name}*. "
+                    "Tell me what you want to print (sticker, banner, nylon, frame…) "
+                    "plus size and quantity, and I will get you a quote."
+                )
             if reply:
                 # Detect pidgin from customer message
                 if any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
@@ -715,6 +741,21 @@ async def handle_inbound(
                 return
         except Exception as e:
             print("agent_path", type(e).__name__, e)
+            log.exception("agent_path failed") if False else None
+            # Always send a safe reply so customer is never left on typing forever
+            try:
+                fb = (
+                    f"Thanks for messaging *{company.name}*. "
+                    "We got your message about printing. "
+                    "Please share the size and quantity (e.g. 5x2 ft or 100 pcs) "
+                    "and we will quote you right away."
+                )
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=fb))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, fb)
+                return
+            except Exception as e2:
+                print("agent_fallback_send", type(e2).__name__, e2)
 
     # ── Fast path: price / product asks get an instant rule reply (never silent) ──
     low_fast = (text or "").lower()

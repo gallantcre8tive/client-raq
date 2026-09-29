@@ -22,6 +22,7 @@ async def _post(phone_number_id: str, access_token: str, payload: dict) -> bool:
 
 
 async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body: str) -> bool:
+    """Send WhatsApp text. Logs status only (never the access token)."""
     if not to_wa_id or not body:
         return False
     payload = {
