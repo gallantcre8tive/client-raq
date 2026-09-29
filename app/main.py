@@ -78,33 +78,10 @@ def render(request: Request, name: str, context: dict | None = None, status_code
         return templates.TemplateResponse(name, ctx, status_code=status_code)
 
 
-def set_session(response: RedirectResponse, user_id: int, scope: str = "company") -> RedirectResponse:
-    """Separate cookies so platform + company admins can stay logged in together."""
-    token = create_access_token({"sub": str(user_id), "scope": scope})
-    common = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7, path="/")
-    if scope == "platform":
-        response.set_cookie(settings.SESSION_COOKIE_PLATFORM, token, **common)
-    else:
-        response.set_cookie(settings.SESSION_COOKIE_COMPANY, token, **common)
-    response.set_cookie(settings.SESSION_COOKIE, token, **common)
-    return response
 
 
 
-def clear_session(response: RedirectResponse, scope: str | None = None) -> RedirectResponse:
-    if scope in (None, "platform"):
-        response.delete_cookie(settings.SESSION_COOKIE_PLATFORM, path="/")
-    if scope in (None, "company"):
-        response.delete_cookie(settings.SESSION_COOKIE_COMPANY, path="/")
-    response.delete_cookie(settings.SESSION_COOKIE, path="/")
-    return response
 
-
-def clear_session(response: RedirectResponse) -> RedirectResponse:
-    response.delete_cookie(settings.SESSION_COOKIE_PLATFORM, path="/")
-    response.delete_cookie(settings.SESSION_COOKIE_COMPANY, path="/")
-    response.delete_cookie(settings.SESSION_COOKIE)
-    return response
 
 
 @app.on_event("startup")
@@ -187,6 +164,47 @@ async def landing(request: Request):
 
 
 # ---------- Platform auth ----------
+
+def set_session(response: RedirectResponse, user_id: int, scope: str = "company") -> RedirectResponse:
+    """Set auth cookie. secure=True required for HTTPS (Render / clientraq.com)."""
+    token = create_access_token({"sub": str(user_id), "scope": scope})
+    common = dict(
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,
+        path="/",
+        secure=True,  # clientraq.com is HTTPS — without this browser may drop cookie
+    )
+    try:
+        plat = settings.SESSION_COOKIE_PLATFORM
+        comp = settings.SESSION_COOKIE_COMPANY
+    except Exception:
+        plat, comp = "crq_platform_session", "crq_company_session"
+    legacy = getattr(settings, "SESSION_COOKIE", "crq_session")
+    if scope == "platform":
+        response.set_cookie(plat, token, **common)
+    else:
+        response.set_cookie(comp, token, **common)
+    response.set_cookie(legacy, token, **common)
+    return response
+
+
+def clear_session(response: RedirectResponse, scope: str | None = None) -> RedirectResponse:
+    try:
+        plat = settings.SESSION_COOKIE_PLATFORM
+        comp = settings.SESSION_COOKIE_COMPANY
+    except Exception:
+        plat, comp = "crq_platform_session", "crq_company_session"
+    legacy = getattr(settings, "SESSION_COOKIE", "crq_session")
+    opts = dict(path="/")
+    if scope in (None, "platform"):
+        response.delete_cookie(plat, **opts)
+    if scope in (None, "company"):
+        response.delete_cookie(comp, **opts)
+    response.delete_cookie(legacy, **opts)
+    return response
+
+
 @app.get("/platform/login", response_class=HTMLResponse)
 async def platform_login_page(request: Request):
     return render(request, "auth/platform_login.html", {"error": None})
@@ -197,9 +215,41 @@ async def platform_login(
     request: Request, email: str = Form(...), password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    r = await db.execute(select(User).where(User.email == email.strip().lower()))
-    user = r.scalar_one_or_none()
-    if not user or user.role != UserRole.PLATFORM_ADMIN or not verify_password(password, user.hashed_password):
+    email_q = email.strip().lower()
+    user = None
+    try:
+        r = await db.execute(select(User).where(User.email == email_q))
+        user = r.scalar_one_or_none()
+    except Exception as e:
+        print("platform_login orm:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # Raw SQL fallback if enum still broken on read
+        from sqlalchemy import text
+        row = (await db.execute(
+            text("SELECT id, hashed_password, role::text AS role FROM users WHERE lower(email)=:e LIMIT 1"),
+            {"e": email_q},
+        )).mappings().first()
+        if not row or not verify_password(password, row["hashed_password"]):
+            return render(request, "auth/platform_login.html", {"error": "Invalid email or password"}, 400)
+        role = str(row["role"] or "").lower()
+        if "platform" not in role:
+            return render(request, "auth/platform_login.html", {"error": "Invalid email or password"}, 400)
+        resp = RedirectResponse("/platform/dashboard", status_code=303)
+        return set_session(resp, int(row["id"]), scope="platform")
+
+    def _is_platform(u) -> bool:
+        r = getattr(u, "role", None)
+        if r is None:
+            return False
+        if hasattr(r, "value"):
+            return str(r.value).lower() == "platform_admin"
+        s = str(r).lower()
+        return "platform" in s
+
+    if not user or not _is_platform(user) or not verify_password(password, user.hashed_password):
         return render(request, "auth/platform_login.html", {"error": "Invalid email or password"}, 400)
     resp = RedirectResponse("/platform/dashboard", status_code=303)
     return set_session(resp, user.id, scope="platform")
@@ -223,11 +273,7 @@ async def platform_dashboard(
     cc = oc = vc = 0
     rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
 
-    try:
-        from app.database import ensure_schema
-        await ensure_schema()
-    except Exception as e:
-        print("platform_dash ensure:", e)
+    # Schema repairs run on startup only — not on every dashboard hit (avoids hang)
 
     try:
         result = await db.execute(select(Company).order_by(Company.created_at.desc()).limit(20))
@@ -572,24 +618,63 @@ async def company_login(
     db: AsyncSession = Depends(get_db),
 ):
     brand_q = brand.strip().lower()
+    email_q = email.strip().lower()
     company = (await db.execute(
         select(Company).where(or_(
             func.lower(Company.name) == brand_q,
             Company.slug == brand_q.replace(" ", "-"),
         ))
     )).scalar_one_or_none()
-    if not company or company.status == "suspended":
+    st = getattr(company, "status", None) if company else None
+    if hasattr(st, "value"):
+        st = st.value
+    if not company or str(st or "").lower() == "suspended":
         return render(request, "auth/company_login.html", {
             "error": "Company not found or suspended", "brand": brand,
         }, 400)
-    user = (await db.execute(
-        select(User).where(User.email == email.strip().lower(), User.company_id == company.id)
-    )).scalar_one_or_none()
-    if not user or user.role not in (UserRole.COMPANY_ADMIN, UserRole.COMPANY_STAFF):
-        return render(request, "auth/company_login.html", {
-            "error": "Invalid email or password for this company", "brand": brand,
-        }, 400)
-    if not verify_password(password, user.hashed_password):
+
+    user = None
+    try:
+        user = (await db.execute(
+            select(User).where(User.email == email_q, User.company_id == company.id)
+        )).scalar_one_or_none()
+    except Exception as e:
+        print("company_login orm:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        from sqlalchemy import text
+        row = (await db.execute(
+            text("""
+                SELECT id, hashed_password, role::text AS role, company_id
+                FROM users WHERE lower(email)=:e AND company_id=:cid LIMIT 1
+            """),
+            {"e": email_q, "cid": company.id},
+        )).mappings().first()
+        if not row or not verify_password(password, row["hashed_password"]):
+            return render(request, "auth/company_login.html", {
+                "error": "Invalid email or password for this company", "brand": brand,
+            }, 400)
+        role = str(row["role"] or "").lower()
+        if "company" not in role and "admin" not in role and "staff" not in role:
+            return render(request, "auth/company_login.html", {
+                "error": "Invalid email or password for this company", "brand": brand,
+            }, 400)
+        resp = RedirectResponse("/company/dashboard", status_code=303)
+        return set_session(resp, int(row["id"]), scope="company")
+
+    def _is_company_role(u) -> bool:
+        r = getattr(u, "role", None)
+        if r is None:
+            return False
+        if hasattr(r, "value"):
+            v = str(r.value).lower()
+        else:
+            v = str(r).lower()
+        return "company_admin" in v or "company_staff" in v or v.endswith("admin") or "staff" in v
+
+    if not user or not _is_company_role(user) or not verify_password(password, user.hashed_password):
         return render(request, "auth/company_login.html", {
             "error": "Invalid email or password for this company", "brand": brand,
         }, 400)
@@ -643,11 +728,6 @@ async def company_ctx(user: User, db: AsyncSession):
 async def company_dashboard(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    try:
-        from app.database import ensure_schema
-        await ensure_schema()
-    except Exception as _es:
-        print('dash_ensure', _es)
     """Always returns 200 HTML for company dashboard."""
     ctx = {
         "active": "dashboard",
@@ -1031,11 +1111,6 @@ async def company_variant_delete(
 async def company_orders(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    try:
-        from app.database import ensure_schema
-        await ensure_schema()
-    except Exception as _es:
-        print('orders_ensure', _es)
     company = await company_ctx(user, db)
     rows = []
     try:

@@ -55,9 +55,9 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     path = request.url.path or ""
     token = None
     if path.startswith("/platform"):
-        token = request.cookies.get(settings.SESSION_COOKIE_PLATFORM)
+        token = request.cookies.get(getattr(settings, "SESSION_COOKIE_PLATFORM", "crq_platform_session"))
     elif path.startswith("/company"):
-        token = request.cookies.get(settings.SESSION_COOKIE_COMPANY)
+        token = request.cookies.get(getattr(settings, "SESSION_COOKIE_COMPANY", "crq_company_session"))
     if not token:
         token = request.cookies.get(settings.SESSION_COOKIE)
     user = await _user_from_token(token, db)
@@ -68,7 +68,7 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
 
 async def require_platform(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     token = (
-        request.cookies.get(settings.SESSION_COOKIE_PLATFORM)
+        request.cookies.get(getattr(settings, "SESSION_COOKIE_PLATFORM", "crq_platform_session"))
         or request.cookies.get(settings.SESSION_COOKIE)
     )
     user = await _user_from_token(token, db)
@@ -81,7 +81,7 @@ async def require_platform(request: Request, db: AsyncSession = Depends(get_db))
 
 async def require_company(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     token = (
-        request.cookies.get(settings.SESSION_COOKIE_COMPANY)
+        request.cookies.get(getattr(settings, "SESSION_COOKIE_COMPANY", "crq_company_session"))
         or request.cookies.get(settings.SESSION_COOKIE)
     )
     user = await _user_from_token(token, db)
