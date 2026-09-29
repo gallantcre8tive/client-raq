@@ -86,10 +86,25 @@ def render(request: Request, name: str, context: dict | None = None, status_code
 
 @app.on_event("startup")
 async def startup():
+    """Do not block port binding. Schema init runs with a hard timeout in the background."""
+    import asyncio
+
+    async def _bg_init():
+        try:
+            await init_db()
+            print("startup: db ready")
+        except Exception as e:
+            print(f"startup DB init warning: {type(e).__name__}: {e}")
+
     try:
-        await init_db()
+        # Prefer non-blocking so Render detects open port immediately
+        asyncio.create_task(_bg_init())
     except Exception as e:
-        print(f"DB init warning: {e}")
+        print("startup schedule:", e)
+        try:
+            await asyncio.wait_for(init_db(), timeout=20)
+        except Exception as e2:
+            print(f"startup fallback: {e2}")
 
 
 # ---------- Public ----------
