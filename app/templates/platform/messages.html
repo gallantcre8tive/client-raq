@@ -3,7 +3,14 @@
 {% block page_title %}Messages to Companies{% endblock %}
 {% set active = 'messages' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-6">Send a note to a company. They receive it in the notification bell and on their dashboard.</p>
+<p class="text-sm text-[var(--text-secondary)] mb-6">
+  Send a note to one company or all companies. They receive it in their <strong>notification bell</strong> (with sound). A copy is kept here with date and time.
+</p>
+{% if sent %}
+<div class="mb-4 p-3 rounded-xl text-sm" style="background:color-mix(in srgb,#0E6655 15%,transparent);color:#0E6655">
+  Message sent. Company admins will see it under the bell on their panel.
+</div>
+{% endif %}
 <form method="post" action="/platform/messages" class="card p-6 max-w-xl space-y-4 mb-8">
   <div>
     <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Company</label>
@@ -17,7 +24,7 @@
   </div>
   <div>
     <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Message</label>
-    <textarea name="message" required class="input-field" placeholder="e.g. Please update your bank details before weekend."></textarea>
+    <textarea name="message" required rows="4" class="input-field" placeholder="e.g. Please update your bank details before weekend."></textarea>
   </div>
   <button type="submit" class="btn-primary">Send message</button>
 </form>
@@ -26,7 +33,13 @@
   {% if notes|default([]) %}
   <ul class="divide-y divide-[var(--border-subtle)]">
     {% for n in notes %}
-    <li class="px-5 py-3 text-sm"><span class="font-medium">{{ n.company }}</span> — {{ n.message }}</li>
+    <li class="px-5 py-4 text-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <span class="font-medium">{{ n.company }}</span>
+        <span class="text-[11px] text-[var(--text-muted)]">{{ n.when|default('—') }}</span>
+      </div>
+      <p class="text-[var(--text-secondary)] leading-relaxed">{{ n.message }}</p>
+    </li>
     {% endfor %}
   </ul>
   {% else %}

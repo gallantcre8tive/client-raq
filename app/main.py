@@ -16,6 +16,7 @@ from app.models.user import User, UserRole
 from app.models.company import Company, CompanyStatus, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import AdminNotification, Broadcast, Customer, Conversation, Message, Order
+from app.models.platform_message import PlatformMessage
 from app.models.conversation import Order, Conversation, OrderStatus
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.deps import get_current_user, require_platform, require_company
@@ -521,15 +522,55 @@ async def company_admins_page(
     })
 
 
+
 @app.get("/platform/messages", response_class=HTMLResponse)
 async def platform_messages(
     request: Request, user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    companies = (await db.execute(select(Company).order_by(Company.name))).scalars().all()
-    notes = [{"company": c.name, "message": c.platform_note} for c in companies if c.platform_note]
+    companies = list((await db.execute(select(Company).order_by(Company.name))).scalars().all())
+    # Prefer durable log
+    notes = []
+    try:
+        rows = list((await db.execute(
+            select(PlatformMessage).order_by(PlatformMessage.created_at.desc()).limit(50)
+        )).scalars().all())
+        for m in rows:
+            created = getattr(m, "created_at", None)
+            notes.append({
+                "company": m.company_name or ("All companies" if not m.company_id else "—"),
+                "message": m.body,
+                "when": created.strftime("%d %b %Y · %H:%M") if created else "—",
+            })
+    except Exception as e:
+        print("platform_messages list:", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # fallback: last notifications titled platform
+        try:
+            rows = list((await db.execute(
+                select(AdminNotification).where(
+                    AdminNotification.title.ilike("%platform%")
+                ).order_by(AdminNotification.id.desc()).limit(50)
+            )).scalars().all())
+            for n in rows:
+                co = await db.get(Company, n.company_id) if n.company_id else None
+                created = getattr(n, "created_at", None)
+                notes.append({
+                    "company": co.name if co else "—",
+                    "message": n.body or "",
+                    "when": created.strftime("%d %b %Y · %H:%M") if created else "—",
+                })
+        except Exception as e2:
+            print("platform_messages fallback:", e2)
+
     return render(request, "platform/messages.html", {
-        "active": "messages", "user_name": user.full_name,
-        "companies": companies, "notes": notes,
+        "active": "messages",
+        "user_name": getattr(user, "full_name", None) or "Platform Admin",
+        "companies": companies,
+        "notes": notes,
+        "sent": request.query_params.get("sent"),
     })
 
 
@@ -538,10 +579,11 @@ async def platform_messages_send(
     company_id: str = Form(...), message: str = Form(...),
     user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    """Send professional note to one company or all. Appears on dashboard + notification bell."""
-    text = (message or "").strip()
-    if not text:
+    """Save history + notify company bell (no dashboard banner)."""
+    text_msg = (message or "").strip()
+    if not text_msg:
         return RedirectResponse("/platform/messages", status_code=303)
+
     targets = []
     if str(company_id) == "all":
         targets = list((await db.execute(select(Company))).scalars().all())
@@ -553,28 +595,43 @@ async def platform_messages_send(
         c = await db.get(Company, cid)
         if c:
             targets = [c]
+
+    if not targets and str(company_id) != "all":
+        return RedirectResponse("/platform/messages", status_code=303)
+
+    sender = getattr(user, "full_name", None) or getattr(user, "email", None) or "Platform Admin"
+
     for c in targets:
-        # Do NOT set platform_note (that was the dashboard banner). Bell only.
-        try:
-            c.platform_note = None
-        except Exception:
-            pass
+        # Company notification bell
         n = AdminNotification(
             company_id=c.id,
             conversation_id=None,
             title="Message from Client-RaQ Platform",
-            body=text[:2000],
+            body=text_msg[:2000],
             priority="high",
         )
-        # link_path if column exists
-        if hasattr(AdminNotification, "link_path"):
-            try:
-                n.link_path = "/company/dashboard"
-            except Exception:
-                pass
+        if hasattr(n, "link_path"):
+            n.link_path = "/company/dashboard"
         db.add(n)
+        # Durable history for platform "Recent notes"
+        db.add(PlatformMessage(
+            company_id=c.id,
+            company_name=c.name or "",
+            body=text_msg[:4000],
+            sent_by=str(sender)[:200],
+        ))
+
+    if str(company_id) == "all" and not targets:
+        db.add(PlatformMessage(
+            company_id=None,
+            company_name="All companies",
+            body=text_msg[:4000],
+            sent_by=str(sender)[:200],
+        ))
+
     await db.commit()
     return RedirectResponse("/platform/messages?sent=1", status_code=303)
+
 
 
 @app.get("/platform/infrastructure", response_class=HTMLResponse)

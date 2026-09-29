@@ -46,6 +46,14 @@ async def ensure_schema():
         total_conversations INTEGER DEFAULT 0, last_order_id INTEGER,
         first_seen TIMESTAMPTZ DEFAULT NOW(), last_seen TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW()
     )""",
+        """CREATE TABLE IF NOT EXISTS platform_messages (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER,
+        company_name VARCHAR(200) DEFAULT '',
+        body TEXT NOT NULL,
+        sent_by VARCHAR(200),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
         """CREATE TABLE IF NOT EXISTS attachments (
         id SERIAL PRIMARY KEY,
         company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
