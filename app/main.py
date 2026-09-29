@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from typing import Optional
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Request, Form, Depends, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -1336,50 +1336,25 @@ async def wa_verify(request: Request):
 
 
 @app.post("/api/webhook/whatsapp")
-async def wa_incoming(request: Request, db: AsyncSession = Depends(get_db)):
-    from app.services.bot_engine import handle_inbound
-    body = await request.json()
+async def wa_incoming(request: Request, background_tasks: BackgroundTasks):
+    """ACK Meta immediately; process AI in background (spec §41)."""
     try:
-        for entry in body.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-                metadata = value.get("metadata", {})
-                phone_number_id = metadata.get("phone_number_id") or ""
-                for msg in value.get("messages", []) or []:
-                    from_wa = msg.get("from") or ""
-                    text = None
-                    media_id = None
-                    button_id = None
-                    list_id = None
-                    if msg.get("type") == "text":
-                        text = (msg.get("text") or {}).get("body")
-                    elif msg.get("type") == "image":
-                        media_id = (msg.get("image") or {}).get("id")
-                        text = (msg.get("image") or {}).get("caption") or ""
-                    elif msg.get("type") == "document":
-                        media_id = (msg.get("document") or {}).get("id")
-                    elif msg.get("type") == "interactive":
-                        inter = msg.get("interactive") or {}
-                        if inter.get("type") == "button_reply":
-                            button_id = (inter.get("button_reply") or {}).get("id")
-                            text = (inter.get("button_reply") or {}).get("title") or ""
-                        elif inter.get("type") == "list_reply":
-                            list_id = (inter.get("list_reply") or {}).get("id")
-                            text = (inter.get("list_reply") or {}).get("title") or ""
-                    if phone_number_id and from_wa:
-                        await handle_inbound(
-                            db,
-                            phone_number_id=phone_number_id,
-                            from_wa=from_wa,
-                            text=text,
-                            media_id=media_id,
-                            button_id=button_id,
-                            list_id=list_id,
-                            wa_message_id=msg.get("id"),
-                        )
-    except Exception as e:
-        print("Webhook error:", e)
+        body = await request.json()
+    except Exception:
+        return {"status": "ok"}
+    # Schedule background processing — do not await Grok here
+    background_tasks.add_task(_run_wa_background, body)
     return {"status": "ok"}
+
+
+async def _run_wa_background(body: dict):
+    from app.services.webhook_worker import process_whatsapp_payload
+    try:
+        await process_whatsapp_payload(body)
+    except Exception as e:
+        print("bg_wa_error", type(e).__name__, e)
+
+
 
 
 
@@ -1451,8 +1426,15 @@ async def company_notifications_api(
         ).order_by(AdminNotification.id.desc()).limit(30)
     )).scalars().all())
     return [
-        {"id": n.id, "title": n.title, "body": n.body, "priority": n.priority,
-         "conversation_id": n.conversation_id, "created_at": n.created_at.isoformat() if n.created_at else None}
+        {
+            "id": n.id,
+            "title": n.title or "",
+            "body": n.body or "",
+            "priority": getattr(n, "priority", None) or ("high" if "attention" in ((n.title or "") + (n.body or "")).lower() else "normal"),
+            "conversation_id": getattr(n, "conversation_id", None),
+            "link": getattr(n, "link_path", None) or "/company/messages",
+            "created_at": n.created_at.isoformat() if getattr(n, "created_at", None) else None,
+        }
         for n in rows
     ]
 

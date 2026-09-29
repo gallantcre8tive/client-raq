@@ -54,6 +54,8 @@ class Message(Base):
     direction: Mapped[str] = mapped_column(String(20))
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    media_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    attachment_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     conversation = relationship("Conversation", back_populates="messages")
 
@@ -78,6 +80,27 @@ class Order(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     company = relationship("Company", back_populates="orders")
 
+
+
+
+class Attachment(Base):
+    """Stored customer files: designs, payment screenshots, documents (spec §14, §28)."""
+    __tablename__ = "attachments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    customer_wa_id: Mapped[str] = mapped_column(String(50), index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(40), default="file")  # design, payment_proof, image, document, audio, other
+    original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    storage_path: Mapped[str] = mapped_column(String(500))
+    wa_media_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 class AdminNotification(Base):
     """High-priority alerts for company admins (handoff, payment, etc.)."""

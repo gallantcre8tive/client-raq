@@ -139,4 +139,32 @@ async def init_db():
     from app import models  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE services ADD COLUMN IF NOT EXISTS reference_image_url VARCHAR(500)"))
+            await conn.commit()
+        except Exception as _r:
+            print("ref_img_col", _r)
+            try:
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS attachments (
+                        id SERIAL PRIMARY KEY,
+                        company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+                        customer_wa_id VARCHAR(50),
+                        conversation_id INTEGER,
+                        order_id INTEGER,
+                        message_id INTEGER,
+                        kind VARCHAR(40) DEFAULT 'file',
+                        original_name VARCHAR(255),
+                        mime_type VARCHAR(100),
+                        storage_path VARCHAR(500) NOT NULL,
+                        wa_media_id VARCHAR(120),
+                        size_bytes INTEGER,
+                        transcript TEXT,
+                        notes TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """))
+                await conn.commit()
+            except Exception as _ae:
+                print("attachments_schema", _ae)
     await ensure_schema()

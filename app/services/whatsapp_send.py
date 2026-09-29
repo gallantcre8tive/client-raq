@@ -143,3 +143,32 @@ async def send_typing(phone_number_id: str, access_token: str, to_wa_id: str, me
     else:
         return False
     return await _post(phone_number_id, access_token, payload)
+
+
+
+async def send_image(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    *,
+    image_url: str | None = None,
+    media_id: str | None = None,
+    caption: str | None = None,
+) -> bool:
+    """Send image by public URL or uploaded media id."""
+    if not to_wa_id or not (image_url or media_id):
+        return False
+    image: dict = {}
+    if media_id:
+        image["id"] = media_id
+    else:
+        image["link"] = image_url
+    if caption:
+        image["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "image",
+        "image": image,
+    }
+    return await _post(phone_number_id, access_token, payload)

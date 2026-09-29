@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     GROK_MODEL: str = "grok-4-fast-non-reasoning"
     XAI_MODEL: str = ""
     SESSION_COOKIE: str = "crq_session"
+    # Optional: voice transcription (Whisper via Groq). Text bot works without it.
+    GROQ_API_KEY: str = ""
+    # Local folder for WhatsApp media (payment screenshots, designs)
+    MEDIA_ROOT: str = "uploads"
+
 
     class Config:
         env_file = ".env"

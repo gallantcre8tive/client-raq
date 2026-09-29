@@ -50,8 +50,39 @@ def _unit_mode(unit: str | None) -> str:
 
 
 def _size_in_inches(text: str) -> bool:
+    """True only for explicit inch sizes — not the English word 'in'."""
     low = (text or "").lower()
-    return any(x in low for x in ("inch", "inches", " in", "in ", '"'))
+    if "inch" in low or "inches" in low:
+        return True
+    if re.search(r'\d\s*"', low):
+        return True
+    # e.g. 12in or 12 in at end / before punctuation — not "in landscape"
+    if re.search(r'\d+(?:\.\d+)?\s*ins?\b', low):
+        # exclude if followed by landscape/portrait/the/a etc.
+        if re.search(r'\d+(?:\.\d+)?\s*ins?\s+(?:landscape|portrait|the|a|my|our|total)', low):
+            return False
+        return True
+    return False
+
+
+def _detect_size_unit(text: str, ctx: dict | None = None) -> str:
+    """Prefer saved ctx unit; else explicit ft/in/m; default feet for large format."""
+    if ctx:
+        u = (ctx.get("size_unit") or "").lower()
+        if u in ("ft", "feet", "foot"):
+            return "ft"
+        if u in ("in", "inch", "inches"):
+            return "in"
+        if u in ("m", "metre", "meter", "sqm"):
+            return "m"
+    low = (text or "").lower()
+    if _size_in_inches(text):
+        return "in"
+    if any(x in low for x in ("metre", "meter", "sqm", "m2")):
+        return "m"
+    if any(x in low for x in ("ft", "feet", "foot", "sqft", "sq ft")):
+        return "ft"
+    return "ft"
 
 
 def _parse_size(text: str):
@@ -74,19 +105,30 @@ def _parse_qty(text: str):
     return None
 
 
-def _calc_total(service, width, height, qty, size_text: str = "") -> float:
+def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str | None = None) -> float:
+    """Deterministic pricing. Never treat English 'in' as inches."""
     base = float(service.base_price or 0)
     qty = max(1, int(qty or 1))
-    mode = getattr(service, 'pricing_method', None) or _unit_mode(service.unit)
-    if mode in ('sqin',):
-        mode = 'sqft'  # handled with inches below via size_text
-    if mode in ('custom', 'setup_unit', 'tier'):
+    mode = getattr(service, "pricing_method", None) or _unit_mode(service.unit)
+    if mode in ("sqin",):
+        mode = "sqft"
+    if mode in ("custom", "setup_unit", "tier"):
         mode = _unit_mode(service.unit)
     if mode == "piece" or not width or not height:
         return round(base * qty, 2)
-    if mode == "sqft" and _size_in_inches(size_text or ""):
-        return round((width * height * qty * base) / 144.0, 2)
-    return round(width * height * base * qty, 2)
+    unit = (size_unit or "").lower().strip() or _detect_size_unit(size_text or "", None)
+    w, h = float(width), float(height)
+    if mode == "sqft":
+        if unit in ("in", "inch", "inches"):
+            return round((w * h * qty * base) / 144.0, 2)
+        if unit in ("m", "metre", "meter", "sqm"):
+            return round(w * h * 10.7639 * base * qty, 2)
+        return round(w * h * base * qty, 2)  # feet
+    if mode == "sqm":
+        if unit in ("ft", "feet", "foot"):
+            return round((w * h / 10.7639) * base * qty, 2)
+        return round(w * h * base * qty, 2)
+    return round(w * h * base * qty, 2)
 
 
 def _is_clarifying_question(text: str) -> bool:
@@ -370,6 +412,7 @@ async def handle_inbound(
     from_wa: str,
     text: str | None,
     media_id: str | None = None,
+    media_kind: str | None = None,
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
@@ -491,6 +534,187 @@ async def handle_inbound(
         else:
             await send_text(link.phone_number_id, link.access_token, from_wa, body)
         return
+
+
+
+
+    # Returning customer: ensure Customer row + previous order hint in ctx
+    try:
+        from app.models.conversation import Customer, Order as OrderModel
+        cust = (await db.execute(
+            select(Customer).where(Customer.company_id == company.id, Customer.wa_id == from_wa)
+        )).scalars().first()
+        if not cust:
+            cust = Customer(company_id=company.id, wa_id=from_wa, profile_name=None)
+            db.add(cust)
+            await db.flush()
+        else:
+            cust.total_conversations = int(cust.total_conversations or 0) + 1
+        prev = (await db.execute(
+            select(OrderModel).where(
+                OrderModel.company_id == company.id,
+                OrderModel.customer_wa_id == from_wa,
+            ).order_by(OrderModel.id.desc()).limit(1)
+        )).scalars().first()
+        if prev and not ctx.get("last_order_hint"):
+            ctx["last_order_hint"] = {
+                "id": prev.id,
+                "service_name": prev.service_name,
+                "total": float(prev.total or 0),
+                "details": (prev.details or "")[:180],
+            }
+            _save_ctx(conv, ctx)
+    except Exception as e:
+        print("returning_customer", type(e).__name__, e)
+
+    # ── Media: store file, voice transcript, payment/design context ──
+    attachment_note = None
+    if media_id:
+        try:
+            from app.services.media_handler import store_whatsapp_media, transcribe_audio, describe_image_optional
+            from app.services.whatsapp_send import download_media as _dl
+            kind = media_kind or "file"
+            if kind == "audio":
+                kind = "audio"
+            elif state in ("await_payment", "await_proof") or (ctx.get("awaiting_file") == "payment_proof"):
+                kind = "payment_proof"
+            elif ctx.get("awaiting_file") in ("design", "document", "reference_image") or state in ("awaiting_file", "await_design"):
+                kind = ctx.get("awaiting_file") or "design"
+            elif kind == "image":
+                kind = "image"
+            elif kind == "document":
+                kind = "document"
+            att = await store_whatsapp_media(
+                db,
+                company_id=company.id,
+                customer_wa_id=from_wa,
+                conversation_id=conv.id,
+                access_token=link.access_token,
+                wa_media_id=media_id,
+                kind=kind,
+            )
+            if att:
+                ctx["last_attachment_id"] = att.id
+                ctx["last_attachment_kind"] = att.kind
+                if att.kind == "payment_proof":
+                    ctx["payment_proof"] = str(att.id)
+                if att.kind in ("design", "document", "reference_image"):
+                    ctx["design_status"] = "received"
+                    ctx["awaiting_file"] = None
+                # Voice → transcript becomes text
+                if media_kind in ("audio", "voice") or att.kind == "audio":
+                    blob = await _dl(media_id, link.access_token)
+                    if blob:
+                        content, mime = blob
+                        transcript = await transcribe_audio(content, mime)
+                        if transcript:
+                            att.transcript = transcript
+                            text = (text or "") + (" " if text else "") + transcript
+                            attachment_note = f"Customer sent a voice note. Transcript: {transcript}"
+                        else:
+                            attachment_note = "Customer sent a voice note (transcription unavailable). Ask them to type if unclear."
+                elif att.kind == "payment_proof":
+                    blob = await _dl(media_id, link.access_token)
+                    vision = ""
+                    if blob:
+                        content, mime = blob
+                        vision = (await describe_image_optional(
+                            content, mime,
+                            "Does this look like a bank transfer or payment receipt? Reply in one short sentence.",
+                        )) or ""
+                    attachment_note = f"Customer sent a payment screenshot/file (attachment_id={att.id}). {vision}".strip()
+                    conv.state = "await_payment"
+                elif att.kind in ("design", "image", "document", "reference_image"):
+                    attachment_note = f"Customer sent a {att.kind} file (attachment_id={att.id}, mime={att.mime_type}). Acknowledge and continue the order."
+                _save_ctx(conv, ctx)
+                await db.flush()
+        except Exception as e:
+            print("media_process", type(e).__name__, e)
+
+
+
+    # Formal conversation stage
+    try:
+        from app.services.conversation_states import next_state_after_facts, normalize_state
+        if conv.needs_human:
+            conv.state = "ready_for_human"
+        else:
+            conv.state = next_state_after_facts(ctx, conv.state)
+    except Exception:
+        pass
+
+    # ── Client RaQ Agent (Grok + tools) — primary path for free text ──
+    if (text or attachment_note) and not interactive_id:
+        # Skip agent only for pure button ids already handled
+        try:
+            from app.services.client_raq_agent import run_agent
+            recent_rows = list((await db.execute(
+                select(Message).where(Message.conversation_id == conv.id)
+                .order_by(Message.id.desc()).limit(12)
+            )).scalars().all())
+            recent = [
+                {"direction": m.direction, "body": m.body or ""}
+                for m in reversed(recent_rows)
+            ]
+            reply, ctx, needs_human = await run_agent(
+                db,
+                company=company,
+                conv=conv,
+                ctx=ctx,
+                from_wa=from_wa,
+                customer_message=text or (attachment_note or '[media]'),
+                recent=recent,
+                attachment_note=attachment_note,
+            )
+            _save_ctx(conv, ctx)
+            if needs_human:
+                conv.is_live_takeover = True
+            if reply:
+                # Detect pidgin from customer message
+                if any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
+                    ctx["lang"] = "pidgin"
+                    _save_ctx(conv, ctx)
+                if ctx.get("quote_locked") and ctx.get("locked_total"):
+                    conv.state = "await_fulfillment"
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+
+                # Catalog / reference sample to WhatsApp
+                pref = ctx.pop("pending_reference", None)
+                if pref:
+                    _save_ctx(conv, ctx)
+                    try:
+                        from app.services.whatsapp_send import send_image
+                        cap = (pref.get("caption") or "")[:1000]
+                        url = pref.get("image_url")
+                        if url:
+                            await send_image(link.phone_number_id, link.access_token, from_wa, image_url=url, caption=cap)
+                        elif cap:
+                            await send_text(link.phone_number_id, link.access_token, from_wa, "📎 Reference:\n" + cap)
+                    except Exception as e:
+                        print("ref_send", type(e).__name__, e)
+
+                # Offer pickup/delivery buttons only after locked quote and not already fulfillment chosen
+                if (
+                    ctx.get("quote_locked")
+                    and float(ctx.get("locked_total") or 0) > 0
+                    and not ctx.get("fulfillment")
+                    and conv.state in ("await_fulfillment", "await_details", "await_service")
+                ):
+                    try:
+                        await send_buttons(
+                            link.phone_number_id,
+                            link.access_token,
+                            from_wa,
+                            _t(ctx, "Pickup or delivery?", "Pickup or delivery?"),
+                            [("ful_pickup", "Pickup"), ("ful_delivery", "Delivery")],
+                        )
+                    except Exception:
+                        pass
+                return
+        except Exception as e:
+            print("agent_path", type(e).__name__, e)
 
     # ── Fast path: price / product asks get an instant rule reply (never silent) ──
     low_fast = (text or "").lower()
@@ -750,6 +974,63 @@ async def handle_inbound(
                         await db.commit()
                         await send_text(link.phone_number_id, link.access_token, from_wa, reply)
                         return
+
+
+    # ── Locked quote: do not recompute from chat noise ──
+    if ctx.get("quote_locked") and ctx.get("locked_total") is not None and state in (
+        "await_fulfillment", "await_datetime", "await_payment", "await_address", "order_placed",
+    ):
+        low_lock = (text or "").lower()
+        changing = any(x in low_lock for x in (
+            "change size", "change qty", "change quantity", "wrong size", "new quote",
+            "start over", "cancel order", "different size", "recalculate",
+        ))
+        if text and not interactive_id and not changing:
+            # Keep locked total stable
+            ctx["total"] = ctx.get("locked_total")
+            eq = []
+            if getattr(company, "enquiry_whatsapp", None):
+                eq.append(f"WhatsApp: {company.enquiry_whatsapp}")
+            if getattr(company, "enquiry_phone", None):
+                eq.append(f"Call: {company.enquiry_phone}")
+            eq_line = ("\n" + " | ".join(eq)) if eq else ""
+            # Try natural AI answer without touching math
+            try:
+                from app.services.ai_orchestrator import run_ai_turn
+                understanding, facts, ai_reply = await run_ai_turn(
+                    db, company, services, ctx, conv.id, from_wa, text,
+                )
+                if ai_reply and len(ai_reply.strip()) > 5:
+                    ctx["total"] = ctx.get("locked_total")
+                    _save_ctx(conv, ctx)
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=ai_reply.strip()))
+                    await db.commit()
+                    await send_text(link.phone_number_id, link.access_token, from_wa, ai_reply.strip())
+                    return
+            except Exception as e:
+                print("locked_ai", type(e).__name__, e)
+            reply = _t(
+                ctx,
+                f"Your confirmed quote is still *{company.currency} {float(ctx.get('locked_total') or 0):,.0f}* "
+                f"for {ctx.get('service_name') or 'your order'} "
+                f"({ctx.get('width')}x{ctx.get('height')} {ctx.get('size_unit') or 'ft'} × {ctx.get('qty') or 1}).\n"
+                f"Please choose *Pickup* or *Delivery* to continue, or type *new quote* to start over.{eq_line}",
+                f"Your quote still *{company.currency} {float(ctx.get('locked_total') or 0):,.0f}* "
+                f"for {ctx.get('service_name') or 'your order'}.\n"
+                f"Choose *Pickup* or *Delivery*, or type *new quote* start again.{eq_line}",
+            )
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+            return
+        if changing:
+            ctx["quote_locked"] = False
+            ctx.pop("locked_total", None)
+            for k in ("width", "height", "qty", "size", "total", "subtotal", "fulfillment"):
+                ctx.pop(k, None)
+            conv.state = "await_service"
+            _save_ctx(conv, ctx)
+
 
     # --- Coming for pickup notifications ---
     if any(p in low for p in ("on my way", "i dey come", "coming for", "coming to pick", "i'm coming", "im coming")):
@@ -1062,6 +1343,7 @@ async def handle_inbound(
             qty = _parse_qty(text) or 1
             if w and h:
                 ctx["width"], ctx["height"] = w, h
+                ctx["size_unit"] = _detect_size_unit(text or "", ctx)
             ctx["qty"] = qty
             total = _calc_total(chosen, ctx.get("width"), ctx.get("height"), qty, text)
             if w and h and _is_sqft_unit(chosen.unit):
@@ -1236,7 +1518,11 @@ async def handle_inbound(
                 "Abeg send size like *3x5* (width x height for feet), and how many units.",
             )
         elif svc:
-            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text)
+            unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
+            ctx["size_unit"] = unit
+            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit)
+            ctx["locked_total"] = total
+            ctx["quote_locked"] = True
             ctx["total"] = total
             ctx["subtotal"] = total
             _save_ctx(conv, ctx)

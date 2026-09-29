@@ -1,0 +1,81 @@
+"""Background WhatsApp message processor — webhook returns 200 immediately."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.database import AsyncSessionLocal
+from app.services.bot_engine import handle_inbound
+
+log = logging.getLogger("client_raq.webhook_bg")
+
+
+async def process_whatsapp_payload(body: dict[str, Any]) -> None:
+    """Run outside the webhook request lifecycle with its own DB session."""
+    if not body:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            for entry in body.get("entry", []) or []:
+                for change in entry.get("changes", []) or []:
+                    value = change.get("value", {}) or {}
+                    metadata = value.get("metadata", {}) or {}
+                    phone_number_id = metadata.get("phone_number_id") or ""
+                    for msg in value.get("messages", []) or []:
+                        await _one_message(db, phone_number_id, msg)
+    except Exception as e:
+        log.exception("bg_webhook %s", e)
+
+
+async def _one_message(db, phone_number_id: str, msg: dict) -> None:
+    from_wa = msg.get("from") or ""
+    if not phone_number_id or not from_wa:
+        return
+    text = None
+    media_id = None
+    media_kind = None
+    button_id = None
+    list_id = None
+    msg_type = msg.get("type") or ""
+    if msg_type == "text":
+        text = (msg.get("text") or {}).get("body")
+    elif msg_type == "image":
+        media_id = (msg.get("image") or {}).get("id")
+        text = (msg.get("image") or {}).get("caption") or ""
+        media_kind = "image"
+    elif msg_type == "document":
+        media_id = (msg.get("document") or {}).get("id")
+        text = (msg.get("document") or {}).get("caption") or (msg.get("document") or {}).get("filename") or ""
+        media_kind = "document"
+    elif msg_type in ("audio", "voice"):
+        media_id = (msg.get(msg_type) or {}).get("id")
+        media_kind = "audio"
+    elif msg_type == "video":
+        media_id = (msg.get("video") or {}).get("id")
+        text = (msg.get("video") or {}).get("caption") or ""
+        media_kind = "video"
+    elif msg_type == "sticker":
+        media_id = (msg.get("sticker") or {}).get("id")
+        media_kind = "sticker"
+    elif msg_type == "interactive":
+        inter = msg.get("interactive") or {}
+        if inter.get("type") == "button_reply":
+            button_id = (inter.get("button_reply") or {}).get("id")
+            text = (inter.get("button_reply") or {}).get("title") or ""
+        elif inter.get("type") == "list_reply":
+            list_id = (inter.get("list_reply") or {}).get("id")
+            text = (inter.get("list_reply") or {}).get("title") or ""
+    try:
+        await handle_inbound(
+            db,
+            phone_number_id=phone_number_id,
+            from_wa=from_wa,
+            text=text,
+            media_id=media_id,
+            media_kind=media_kind,
+            button_id=button_id,
+            list_id=list_id,
+            wa_message_id=msg.get("id"),
+        )
+    except Exception as e:
+        log.exception("handle_inbound %s", e)

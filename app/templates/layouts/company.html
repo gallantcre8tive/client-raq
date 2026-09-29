@@ -119,7 +119,7 @@
 </audio>
 <script>
 (function(){
-  function unlock(){ try{ var a=document.getElementById('crq-notify-sound'); if(a){ a.volume=0.01; a.play().then(function(){a.pause();a.currentTime=0;a.volume=0.7;}).catch(function(){}); } }catch(e){}
+  function unlock(){ try{ var a=document.getElementById('crq-notify-sound'); if(a){ a.volume=0.01; a.play().then(function(){a.pause();a.currentTime=0;a.volume=1.0;}).catch(function(){}); } }catch(e){}
     document.removeEventListener('click', unlock); }
   document.addEventListener('click', unlock, {once:true});
   window.crqPlayNotify = function(){ try{ var a=document.getElementById('crq-notify-sound'); if(a){ a.currentTime=0; a.play().catch(function(){}); } }catch(e){} };
@@ -164,7 +164,7 @@
       if (window.__crqSetNotifications) window.__crqSetNotifications(list);
     } catch(e) {}
   }
-  setInterval(pollNotify, 8000);
+  setInterval(pollNotify, 5000);
   document.addEventListener('DOMContentLoaded', pollNotify);
 })();
 </script>
