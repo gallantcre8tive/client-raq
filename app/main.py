@@ -1526,6 +1526,7 @@ async def company_messages(request: Request, user: User = Depends(require_compan
 
 
 
+
 @app.post("/company/messages/reply")
 async def company_messages_reply(
     request: Request,
@@ -1535,9 +1536,11 @@ async def company_messages_reply(
 ):
     from app.models.conversation import Conversation, Message, Attachment
     from app.models.company import CompanyWhatsAppNumber
-    from app.services.whatsapp_send import send_text, send_image
+    from app.services.whatsapp_send import (
+        send_text, upload_media_bytes, send_document, send_image_id, send_video_id,
+    )
     from app.config import get_settings
-    import uuid, aiofiles
+    import uuid
     from pathlib import Path as _P
 
     company = await company_ctx(user, db)
@@ -1552,38 +1555,45 @@ async def company_messages_reply(
     conv.is_live_takeover = True
     conv.needs_human = True
 
-    media_url = None
-    att_id = None
     settings = get_settings()
     media_root = _P(getattr(settings, "MEDIA_ROOT", "uploads"))
+    if not media_root.is_absolute():
+        media_root = (Path(__file__).resolve().parent / media_root).resolve()
     media_root.mkdir(parents=True, exist_ok=True)
 
+    media_url = None
+    att_id = None
+    file_bytes = None
+    mime = "application/octet-stream"
+    filename = "file.bin"
+
     if upload is not None and hasattr(upload, "filename") and upload.filename:
-        raw = await upload.read()
-        if raw:
-            ext = _P(upload.filename).suffix or ".bin"
+        file_bytes = await upload.read()
+        if file_bytes:
+            filename = upload.filename
+            ext = _P(filename).suffix or ".bin"
             fname = f"admin_{company.id}_{uuid.uuid4().hex[:12]}{ext}"
-            dest = media_root / fname
-            async with aiofiles.open(dest, "wb") as f:
-                await f.write(raw)
-            rel = f"/media/{fname}"
-            media_url = rel
+            company_dir = media_root / str(company.id)
+            company_dir.mkdir(parents=True, exist_ok=True)
+            dest = company_dir / fname
+            dest.write_bytes(file_bytes)
+            media_url = f"/media/{company.id}/{fname}"
             mime = getattr(upload, "content_type", None) or "application/octet-stream"
             att = Attachment(
                 company_id=company.id,
                 customer_wa_id=conv.customer_wa_id,
                 conversation_id=conv.id,
                 kind="admin_upload",
-                original_name=upload.filename,
+                original_name=filename,
                 mime_type=mime,
-                storage_path=rel,
-                size_bytes=len(raw),
+                storage_path=f"{company.id}/{fname}",
+                size_bytes=len(file_bytes),
             )
             db.add(att)
             await db.flush()
             att_id = att.id
 
-    display = text or (upload.filename if upload and getattr(upload, "filename", None) else "Attachment")
+    display = text or (filename if file_bytes else "Attachment")
     db.add(Message(
         conversation_id=conv.id,
         direction="outbound",
@@ -1599,17 +1609,35 @@ async def company_messages_reply(
             CompanyWhatsAppNumber.is_active == True,  # noqa: E712
         )
     )).scalars().first()
+
     if link and link.access_token:
         try:
-            if media_url and (upload and getattr(upload, "content_type", "") or "").startswith("image"):
-                # WhatsApp needs public URL — if /media is on same domain it may work for Cloud API link
-                base = str(request.base_url).rstrip("/")
-                public = base + media_url
-                await send_image(link.phone_number_id, link.access_token, conv.customer_wa_id, image_url=public, caption=text or "")
+            if file_bytes:
+                mid = await upload_media_bytes(
+                    link.phone_number_id, link.access_token, file_bytes, mime, filename,
+                )
+                if mid:
+                    if mime.startswith("image/"):
+                        await send_image_id(
+                            link.phone_number_id, link.access_token, conv.customer_wa_id, mid, caption=text or None,
+                        )
+                    elif mime.startswith("video/"):
+                        await send_video_id(
+                            link.phone_number_id, link.access_token, conv.customer_wa_id, mid, caption=text or None,
+                        )
+                    else:
+                        await send_document(
+                            link.phone_number_id, link.access_token, conv.customer_wa_id,
+                            media_id=mid, filename=filename, caption=text or None,
+                        )
+                else:
+                    # Fallback note if upload failed
+                    await send_text(
+                        link.phone_number_id, link.access_token, conv.customer_wa_id,
+                        (text + "\n" if text else "") + f"📎 File: {filename} (delivery to WhatsApp failed — check token)",
+                    )
             elif text:
                 await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, text)
-            elif text == "" and media_url:
-                await send_text(link.phone_number_id, link.access_token, conv.customer_wa_id, "📎 Sent you a file from our team.")
         except Exception as e:
             print("admin_reply_wa", type(e).__name__, e)
 
@@ -1934,6 +1962,11 @@ async def company_broadcast_send(
 
 
 
+@app.get("/company/api/notifications")
+async def company_notifications_api_alias(user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    return await company_notifications_api(user=user, db=db)
+
+
 @app.get("/api/company/notifications")
 async def company_notifications_api(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
@@ -2038,6 +2071,11 @@ async def company_notifications_api(
     out.sort(key=lambda x: x.get("id") or 0, reverse=True)
     return out[:40]
 
+
+
+@app.post("/company/api/notifications/{nid}/read")
+async def company_notification_read_alias(nid: int, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    return await company_notification_read(nid=nid, user=user, db=db)
 
 
 @app.post("/api/company/notifications/{nid}/read")

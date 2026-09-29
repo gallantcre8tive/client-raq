@@ -717,8 +717,10 @@ async def handle_inbound(
                 if any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
                     ctx["lang"] = "pidgin"
                     _save_ctx(conv, ctx)
-                if ctx.get("quote_locked") and ctx.get("locked_total"):
-                    conv.state = "await_fulfillment"
+                # Do not force await_fulfillment on every reply — only when quote just locked
+                if ctx.get("quote_locked") and ctx.get("locked_total") and not ctx.get("fulfillment"):
+                    if not ctx.get("fulfillment_prompted"):
+                        conv.state = "await_fulfillment"
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
                 await db.commit()
                 await send_text(link.phone_number_id, link.access_token, from_wa, reply)
@@ -738,29 +740,26 @@ async def handle_inbound(
                     except Exception as e:
                         print("ref_send", type(e).__name__, e)
 
-                # Pickup/delivery buttons ONLY when customer is ready for fulfillment —
-                # never while they are asking a side question or pausing the flow.
+                # Pickup/delivery interactive: at most ONCE per quote, never during side questions
                 low_msg = (text or "").lower()
-                pause_words = (
-                    "wait", "hold", "question", "ask", "please", "abeg", "one more",
-                    "another", "also want", "add", "instead", "change", "modify",
-                    "wetin", "how much", "price", "can i", "i wan ask", "i want to ask",
-                )
-                is_pause = any(w in low_msg for w in pause_words) and not any(
-                    w in low_msg for w in ("pickup", "delivery", "deliver", "i go come", "collect")
-                )
-                if is_pause:
+                side_chat = any(w in low_msg for w in (
+                    "wait", "hold", "question", "ask", "abeg", "another", "also",
+                    "wetin", "how much", "price", "pidgin", "english", "speak",
+                    "shey", "abi", "please", "bro", "sir", "ma",
+                )) and not any(w in low_msg for w in ("pickup", "delivery", "deliver", "i go come", "collect"))
+                if side_chat:
                     ctx["flow_paused"] = True
+                    ctx["fulfillment_prompted"] = True  # suppress auto buttons while chatting
                     _save_ctx(conv, ctx)
                 elif (
                     ctx.get("quote_locked")
                     and float(ctx.get("locked_total") or 0) > 0
                     and not ctx.get("fulfillment")
                     and not ctx.get("flow_paused")
-                    and conv.state == "await_fulfillment"
-                    and any(w in (reply or "").lower() for w in ("pickup", "delivery", "collect", "come for"))
+                    and not ctx.get("fulfillment_prompted")
                 ):
-                    # Only attach buttons if the AI reply itself is about fulfillment
+                    ctx["fulfillment_prompted"] = True
+                    _save_ctx(conv, ctx)
                     try:
                         await send_buttons(
                             link.phone_number_id,
@@ -771,19 +770,6 @@ async def handle_inbound(
                         )
                     except Exception:
                         pass
-                elif (
-                    ctx.get("flow_paused")
-                    and ctx.get("quote_locked")
-                    and not ctx.get("fulfillment")
-                ):
-                    # After a pause, gently resume only if customer answered and is back to order
-                    resume_ok = any(w in low_msg for w in (
-                        "ok", "okay", "continue", "proceed", "go on", "yes", "alright",
-                        "pickup", "delivery", "done", "na im", "make we continue",
-                    ))
-                    if resume_ok:
-                        ctx["flow_paused"] = False
-                        _save_ctx(conv, ctx)
                 return
         except Exception as e:
             print("agent_path", type(e).__name__, e)

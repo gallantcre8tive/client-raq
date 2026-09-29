@@ -173,3 +173,104 @@ async def send_image(
         "image": image,
     }
     return await _post(phone_number_id, access_token, payload)
+
+
+
+async def upload_media_bytes(
+    phone_number_id: str,
+    access_token: str,
+    content: bytes,
+    mime: str,
+    filename: str = "file.bin",
+) -> str | None:
+    """Upload file to WhatsApp Cloud API; returns media id or None."""
+    if not phone_number_id or not access_token or not content:
+        return None
+    url = f"{GRAPH}/{phone_number_id}/media"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                files={
+                    "file": (filename, content, mime or "application/octet-stream"),
+                    "messaging_product": (None, "whatsapp"),
+                    "type": (None, mime or "application/octet-stream"),
+                },
+            )
+            print("wa_upload_status", r.status_code)
+            if r.status_code >= 300:
+                print("wa_upload_body", (r.text or "")[:200])
+                return None
+            return (r.json() or {}).get("id")
+    except Exception as e:
+        print("wa_upload_err", type(e).__name__, e)
+        return None
+
+
+async def send_document(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    *,
+    media_id: str | None = None,
+    link: str | None = None,
+    filename: str | None = None,
+    caption: str | None = None,
+) -> bool:
+    if not to_wa_id or (not media_id and not link):
+        return False
+    doc: dict = {}
+    if media_id:
+        doc["id"] = media_id
+    else:
+        doc["link"] = link
+    if filename:
+        doc["filename"] = filename[:255]
+    if caption:
+        doc["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "document",
+        "document": doc,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_image_id(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str,
+    caption: str | None = None,
+) -> bool:
+    img: dict = {"id": media_id}
+    if caption:
+        img["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "image",
+        "image": img,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_video_id(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str,
+    caption: str | None = None,
+) -> bool:
+    vid: dict = {"id": media_id}
+    if caption:
+        vid["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "type": "video",
+        "video": vid,
+    }
+    return await _post(phone_number_id, access_token, payload)
