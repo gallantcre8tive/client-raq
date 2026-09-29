@@ -651,6 +651,22 @@ async def company_dashboard(
         )
 
 
+
+@app.get("/company/services/guide", response_class=HTMLResponse)
+async def company_services_guide(
+    request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    """Static pricing setup guide — must be registered before /services/{service_id} routes."""
+    company = await company_ctx(user, db)
+    from app.data.service_setup_guides import all_guides
+    return render(request, "company/service_guide.html", {
+        "active": "services",
+        "company_name": getattr(company, "name", "") if company else "",
+        "user_name": getattr(user, "full_name", "") or "",
+        "guides": all_guides(),
+    })
+
+
 @app.get("/company/services", response_class=HTMLResponse)
 async def company_services(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
@@ -1449,6 +1465,20 @@ async def company_notification_read(
         await db.commit()
     return {"ok": True}
 
+
+
+
+@app.get("/company/revenue/statement", response_class=HTMLResponse)
+async def company_revenue_statement_page(
+    request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    company = await company_ctx(user, db)
+    return render(request, "company/revenue_statement.html", {
+        "active": "dashboard",
+        "company_name": getattr(company, "name", "") if company else "",
+        "user_name": getattr(user, "full_name", "") or "",
+        "error": request.query_params.get("error"),
+    })
 
 
 @app.get("/company/revenue/pdf")
