@@ -84,7 +84,7 @@
                 <a :href="n.link || (n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard')"
                    class="block px-4 py-3 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]"
                    :class="n.priority === 'high' ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]' : ''"
-                   @click="markRead(n.id)">
+                   @click="markNotifRead(n.id)">
                   <div class="flex items-center gap-2">
                     <div class="font-medium" x-text="n.title"></div>
                     <span x-show="n.priority === 'high'" class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">New</span>
@@ -142,14 +142,13 @@
   function playLoudAlert(){
     try {
       if (window.crqPlayNotify) window.crqPlayNotify();
-      const Ctx = window.AudioContext || window.webkitAudioContext;
+      var Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
-      const ctx = new Ctx();
-      const now = ctx.currentTime;
-      // Three strong beeps so staff notice platform messages
+      var ctx = new Ctx();
+      var now = ctx.currentTime;
       [0, 0.22, 0.44].forEach(function(delay, i){
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
         o.type = 'square';
         o.frequency.value = i === 1 ? 1240 : 920;
         g.gain.setValueAtTime(0.0001, now + delay);
@@ -163,32 +162,61 @@
     } catch(e) {}
   }
 
+  function applyList(list){
+    try {
+      if (window.Alpine && Alpine.store('crqBell')) {
+        Alpine.store('crqBell').setItems(list || []);
+      }
+    } catch(e) {}
+  }
+
+  window.markNotifRead = async function(id){
+    try {
+      await fetch('/company/api/notifications/' + id + '/read', { method: 'POST', credentials: 'same-origin' });
+    } catch(e) {}
+    try {
+      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').remove(id);
+    } catch(e) {}
+  };
+
   async function pollNotify(){
     try {
-      const r = await fetch('/api/company/notifications', { credentials: 'same-origin' });
-      if(!r.ok) return;
-      const data = await r.json();
-      const list = Array.isArray(data) ? data : (data.items || []);
-      if (window.__crqSetNotifications) window.__crqSetNotifications(list);
+      var r = await fetch('/company/api/notifications', { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) return;
+      var data = await r.json();
+      var list = Array.isArray(data) ? data : (data.items || []);
+      applyList(list);
 
-      const maxId = list.reduce(function(m, n){ return Math.max(m, n.id || 0); }, 0);
+      var maxId = list.reduce(function(m, n){ return Math.max(m, n.id || 0); }, 0);
       if (!primed) {
         primed = true;
         lastSeenMaxId = maxId;
         return;
       }
-      const freshHigh = list.filter(function(n){
+      var freshHigh = list.filter(function(n){
         return (n.id > lastSeenMaxId) && (n.priority === 'high' || n.kind === 'platform');
       });
-      if (freshHigh.length) {
-        playLoudAlert();
-      }
+      if (freshHigh.length) playLoudAlert();
       if (maxId > lastSeenMaxId) lastSeenMaxId = maxId;
-    } catch(e) {}
+    } catch(e) {
+      console.warn('crq notify poll', e);
+    }
   }
-  setInterval(pollNotify, 4000);
-  document.addEventListener('DOMContentLoaded', pollNotify);
-  // Re-poll when tab becomes visible
+
+  // Wait for Alpine store, then poll
+  function start(){
+    if (!(window.Alpine && Alpine.store && Alpine.store('crqBell'))) {
+      setTimeout(start, 50);
+      return;
+    }
+    pollNotify();
+    setInterval(pollNotify, 4000);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
   document.addEventListener('visibilitychange', function(){
     if (!document.hidden) pollNotify();
   });

@@ -5,7 +5,7 @@
     sidebarOpen: false,
     logoutOpen: false,
     notifOpen: false,
-    notifications: []
+    get notifications() { return ($store.crqBell && $store.crqBell.items) ? $store.crqBell.items : []; }
   }"
   x-init="
     $watch('dark', v => {
@@ -15,10 +15,6 @@
     });
     document.documentElement.classList.toggle('dark', dark);
     document.documentElement.classList.toggle('light', !dark);
-    window.__crqSetNotifications = (list) => { notifications = list.map(n => ({...n, time: n.created_at || n.time || ''})); };
-    window.markRead = async (id) => {
-      try { await fetch('/company/api/notifications/' + id + '/read', {method:'POST'}); notifications = notifications.filter(n => n.id !== id); } catch(e) {}
-    };
   "
   :class="{ 'dark': dark, 'light': !dark }">
 <head>
@@ -53,6 +49,21 @@
     }
   </script>
   <link rel="stylesheet" href="/static/css/design-system.css">
+  <script>
+    document.addEventListener('alpine:init', function () {
+      Alpine.store('crqBell', {
+        items: [],
+        setItems: function (list) {
+          this.items = (list || []).map(function (n) {
+            return Object.assign({}, n, { time: n.created_at || n.time || '' });
+          });
+        },
+        remove: function (id) {
+          this.items = this.items.filter(function (n) { return n.id !== id; });
+        }
+      });
+    });
+  </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>[x-cloak]{display:none!important}</style>
   {% block head %}{% endblock %}
