@@ -1,5 +1,4 @@
 from fastapi import Request, HTTPException, Depends
-from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -11,67 +10,89 @@ settings = get_settings()
 
 
 def _role_str(role) -> str:
-    """Normalize role from enum / DB string so checks never false-fail."""
     if role is None:
         return ""
     if isinstance(role, UserRole):
-        return role.value  # company_admin
+        return role.value
     if hasattr(role, "value"):
         return str(role.value).lower().strip()
-    s = str(role).lower().strip()
-    # handle "UserRole.COMPANY_ADMIN" or "COMPANY_ADMIN"
-    if "." in s:
-        s = s.split(".")[-1]
-    s = s.replace(" ", "_")
-    mapping = {
-        "company_admin": "company_admin",
-        "companyadmin": "company_admin",
-        "admin": "company_admin",
-        "company_staff": "company_staff",
-        "companystaff": "company_staff",
-        "staff": "company_staff",
+    s = str(role).strip()
+    aliases = {
+        "PLATFORM_ADMIN": "platform_admin",
+        "COMPANY_ADMIN": "company_admin",
+        "COMPANY_STAFF": "company_staff",
         "platform_admin": "platform_admin",
-        "platformadmin": "platform_admin",
+        "company_admin": "company_admin",
+        "company_staff": "company_staff",
     }
-    return mapping.get(s, s)
+    if s in aliases:
+        return aliases[s]
+    s2 = s.lower().replace(" ", "_")
+    if "." in s2:
+        s2 = s2.split(".")[-1]
+    return aliases.get(s2, s2)
 
 
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
-    token = request.cookies.get(settings.SESSION_COOKIE)
+async def _user_from_token(token: str | None, db: AsyncSession) -> User | None:
     if not token:
-        # Browser pages: send to login instead of raw JSON when possible
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        return None
     payload = decode_token(token)
     if not payload or "sub" not in payload:
-        raise HTTPException(status_code=401, detail="Invalid session")
+        return None
     try:
         uid = int(payload["sub"])
     except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Invalid session")
+        return None
     result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User inactive")
+        return None
     return user
 
 
-async def require_platform(user: User = Depends(get_current_user)) -> User:
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Generic: try path-appropriate cookie, then legacy crq_session."""
+    path = request.url.path or ""
+    token = None
+    if path.startswith("/platform"):
+        token = request.cookies.get(settings.SESSION_COOKIE_PLATFORM)
+    elif path.startswith("/company"):
+        token = request.cookies.get(settings.SESSION_COOKIE_COMPANY)
+    if not token:
+        token = request.cookies.get(settings.SESSION_COOKIE)
+    user = await _user_from_token(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+async def require_platform(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    token = (
+        request.cookies.get(settings.SESSION_COOKIE_PLATFORM)
+        or request.cookies.get(settings.SESSION_COOKIE)
+    )
+    user = await _user_from_token(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if _role_str(user.role) != "platform_admin":
         raise HTTPException(status_code=403, detail="Platform admin only")
     return user
 
 
-async def require_company(user: User = Depends(get_current_user)) -> User:
-    """Allow company_admin and company_staff. Role compare is string-safe."""
+async def require_company(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    token = (
+        request.cookies.get(settings.SESSION_COOKIE_COMPANY)
+        or request.cookies.get(settings.SESSION_COOKIE)
+    )
+    user = await _user_from_token(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     role = _role_str(user.role)
     if role not in ("company_admin", "company_staff"):
-        # Common case: still logged in as platform admin in same browser
-        if role == "platform_admin":
-            raise HTTPException(
-                status_code=403,
-                detail="You are logged in as Platform Admin. Open /company/login to use a company account (or use a private window).",
-            )
-        raise HTTPException(status_code=403, detail="Company staff only")
+        raise HTTPException(
+            status_code=403,
+            detail="Company staff only. Log in at /company/login with a company account.",
+        )
     if not getattr(user, "company_id", None):
         raise HTTPException(status_code=403, detail="No company linked to this account")
     return user

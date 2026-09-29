@@ -78,16 +78,31 @@ def render(request: Request, name: str, context: dict | None = None, status_code
         return templates.TemplateResponse(name, ctx, status_code=status_code)
 
 
-def set_session(response: RedirectResponse, user_id: int) -> RedirectResponse:
-    token = create_access_token({"sub": str(user_id)})
-    response.set_cookie(
-        settings.SESSION_COOKIE, token,
-        httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7,
-    )
+def set_session(response: RedirectResponse, user_id: int, scope: str = "company") -> RedirectResponse:
+    """Separate cookies so platform + company admins can stay logged in together."""
+    token = create_access_token({"sub": str(user_id), "scope": scope})
+    common = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7, path="/")
+    if scope == "platform":
+        response.set_cookie(settings.SESSION_COOKIE_PLATFORM, token, **common)
+    else:
+        response.set_cookie(settings.SESSION_COOKIE_COMPANY, token, **common)
+    response.set_cookie(settings.SESSION_COOKIE, token, **common)
+    return response
+
+
+
+def clear_session(response: RedirectResponse, scope: str | None = None) -> RedirectResponse:
+    if scope in (None, "platform"):
+        response.delete_cookie(settings.SESSION_COOKIE_PLATFORM, path="/")
+    if scope in (None, "company"):
+        response.delete_cookie(settings.SESSION_COOKIE_COMPANY, path="/")
+    response.delete_cookie(settings.SESSION_COOKIE, path="/")
     return response
 
 
 def clear_session(response: RedirectResponse) -> RedirectResponse:
+    response.delete_cookie(settings.SESSION_COOKIE_PLATFORM, path="/")
+    response.delete_cookie(settings.SESSION_COOKIE_COMPANY, path="/")
     response.delete_cookie(settings.SESSION_COOKIE)
     return response
 
@@ -187,7 +202,7 @@ async def platform_login(
     if not user or user.role != UserRole.PLATFORM_ADMIN or not verify_password(password, user.hashed_password):
         return render(request, "auth/platform_login.html", {"error": "Invalid email or password"}, 400)
     resp = RedirectResponse("/platform/dashboard", status_code=303)
-    return set_session(resp, user.id)
+    return set_session(resp, user.id, scope="platform")
 
 
 @app.get("/platform/logout")
@@ -579,7 +594,7 @@ async def company_login(
             "error": "Invalid email or password for this company", "brand": brand,
         }, 400)
     resp = RedirectResponse("/company/dashboard", status_code=303)
-    return set_session(resp, user.id)
+    return set_session(resp, user.id, scope="company")
 
 
 @app.get("/company/logout")

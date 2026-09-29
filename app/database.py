@@ -53,6 +53,17 @@ async def ensure_schema():
         "ALTER TABLE payment_details ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
 
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(40)",
+
+        """
+        DO $$ BEGIN
+          ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(32) USING role::text;
+        EXCEPTION WHEN others THEN NULL;
+        END $$;
+        """,
+        "UPDATE users SET role = 'platform_admin' WHERE role::text ILIKE 'platform%admin' OR role::text = 'PLATFORM_ADMIN'",
+        "UPDATE users SET role = 'company_admin' WHERE role::text ILIKE 'company%admin' OR role::text = 'COMPANY_ADMIN'",
+        "UPDATE users SET role = 'company_staff' WHERE role::text ILIKE 'company%staff' OR role::text = 'COMPANY_STAFF'",
+
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_id INTEGER",
         "ALTER TABLE services ADD COLUMN IF NOT EXISTS reference_image_url VARCHAR(500)",
         "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'normal'",
