@@ -55,7 +55,16 @@
         <tr class="border-b border-[var(--border-subtle)]"><td class="py-2 pr-3">Business cards / flyers</td><td class="py-2 pr-3">Tier / variants</td><td class="py-2">Pack sizes or per piece</td></tr>
         <tr><td class="py-2 pr-3">Full vehicle brand</td><td class="py-2 pr-3">Custom</td><td class="py-2">Bot escalates to staff</td></tr>
       </tbody>
-    </table>
+    
+  <div class="mt-6 p-4 rounded-xl border border-[var(--border-subtle)] text-sm space-y-2">
+    <p class="font-semibold m-0">How the bot uses your prices</p>
+    <ul class="list-disc pl-5 text-[var(--text-secondary)] space-y-1 m-0">
+      <li><strong>Minimum quantity</strong> — set on each service. Below that, the bot warns the customer (important for small inch stickers on large-format machines).</li>
+      <li><strong>Per sq ft / sq m</strong> — bot asks inches vs feet before calculating area × your rate.</li>
+      <li><strong>Sizes / options</strong> — use for frames (5x7, 8x10…) or nylon tiers (50 pcs, 100 pcs with fixed prices). Bot prefers these over inventing a scale.</li>
+      <li><strong>Payment</strong> — screenshots only pending until you confirm in Orders; then revenue updates.</li>
+    </ul>
+  </div>
   </div>
 </div>
 {% endblock %}

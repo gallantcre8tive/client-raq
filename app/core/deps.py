@@ -54,9 +54,9 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     """Generic: try path-appropriate cookie, then legacy crq_session."""
     path = request.url.path or ""
     token = None
-    if path.startswith("/platform"):
+    if path.startswith("/platform") or path.startswith("/api/platform"):
         token = request.cookies.get(getattr(settings, "SESSION_COOKIE_PLATFORM", "crq_platform_session"))
-    elif path.startswith("/company"):
+    elif path.startswith("/company") or path.startswith("/api/company"):
         token = request.cookies.get(getattr(settings, "SESSION_COOKIE_COMPANY", "crq_company_session"))
     if not token:
         token = request.cookies.get(settings.SESSION_COOKIE)

@@ -79,7 +79,12 @@
               </select>
             </div>
             <div class="flex flex-col justify-end gap-2">
-              <label class="flex items-center gap-2 text-xs min-h-[40px]">
+              <div>
+              <label class="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">Minimum quantity</label>
+              <input type="number" name="min_qty" min="1" step="1" value="{{ s.min_qty|default(1) }}" class="input-field" title="Bot will refuse or warn below this qty">
+              <p class="text-[10px] text-[var(--text-muted)] mt-1">Bot will tell customers the minimum. Use Sizes/options for tier prices (e.g. 50 pcs, 100 pcs).</p>
+            </div>
+            <label class="flex items-center gap-2 text-xs min-h-[40px]">
                 <input type="checkbox" name="is_active" value="1" {% if s.active %}checked{% endif %}> Offer on WhatsApp
               </label>
             </div>

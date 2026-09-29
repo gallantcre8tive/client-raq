@@ -588,12 +588,13 @@ async def platform_messages(
 
 
 
+
 @app.post("/platform/messages")
 async def platform_messages_send(
     company_id: str = Form(...), message: str = Form(...),
     user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    """Save history + insert company notification via SQL (reliable on drifted schemas)."""
+    """History + company notification. Uses multiple insert strategies so the bell always gets it."""
     from sqlalchemy import text as sa_text
 
     text_msg = (message or "").strip()
@@ -617,68 +618,84 @@ async def platform_messages_send(
 
     sender = getattr(user, "full_name", None) or getattr(user, "email", None) or "Platform Admin"
 
-    for c in targets:
-        cid = int(c.id)
-        cname = str(c.name or "")
-        # 1) Company bell — raw insert so missing ORM columns cannot abort the whole request
-        try:
-            await db.execute(sa_text("""
-                INSERT INTO admin_notifications
-                    (company_id, conversation_id, title, body, priority, is_read, created_at)
-                VALUES
-                    (:cid, NULL, :title, :body, 'high', false, NOW())
-            """), {
-                "cid": cid,
-                "title": "Message from Client-RaQ Platform",
-                "body": text_msg[:2000],
-            })
-        except Exception as e1:
-            print("notify insert primary:", type(e1).__name__, e1)
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-            try:
-                await db.execute(sa_text("""
-                    INSERT INTO admin_notifications (company_id, title, body, is_read)
-                    VALUES (:cid, :title, :body, false)
-                """), {
-                    "cid": cid,
-                    "title": "Message from Client-RaQ Platform",
-                    "body": text_msg[:2000],
-                })
-            except Exception as e2:
-                print("notify insert fallback:", type(e2).__name__, e2)
-
-        # 2) Platform history
-        try:
-            db.add(PlatformMessage(
-                company_id=cid,
-                company_name=cname,
-                body=text_msg[:4000],
-                sent_by=str(sender)[:200],
-            ))
-            await db.flush()
-        except Exception as e3:
-            print("platform_message insert:", type(e3).__name__, e3)
-            try:
-                await db.execute(sa_text("""
-                    INSERT INTO platform_messages (company_id, company_name, body, sent_by, created_at)
-                    VALUES (:cid, :cname, :body, :sender, NOW())
-                """), {
-                    "cid": cid, "cname": cname, "body": text_msg[:4000], "sender": str(sender)[:200],
-                })
-            except Exception as e4:
-                print("platform_message sql:", type(e4).__name__, e4)
-
+    # Ensure notification table exists
     try:
+        await db.execute(sa_text("""
+            CREATE TABLE IF NOT EXISTS admin_notifications (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER,
+                conversation_id INTEGER,
+                title VARCHAR(200),
+                body TEXT,
+                priority VARCHAR(20) DEFAULT 'high',
+                is_read BOOLEAN DEFAULT false,
+                link_path VARCHAR(300),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
         await db.commit()
     except Exception as e:
-        print("platform_messages commit:", e)
+        print("ensure notif table:", e)
         try:
             await db.rollback()
         except Exception:
             pass
+
+    for c in targets:
+        cid = int(c.id)
+        cname = str(c.name or "")
+        # Insert notification — try several column sets
+        inserted = False
+        for sql, params in [
+            ("""INSERT INTO admin_notifications
+                (company_id, conversation_id, title, body, priority, is_read, link_path, created_at)
+             VALUES (:cid, NULL, :title, :body, 'high', false, '/company/dashboard', NOW())""",
+             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
+            ("""INSERT INTO admin_notifications
+                (company_id, title, body, priority, is_read, created_at)
+             VALUES (:cid, :title, :body, 'high', false, NOW())""",
+             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
+            ("""INSERT INTO admin_notifications (company_id, title, body)
+             VALUES (:cid, :title, :body)""",
+             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
+        ]:
+            if inserted:
+                break
+            try:
+                await db.execute(sa_text(sql), params)
+                await db.commit()
+                inserted = True
+                print("notif_inserted company_id=", cid)
+            except Exception as e:
+                print("notif_insert try fail:", type(e).__name__, e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+        # History log
+        try:
+            await db.execute(sa_text("""
+                CREATE TABLE IF NOT EXISTS platform_messages (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER,
+                    company_name VARCHAR(200) DEFAULT '',
+                    body TEXT NOT NULL,
+                    sent_by VARCHAR(200),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            await db.execute(sa_text("""
+                INSERT INTO platform_messages (company_id, company_name, body, sent_by, created_at)
+                VALUES (:cid, :cname, :body, :sender, NOW())
+            """), {"cid": cid, "cname": cname, "body": text_msg[:4000], "sender": str(sender)[:200]})
+            await db.commit()
+        except Exception as e:
+            print("platform_msg hist:", e)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
     return RedirectResponse("/platform/messages?sent=1", status_code=303)
 
@@ -1021,6 +1038,7 @@ async def company_services(
             "pricing_method": getattr(s, "pricing_method", None) or "piece",
             "active": s.is_active,
             "description": s.description or "",
+            "min_qty": int(getattr(s, "min_qty", None) or 1),
         })
     catalog_view = []
     for item in MASTER_CATALOG:
@@ -1145,6 +1163,7 @@ async def company_services_update(
     pricing_method: str = Form("piece"),
     description: Optional[str] = Form(None),
     is_active: Optional[str] = Form(None),
+    min_qty: int = Form(1),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
     s = await db.get(Service, service_id)
@@ -1156,6 +1175,10 @@ async def company_services_update(
     if description is not None:
         s.description = description
     s.is_active = is_active is not None
+    try:
+        s.min_qty = max(1, int(min_qty or 1))
+    except Exception:
+        s.min_qty = 1
     await db.commit()
     return RedirectResponse("/company/services?saved=1", status_code=303)
 
@@ -1763,100 +1786,110 @@ async def company_broadcast_send(
 
 
 
+
 @app.get("/api/company/notifications")
 async def company_notifications_api(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Unread notifications for the logged-in company (bell). Uses SQL for schema safety."""
+    """Unread + recent platform notes for this company admin bell."""
     from sqlalchemy import text as sa_text
 
     cid = getattr(user, "company_id", None)
     if not cid:
         return []
+    cid = int(cid)
+    out = []
+    seen = set()
 
-    rows = []
+    # 1) admin_notifications
     try:
         result = await db.execute(sa_text("""
-            SELECT id, title, body, priority, conversation_id, created_at
+            SELECT id, title, body, COALESCE(priority, 'high') AS priority,
+                   conversation_id, created_at
             FROM admin_notifications
             WHERE company_id = :cid
-              AND (is_read IS NOT TRUE)
+              AND COALESCE(is_read, false) = false
             ORDER BY id DESC
             LIMIT 40
-        """), {"cid": int(cid)})
-        rows = list(result.mappings().all())
+        """), {"cid": cid})
+        for n in result.mappings().all():
+            nid = int(n["id"])
+            seen.add(("n", nid))
+            title = n.get("title") or "Notification"
+            body = n.get("body") or ""
+            pri = str(n.get("priority") or "high").lower()
+            if "platform" in title.lower():
+                pri = "high"
+            created = n.get("created_at")
+            time_s = ""
+            if created is not None:
+                try:
+                    time_s = created.strftime("%d %b %Y %H:%M")
+                except Exception:
+                    time_s = str(created)[:16]
+            conv_id = n.get("conversation_id")
+            out.append({
+                "id": nid,
+                "title": title,
+                "body": body,
+                "priority": pri,
+                "kind": "platform" if "platform" in title.lower() else "order",
+                "conversation_id": conv_id,
+                "link": f"/company/messages?c={conv_id}" if conv_id else "/company/dashboard",
+                "created_at": time_s,
+                "time": time_s,
+            })
     except Exception as e:
-        print("notifications_api:", type(e).__name__, e)
+        print("notifications_api primary:", type(e).__name__, e)
         try:
             await db.rollback()
         except Exception:
             pass
-        try:
-            result = await db.execute(sa_text("""
-                SELECT id, title, body, conversation_id, created_at
-                FROM admin_notifications
-                WHERE company_id = :cid
-                ORDER BY id DESC
-                LIMIT 40
-            """), {"cid": int(cid)})
-            rows = list(result.mappings().all())
-        except Exception as e2:
-            print("notifications_api fallback:", type(e2).__name__, e2)
-            return []
 
-    out = []
-    for n in rows:
-        title = n.get("title") or "Notification"
-        body = n.get("body") or ""
-        pri = str(n.get("priority") or "normal").lower()
-        is_platform = "platform" in title.lower()
-        if is_platform:
-            pri = "high"
-        created = n.get("created_at")
-        time_s = ""
-        if created is not None:
-            try:
-                time_s = created.strftime("%d %b %Y %H:%M")
-            except Exception:
-                time_s = str(created)[:16]
-        conv_id = n.get("conversation_id")
-        out.append({
-            "id": int(n["id"]),
-            "title": title,
-            "body": body,
-            "priority": pri,
-            "kind": "platform" if is_platform else "order",
-            "conversation_id": conv_id,
-            "link": f"/company/messages?c={conv_id}" if conv_id else "/company/dashboard",
-            "created_at": time_s,
-            "time": time_s,
-        })
-    # Fallback: surface platform_messages history if admin_notifications insert failed earlier
-    if not out:
+    # 2) Always merge recent platform_messages for this company (last 15)
+    try:
+        result = await db.execute(sa_text("""
+            SELECT id, body, created_at, company_name
+            FROM platform_messages
+            WHERE company_id = :cid
+            ORDER BY id DESC
+            LIMIT 15
+        """), {"cid": cid})
+        for mrow in result.mappings().all():
+            mid = int(mrow["id"])
+            if ("pm", mid) in seen:
+                continue
+            # Avoid duplicates of same body already in out
+            body = mrow.get("body") or ""
+            if any((x.get("body") or "") == body for x in out):
+                continue
+            created = mrow.get("created_at")
+            time_s = ""
+            if created is not None:
+                try:
+                    time_s = created.strftime("%d %b %Y %H:%M")
+                except Exception:
+                    time_s = str(created)[:16]
+            out.append({
+                "id": 900000 + mid,
+                "title": "Message from Client-RaQ Platform",
+                "body": body,
+                "priority": "high",
+                "kind": "platform",
+                "conversation_id": None,
+                "link": "/company/dashboard",
+                "created_at": time_s,
+                "time": time_s,
+            })
+    except Exception as e:
+        print("notifications_api platform_messages:", type(e).__name__, e)
         try:
-            from app.models.platform_message import PlatformMessage
-            pm = list((await db.execute(
-                select(PlatformMessage).where(PlatformMessage.company_id == int(cid))
-                .order_by(PlatformMessage.id.desc()).limit(10)
-            )).scalars().all())
-            for m in pm:
-                created = getattr(m, "created_at", None)
-                time_s = created.strftime("%d %b %Y %H:%M") if created else ""
-                out.append({
-                    "id": 1000000 + int(m.id),
-                    "title": "Message from Client-RaQ Platform",
-                    "body": m.body or "",
-                    "priority": "high",
-                    "kind": "platform",
-                    "conversation_id": None,
-                    "link": "/company/dashboard",
-                    "created_at": time_s,
-                    "time": time_s,
-                })
-        except Exception as pe:
-            print("notif platform_messages fallback:", pe)
-    return out
+            await db.rollback()
+        except Exception:
+            pass
 
+    out.sort(key=lambda x: x.get("id") or 0, reverse=True)
+    return out[:40]
 
 
 

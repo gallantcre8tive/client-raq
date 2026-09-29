@@ -381,7 +381,8 @@ async def execute_tool(name: str, args: dict, tc: ToolContext) -> dict[str, Any]
                     "id": s.id,
                     "name": s.name,
                     "base_price": float(s.base_price or 0),
-                    "unit": s.unit or "",
+                    "min_qty": int(getattr(s, "min_qty", 1) or 1),
+                "unit": s.unit or "",
                     "pricing_method": getattr(s, "pricing_method", None) or _unit_mode(s.unit),
                     "description": (getattr(s, "description", None) or "")[:200],
                 }
