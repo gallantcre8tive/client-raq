@@ -102,13 +102,20 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
         # Prefer total, fall back to total_amount — never crash the dashboard
         try:
             sql = text("""
-                SELECT COALESCE(SUM(COALESCE(NULLIF(total, 0), total_amount, 0)), 0) AS s
+                SELECT COALESCE(SUM(
+                    COALESCE(total, total_amount, 0)
+                ), 0) AS s
                 FROM orders
                 WHERE created_at >= :since
                   AND (:cid IS NULL OR company_id = :cid)
-                  AND status::text = ANY(:statuses)
+                  AND (
+                    status::text IN (
+                      'PAYMENT_CONFIRMED','IN_PRODUCTION','READY','COMPLETED',
+                      'payment_confirmed','in_production','ready','completed'
+                    )
+                  )
             """)
-            r = await db.execute(sql, {"since": since, "cid": company_id, "statuses": list(paid)})
+            r = await db.execute(sql, {"since": since, "cid": company_id})
             val = r.scalar()
             return float(val or 0)
         except Exception as e1:
@@ -119,13 +126,12 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
                 pass
             try:
                 sql2 = text("""
-                    SELECT COALESCE(SUM(COALESCE(total_amount, 0)), 0) AS s
+                    SELECT COALESCE(SUM(COALESCE(total_amount, total, 0)), 0) AS s
                     FROM orders
                     WHERE created_at >= :since
                       AND (:cid IS NULL OR company_id = :cid)
-                      AND status::text = ANY(:statuses)
                 """)
-                r = await db.execute(sql2, {"since": since, "cid": company_id, "statuses": list(paid)})
+                r = await db.execute(sql2, {"since": since, "cid": company_id})
                 return float(r.scalar() or 0)
             except Exception as e2:
                 print("revenue sum fallback:", type(e2).__name__, e2)
@@ -177,51 +183,121 @@ async def platform_logout():
 async def platform_dashboard(
     request: Request, user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    companies, company_rows = [], []
+    """Platform admin home — all values materialized as plain Python (no lazy ORM IO)."""
+    # Snapshot user while session is live (avoids MissingGreenlet in templates)
+    user_name = str(getattr(user, "full_name", None) or "Platform Admin")
+
+    company_rows: list[dict] = []
     cc = oc = vc = 0
     rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
+
     try:
-        companies = (await db.execute(select(Company).order_by(Company.created_at.desc()).limit(20))).scalars().all()
-        cc = (await db.execute(select(func.count()).select_from(Company))).scalar() or 0
+        from app.database import ensure_schema
+        await ensure_schema()
     except Exception as e:
-        print("dash companies:", e)
-        try: await db.rollback()
-        except Exception: pass
+        print("platform_dash ensure:", e)
+
     try:
-        oc = (await db.execute(select(func.count()).select_from(Order))).scalar() or 0
+        result = await db.execute(select(Company).order_by(Company.created_at.desc()).limit(20))
+        companies = list(result.scalars().all())
+        # Materialize immediately before any other query/rollback
+        for c in companies:
+            st = c.status
+            if hasattr(st, "value"):
+                st = st.value
+            else:
+                st = str(st or "active")
+            created = getattr(c, "created_at", None)
+            company_rows.append({
+                "id": int(c.id),
+                "name": str(c.name or ""),
+                "slug": str(getattr(c, "slug", None) or ""),
+                "country": str(getattr(c, "country", None) or "—"),
+                "currency": str(getattr(c, "currency", None) or "NGN"),
+                "status": str(st),
+                "created_at": created.strftime("%Y-%m-%d") if created is not None else "—",
+            })
+        try:
+            cc = int((await db.execute(select(func.count()).select_from(Company))).scalar() or 0)
+        except Exception:
+            cc = len(company_rows)
     except Exception as e:
-        print("dash orders:", e)
-        try: await db.rollback()
-        except Exception: pass
+        print("platform_dash companies:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     try:
-        vc = (await db.execute(select(func.count()).select_from(Conversation))).scalar() or 0
+        oc = int((await db.execute(select(func.count()).select_from(Order))).scalar() or 0)
     except Exception as e:
-        print("dash conv:", e)
-        try: await db.rollback()
-        except Exception: pass
+        print("platform_dash orders:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        oc = 0
+
+    try:
+        vc = int((await db.execute(select(func.count()).select_from(Conversation))).scalar() or 0)
+    except Exception as e:
+        print("platform_dash conv:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        vc = 0
+
     try:
         rev = await revenue_stats(db)
+        if not isinstance(rev, dict):
+            rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
     except Exception as e:
-        print("dash rev:", e)
-        try: await db.rollback()
-        except Exception: pass
+        print("platform_dash rev:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
-    for c in companies:
-        st = c.status if isinstance(c.status, str) else getattr(c.status, "value", str(c.status))
-        company_rows.append({
-            "id": c.id, "name": c.name, "slug": c.slug,
-            "country": c.country or "—", "currency": c.currency or "NGN",
-            "status": st,
-            "created_at": c.created_at.strftime("%Y-%m-%d") if c.created_at else "—",
+
+    try:
+        return render(request, "platform/dashboard.html", {
+            "active": "dashboard",
+            "user_name": user_name,
+            "companies_count": cc,
+            "orders_count": oc,
+            "conv_count": vc,
+            "revenue": f'{float(rev.get("monthly") or 0):,.0f}',
+            "revenue_daily": float(rev.get("daily") or 0),
+            "revenue_weekly": float(rev.get("weekly") or 0),
+            "revenue_monthly": float(rev.get("monthly") or 0),
+            "companies": company_rows,
         })
-    return render(request, "platform/dashboard.html", {
-        "active": "dashboard",
-        "user_name": user.full_name or "Platform Admin",
-        "companies_count": cc, "orders_count": oc, "conv_count": vc,
-        "revenue": f'{rev["monthly"]:,.0f}',
-        "revenue_daily": rev["daily"], "revenue_weekly": rev["weekly"], "revenue_monthly": rev["monthly"],
-        "companies": company_rows,
-    })
+    except Exception as e:
+        print("platform_dash render:", type(e).__name__, e)
+        # Last resort plain HTML so platform admin is never blocked
+        rows_html = "".join(
+            f"<tr><td>{r['name']}</td><td>{r['country']}</td><td>{r['currency']}</td><td>{r['status']}</td></tr>"
+            for r in company_rows
+        ) or "<tr><td colspan=4>No companies yet</td></tr>"
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><title>Platform Dashboard</title></head>
+            <body style="font-family:system-ui;padding:1.5rem;background:#0b1220;color:#eee">
+            <h1>Platform Dashboard</h1>
+            <p>Welcome, {user_name}</p>
+            <p>Companies: {cc} · Orders: {oc} · Chats: {vc}</p>
+            <p>Revenue (month): {float(rev.get('monthly') or 0):,.0f}</p>
+            <p><a href="/platform/companies" style="color:#6ea8fe">Companies</a> ·
+               <a href="/platform/companies/new" style="color:#6ea8fe">Add company</a></p>
+            <table border="1" cellpadding="8" style="border-collapse:collapse;margin-top:1rem">
+            <tr><th>Name</th><th>Country</th><th>Currency</th><th>Status</th></tr>
+            {rows_html}
+            </table>
+            </body></html>""",
+            status_code=200,
+        )
+
+
 
 
 @app.get("/platform/companies", response_class=HTMLResponse)
