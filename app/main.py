@@ -554,14 +554,25 @@ async def platform_messages_send(
         if c:
             targets = [c]
     for c in targets:
-        c.platform_note = text
-        db.add(AdminNotification(
+        # Do NOT set platform_note (that was the dashboard banner). Bell only.
+        try:
+            c.platform_note = None
+        except Exception:
+            pass
+        n = AdminNotification(
             company_id=c.id,
             conversation_id=None,
             title="Message from Client-RaQ Platform",
             body=text[:2000],
             priority="high",
-        ))
+        )
+        # link_path if column exists
+        if hasattr(AdminNotification, "link_path"):
+            try:
+                n.link_path = "/company/dashboard"
+            except Exception:
+                pass
+        db.add(n)
     await db.commit()
     return RedirectResponse("/platform/messages?sent=1", status_code=303)
 
@@ -763,7 +774,7 @@ async def company_dashboard(
         if company:
             ctx["company_name"] = getattr(company, "name", None) or "Company"
             ctx["currency"] = getattr(company, "currency", None) or "NGN"
-            ctx["platform_note"] = getattr(company, "platform_note", None)
+            ctx["platform_note"] = None  # platform messages use notification bell only
             cid = company.id
             try:
                 ctx["orders_count"] = int((await db.execute(
@@ -1648,24 +1659,44 @@ async def company_broadcast_send(
 async def company_notifications_api(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    rows = list((await db.execute(
+    result = await db.execute(
         select(AdminNotification).where(
             AdminNotification.company_id == user.company_id,
             AdminNotification.is_read == False,
-        ).order_by(AdminNotification.id.desc()).limit(30)
-    )).scalars().all())
-    return [
-        {
-            "id": n.id,
-            "title": n.title or "",
-            "body": n.body or "",
-            "priority": getattr(n, "priority", None) or ("high" if "attention" in ((n.title or "") + (n.body or "")).lower() else "normal"),
-            "conversation_id": getattr(n, "conversation_id", None),
-            "link": getattr(n, "link_path", None) or "/company/messages",
-            "created_at": n.created_at.isoformat() if getattr(n, "created_at", None) else None,
-        }
-        for n in rows
-    ]
+        ).order_by(AdminNotification.id.desc()).limit(40)
+    )
+    rows = list(result.scalars().all())
+    out = []
+    for n in rows:
+        title = n.title or "Notification"
+        body = n.body or ""
+        pri = (getattr(n, "priority", None) or "normal").lower()
+        is_platform = "platform" in title.lower() or "client-raq platform" in title.lower()
+        if is_platform:
+            pri = "high"
+        created = getattr(n, "created_at", None)
+        time_s = ""
+        if created is not None:
+            try:
+                time_s = created.strftime("%d %b %Y %H:%M")
+            except Exception:
+                time_s = str(created)
+        link = getattr(n, "link_path", None) or (
+            f"/company/messages?c={n.conversation_id}" if n.conversation_id else "/company/dashboard"
+        )
+        out.append({
+            "id": int(n.id),
+            "title": title,
+            "body": body,
+            "priority": pri,
+            "kind": "platform" if is_platform else "order",
+            "conversation_id": n.conversation_id,
+            "link": link,
+            "created_at": time_s,
+            "time": time_s,
+        })
+    return out
+
 
 
 @app.post("/api/company/notifications/{nid}/read")

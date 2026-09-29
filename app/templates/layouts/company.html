@@ -70,7 +70,9 @@
             aria-label="Notifications"
           >
             {{ icon('bell', 'w-[18px] h-[18px]') }}
-            <span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--primary)]" x-show="notifications && notifications.length" x-cloak></span>
+            <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white inline-flex items-center justify-center"
+                  x-show="notifications && notifications.length" x-cloak
+                  x-text="notifications.length > 9 ? '9+' : notifications.length"></span>
           </button>
           <div x-show="notifOpen" x-cloak class="absolute right-0 mt-2 w-72 max-w-[calc(100vw-24px)] rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xl overflow-hidden z-50">
             <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Notifications</div>
@@ -79,10 +81,14 @@
                 <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications</div>
               </template>
               <template x-for="n in (notifications || [])" :key="n.id">
-                <a :href="n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard'"
+                <a :href="n.link || (n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard')"
                    class="block px-4 py-3 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]"
+                   :class="n.priority === 'high' ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]' : ''"
                    @click="markRead(n.id)">
-                  <div class="font-medium" x-text="n.title"></div>
+                  <div class="flex items-center gap-2">
+                    <div class="font-medium" x-text="n.title"></div>
+                    <span x-show="n.priority === 'high'" class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">New</span>
+                  </div>
                   <div class="text-xs text-[var(--text-secondary)] mt-0.5 line-clamp-2" x-text="n.body || ''"></div>
                   <div class="text-[10px] text-[var(--text-muted)] mt-1" x-text="n.time || ''"></div>
                 </a>
@@ -130,41 +136,61 @@
 
 <script>
 (function(){
-  let lastHighId = 0;
+  let lastSeenMaxId = 0;
+  let primed = false;
+
+  function playLoudAlert(){
+    try {
+      if (window.crqPlayNotify) window.crqPlayNotify();
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      // Three strong beeps so staff notice platform messages
+      [0, 0.22, 0.44].forEach(function(delay, i){
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'square';
+        o.frequency.value = i === 1 ? 1240 : 920;
+        g.gain.setValueAtTime(0.0001, now + delay);
+        g.gain.exponentialRampToValueAtTime(0.45, now + delay + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.18);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(now + delay);
+        o.stop(now + delay + 0.2);
+      });
+      setTimeout(function(){ try{ ctx.close(); }catch(e){} }, 1200);
+    } catch(e) {}
+  }
+
   async function pollNotify(){
     try {
-      const r = await fetch('/api/company/notifications');
+      const r = await fetch('/api/company/notifications', { credentials: 'same-origin' });
       if(!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data) ? data : (data.items || []);
-      if (window.Alpine && document.querySelector('[x-data]')) {
-        /* alpine bound via x-data on page */
-      }
-      const high = list.find(n => n.priority === 'high' && n.id > lastHighId);
-      if (high) {
-        lastHighId = high.id;
-        try {
-          if (window.crqPlayNotify) window.crqPlayNotify();
-          const Ctx = window.AudioContext || window.webkitAudioContext;
-          if (Ctx) {
-            const ctx = new Ctx();
-            const o = ctx.createOscillator();
-            const g = ctx.createGain();
-            o.type = 'square'; o.frequency.value = 880;
-            g.gain.value = 0.35;
-            o.connect(g); g.connect(ctx.destination);
-            o.start();
-            setTimeout(function(){ o.frequency.value = 1175; }, 120);
-            setTimeout(function(){ o.stop(); ctx.close(); }, 400);
-          }
-        } catch(e) {}
-        if (window.__crqSetNotifications) window.__crqSetNotifications(list);
-      }
-      // update alpine notifications if present on window
       if (window.__crqSetNotifications) window.__crqSetNotifications(list);
+
+      const maxId = list.reduce(function(m, n){ return Math.max(m, n.id || 0); }, 0);
+      if (!primed) {
+        primed = true;
+        lastSeenMaxId = maxId;
+        return;
+      }
+      const freshHigh = list.filter(function(n){
+        return (n.id > lastSeenMaxId) && (n.priority === 'high' || n.kind === 'platform');
+      });
+      if (freshHigh.length) {
+        playLoudAlert();
+      }
+      if (maxId > lastSeenMaxId) lastSeenMaxId = maxId;
     } catch(e) {}
   }
-  setInterval(pollNotify, 5000);
+  setInterval(pollNotify, 4000);
   document.addEventListener('DOMContentLoaded', pollNotify);
+  // Re-poll when tab becomes visible
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) pollNotify();
+  });
 })();
 </script>
