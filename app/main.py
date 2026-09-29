@@ -24,6 +24,23 @@ settings = get_settings()
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="Client-RaQ")
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Prefer redirects for browser auth errors on company/platform pages."""
+    path = request.url.path or ""
+    accept = (request.headers.get("accept") or "")
+    wants_html = "text/html" in accept
+    if wants_html and exc.status_code in (401, 403):
+        if path.startswith("/company"):
+            # Platform cookie on company routes → company login
+            return RedirectResponse("/company/login?error=auth", status_code=303)
+        if path.startswith("/platform"):
+            return RedirectResponse("/platform/login?error=auth", status_code=303)
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception(request: Request, exc: Exception):
     """Surface errors in logs; avoid silent opaque failures on company pages."""

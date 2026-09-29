@@ -15,7 +15,16 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(200))
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.COMPANY_ADMIN)
+    # Store enum *values* (company_admin) not names (COMPANY_ADMIN)
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(
+            UserRole,
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+            length=32,
+        ),
+        default=UserRole.COMPANY_ADMIN,
+    )
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
