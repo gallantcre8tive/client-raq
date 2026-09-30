@@ -92,6 +92,7 @@
           <div class="flex flex-wrap gap-2 pt-1">
             <button type="submit" class="btn-primary min-h-[40px] px-4 text-sm">Save price</button>
             <a href="/company/services/{{ s.id }}/variants" class="btn-ghost min-h-[40px] px-4 text-sm inline-flex items-center no-underline">Sizes / options</a>
+            <a href="/company/services/{{ s.id }}/examples" class="btn-ghost min-h-[40px] px-4 text-sm inline-flex items-center no-underline">Example images</a>
             <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="return confirm('Remove {{ s.name }}?')">Remove</button>
           </div>
         </form>

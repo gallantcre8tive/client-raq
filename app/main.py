@@ -15,6 +15,7 @@ from app.database import get_db, init_db
 from app.models.user import User, UserRole
 from app.models.company import Company, CompanyStatus, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
+from app.models.service_image import ServiceExampleImage  # noqa: F401
 from app.models.conversation import AdminNotification, Broadcast, Customer, Conversation, Message, Order
 from app.models.platform_message import PlatformMessage
 from app.models.conversation import Order, Conversation, OrderStatus
@@ -1006,6 +1007,131 @@ async def company_dashboard(
 
 
 
+
+@app.get("/company/services/{service_id}/examples", response_class=HTMLResponse)
+async def company_service_examples(
+    service_id: int,
+    request: Request,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.service_image import ServiceExampleImage
+    company = await company_ctx(user, db)
+    s = await db.get(Service, service_id)
+    if not s or s.company_id != company.id:
+        raise HTTPException(404)
+    imgs = list((await db.execute(
+        select(ServiceExampleImage).where(
+            ServiceExampleImage.service_id == service_id,
+            ServiceExampleImage.company_id == company.id,
+        ).order_by(ServiceExampleImage.id.desc())
+    )).scalars().all())
+    rows = []
+    for im in imgs:
+        rows.append({
+            "id": im.id,
+            "title": im.title or im.original_name or f"Image {im.id}",
+            "description": im.description or "",
+            "tags": im.tags or "",
+            "src": f"/company/service-images/{im.id}",
+            "active": im.is_active,
+        })
+    return render(request, "company/service_examples.html", {
+        "active": "services",
+        "company_name": company.name,
+        "user_name": user.full_name,
+        "service": s,
+        "images": rows,
+    })
+
+
+@app.post("/company/services/{service_id}/examples/upload")
+async def company_service_examples_upload(
+    service_id: int,
+    request: Request,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.service_image import ServiceExampleImage
+    from app.services.attachment_serve import media_root
+    import uuid
+    from pathlib import Path as _P
+
+    company = await company_ctx(user, db)
+    s = await db.get(Service, service_id)
+    if not s or s.company_id != company.id:
+        raise HTTPException(404)
+    form = await request.form()
+    upload = form.get("file")
+    title = (form.get("title") or "").strip() or None
+    description = (form.get("description") or "").strip() or None
+    tags = (form.get("tags") or "").strip() or None
+    if not upload or not getattr(upload, "filename", None):
+        return RedirectResponse(f"/company/services/{service_id}/examples", status_code=303)
+    raw = await upload.read()
+    if not raw:
+        return RedirectResponse(f"/company/services/{service_id}/examples", status_code=303)
+    ext = _P(upload.filename).suffix or ".jpg"
+    fname = f"ex_{service_id}_{uuid.uuid4().hex[:10]}{ext}"
+    dest_dir = media_root() / str(company.id) / "examples"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / fname).write_bytes(raw)
+    rel = f"{company.id}/examples/{fname}"
+    mime = getattr(upload, "content_type", None) or "image/jpeg"
+    db.add(ServiceExampleImage(
+        company_id=company.id,
+        service_id=service_id,
+        storage_path=rel,
+        original_name=upload.filename,
+        mime_type=mime,
+        title=title,
+        description=description,
+        tags=tags,
+        is_active=True,
+    ))
+    await db.commit()
+    return RedirectResponse(f"/company/services/{service_id}/examples?saved=1", status_code=303)
+
+
+@app.post("/company/services/{service_id}/examples/{image_id}/delete")
+async def company_service_examples_delete(
+    service_id: int,
+    image_id: int,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.service_image import ServiceExampleImage
+    company = await company_ctx(user, db)
+    im = await db.get(ServiceExampleImage, image_id)
+    if not im or im.company_id != company.id or im.service_id != service_id:
+        raise HTTPException(404)
+    await db.delete(im)
+    await db.commit()
+    return RedirectResponse(f"/company/services/{service_id}/examples", status_code=303)
+
+
+@app.get("/company/service-images/{image_id}")
+async def company_service_image_file(
+    image_id: int,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import Response
+    from app.models.service_image import ServiceExampleImage
+    from app.services.attachment_serve import media_root
+    im = await db.get(ServiceExampleImage, image_id)
+    if not im or im.company_id != user.company_id:
+        raise HTTPException(404)
+    p = media_root() / im.storage_path
+    if not p.is_file():
+        raise HTTPException(404, detail="Image file missing")
+    return Response(
+        content=p.read_bytes(),
+        media_type=im.mime_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
 @app.get("/company/services/guide", response_class=HTMLResponse)
 async def company_services_guide(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
@@ -1400,6 +1526,36 @@ async def company_bot_alias(request: Request, user: User = Depends(require_compa
 
 
 
+
+@app.get("/company/attachments/{attachment_id}")
+async def company_attachment_file(
+    attachment_id: int,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve customer/admin file. Re-downloads from WhatsApp if missing on disk (Render-safe)."""
+    from fastapi.responses import Response
+    from app.models.conversation import Attachment
+    from app.services.attachment_serve import resolve_bytes
+
+    att = await db.get(Attachment, attachment_id)
+    if not att or att.company_id != user.company_id:
+        raise HTTPException(404, detail="Attachment not found")
+    resolved = await resolve_bytes(db, att)
+    if not resolved:
+        raise HTTPException(404, detail="File not available")
+    content, mime, fname = resolved
+    disp = "inline" if (mime or "").startswith("image/") else "attachment"
+    return Response(
+        content=content,
+        media_type=mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disp}; filename="{fname}"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 @app.get("/company/messages", response_class=HTMLResponse)
 async def company_messages(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
     from app.models.conversation import Conversation, Message, Attachment, Order
@@ -1427,25 +1583,12 @@ async def company_messages(request: Request, user: User = Depends(require_compan
                     media_src = None
                     media_kind = None
                     media_name = None
-                    # Prefer attachment_id
                     att = None
                     aid = getattr(m, "attachment_id", None)
                     if aid:
                         att = await db.get(Attachment, aid)
-                    # Or media_url pointing to local path /media/...
-                    mu = getattr(m, "media_url", None) or ""
-                    if att and getattr(att, "storage_path", None):
-                        sp = str(att.storage_path).replace("\\", "/").lstrip("/")
-                        # storage is usually company_id/filename under uploads/
-                        if sp.startswith("media/"):
-                            media_src = "/" + sp
-                        elif sp.startswith("/media/"):
-                            media_src = sp
-                        elif sp.startswith("uploads/"):
-                            media_src = "/media/" + sp[len("uploads/"):]
-                        else:
-                            # company_id/file.jpg or bare filename
-                            media_src = "/media/" + sp
+                    if att:
+                        media_src = f"/company/attachments/{att.id}"
                         mime = (att.mime_type or "").lower()
                         if mime.startswith("image/"):
                             media_kind = "image"
@@ -1458,16 +1601,17 @@ async def company_messages(request: Request, user: User = Depends(require_compan
                         media_name = att.original_name
                         if body in ("[media]", "[image]", "[document]", "[audio]", ""):
                             body = att.original_name or ("Image" if media_kind == "image" else "Attachment")
-                    elif mu.startswith("/media/") or mu.startswith("http"):
-                        media_src = mu
-                        media_kind = "image" if any(x in mu.lower() for x in (".jpg", ".jpeg", ".png", ".webp", ".gif")) else "document"
-                    elif mu and not mu.startswith("wamid:"):
-                        # local filename
-                        media_src = "/media/" + _P(mu).name
-                        media_kind = "image"
+                    else:
+                        mu = getattr(m, "media_url", None) or ""
+                        if mu.startswith("/company/attachments/"):
+                            media_src = mu
+                            media_kind = "image"
+                        elif mu.startswith("/media/") and not mu.rstrip("/").endswith(tuple("0123456789")):
+                            # only if it looks like a real file path, not a bare WA id
+                            media_src = mu
+                            media_kind = "image"
 
                     order_summary = None
-                    # light: last confirmed order for this customer on outbound payment messages
                     if m.direction == "outbound" and body and "payment" in body.lower():
                         try:
                             od = (await db.execute(

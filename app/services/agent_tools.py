@@ -20,6 +20,36 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "list_service_example_images",
+            "description": "List example photos the company uploaded for a service (for customers who do not know what they want).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "service_name": {"type": "string"},
+                    "service_id": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_service_example_image",
+            "description": "Queue one company example image to send to the customer on WhatsApp (by image id from list_service_example_images).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_id": {"type": "integer"},
+                    "caption": {"type": "string"},
+                },
+                "required": ["image_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_company_information",
             "description": "Get print shop name, hours, location, languages, about, enquiry contacts.",
             "parameters": {"type": "object", "properties": {}, "required": []},
@@ -349,6 +379,84 @@ def _validate_args(name: str, args: dict) -> dict | None:
 
 
 async def execute_tool(name: str, args: dict, tc: ToolContext) -> dict[str, Any]:
+
+    if name == "list_service_example_images":
+        from app.models.service_image import ServiceExampleImage
+        from app.models.catalog import Service
+        sid = args.get("service_id")
+        sname = (args.get("service_name") or "").strip().lower()
+        limit = int(args.get("limit") or 5)
+        q = select(ServiceExampleImage).where(
+            ServiceExampleImage.company_id == tc.company_id,
+            ServiceExampleImage.is_active == True,  # noqa: E712
+        )
+        if sid:
+            q = q.where(ServiceExampleImage.service_id == int(sid))
+        elif sname:
+            svcs = list((await tc.db.execute(
+                select(Service).where(Service.company_id == tc.company_id)
+            )).scalars().all())
+            match_ids = [s.id for s in svcs if sname in (s.name or "").lower()]
+            if match_ids:
+                q = q.where(ServiceExampleImage.service_id.in_(match_ids))
+        rows = list((await tc.db.execute(q.order_by(ServiceExampleImage.id.desc()).limit(limit))).scalars().all())
+        return {
+            "count": len(rows),
+            "images": [
+                {
+                    "image_id": r.id,
+                    "title": r.title or r.original_name,
+                    "description": r.description,
+                    "tags": r.tags,
+                    "service_id": r.service_id,
+                }
+                for r in rows
+            ],
+            "hint": "Use send_service_example_image with image_id to show the customer on WhatsApp.",
+        }
+
+    if name == "send_service_example_image":
+        from app.models.service_image import ServiceExampleImage
+        iid = int(args.get("image_id") or 0)
+        im = await tc.db.get(ServiceExampleImage, iid)
+        if not im or im.company_id != tc.company_id:
+            return {"error": "Image not found for this company"}
+        # Queue for bot_engine after reply (public URL via authenticated proxy is not public —
+        # we will upload from disk in bot layer via pending_reference with local path)
+        from app.services.attachment_serve import media_root
+        path = media_root() / im.storage_path
+        if not path.is_file():
+            return {"error": "Image file missing on server. Re-upload in Service → Example images."}
+        # Store on conversation context via tool context side channel
+        payload = {
+            "path": str(path),
+            "mime": im.mime_type or "image/jpeg",
+            "filename": im.original_name or path.name,
+            "caption": (args.get("caption") or im.title or "Example")[:1000],
+        }
+        tc.pending_images = getattr(tc, "pending_images", []) or []
+        tc.pending_images.append(payload)
+        # Persist onto conversation context if available
+        try:
+            conv = getattr(tc, "conversation", None) or getattr(tc, "conv", None)
+            if conv is not None:
+                import json as _json
+                raw = getattr(conv, "context_json", None) or getattr(conv, "context", None) or "{}"
+                if isinstance(raw, dict):
+                    c = dict(raw)
+                else:
+                    c = _json.loads(raw) if raw else {}
+                arr = list(c.get("pending_example_images") or [])
+                arr.append(payload)
+                c["pending_example_images"] = arr
+                if hasattr(conv, "context_json"):
+                    conv.context_json = _json.dumps(c)
+                elif hasattr(conv, "context"):
+                    conv.context = c
+        except Exception as _ce:
+            print("queue_example_ctx", _ce)
+        return {"queued": True, "image_id": iid, "caption": args.get("caption") or im.title}
+
     verr = _validate_args(name, args or {})
     if verr:
         return verr

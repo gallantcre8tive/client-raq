@@ -137,6 +137,23 @@ async def init_db():
     async def _create():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # service example images
+            try:
+                await conn.execute(__import__('sqlalchemy').text('''CREATE TABLE IF NOT EXISTS service_example_images (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER,
+                    service_id INTEGER,
+                    storage_path VARCHAR(500),
+                    original_name VARCHAR(255),
+                    mime_type VARCHAR(100),
+                    title VARCHAR(200),
+                    description TEXT,
+                    tags VARCHAR(500),
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )'''))
+            except Exception:
+                pass
 
     try:
         await asyncio.wait_for(_create(), timeout=25)

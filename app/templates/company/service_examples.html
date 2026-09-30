@@ -1,0 +1,59 @@
+{% extends "layouts/company.html" %}
+{% block title %}Service examples – {{ service.name }}{% endblock %}
+{% block page_title %}Examples: {{ service.name }}{% endblock %}
+{% set active = 'services' %}
+{% block content %}
+<p class="text-sm text-[var(--text-secondary)] mb-4">
+  Upload example photos for this service. The bot can send them on WhatsApp when a customer does not know what they want.
+</p>
+<a href="/company/services" class="text-sm text-[var(--primary)] no-underline mb-4 inline-block">← Back to services</a>
+
+<section class="card p-4 mb-6">
+  <h2 class="text-sm font-semibold m-0 mb-3">Upload example image</h2>
+  <form method="post" action="/company/services/{{ service.id }}/examples/upload" enctype="multipart/form-data" class="grid gap-3 sm:grid-cols-2">
+    <div class="sm:col-span-2">
+      <label class="block text-xs mb-1">Image file</label>
+      <input type="file" name="file" accept="image/*" required class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs mb-1">Title (optional)</label>
+      <input type="text" name="title" class="input-field" placeholder="e.g. Die-cut sticker">
+    </div>
+    <div>
+      <label class="block text-xs mb-1">Tags (optional)</label>
+      <input type="text" name="tags" class="input-field" placeholder="sticker, die-cut, product">
+    </div>
+    <div class="sm:col-span-2">
+      <label class="block text-xs mb-1">Description (optional)</label>
+      <input type="text" name="description" class="input-field" placeholder="Short note for staff">
+    </div>
+    <div>
+      <button type="submit" class="btn-primary min-h-[40px] px-4">Upload</button>
+    </div>
+  </form>
+</section>
+
+<section class="card overflow-hidden">
+  <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Library ({{ images|length }})</div>
+  {% if images %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
+    {% for im in images %}
+    <div class="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--surface-subtle)]">
+      <a href="{{ im.src }}" target="_blank" rel="noopener">
+        <img src="{{ im.src }}" alt="{{ im.title }}" class="w-full h-32 object-cover">
+      </a>
+      <div class="p-2 text-xs">
+        <div class="font-medium truncate">{{ im.title }}</div>
+        {% if im.tags %}<div class="text-[var(--text-muted)] truncate">{{ im.tags }}</div>{% endif %}
+        <form method="post" action="/company/services/{{ service.id }}/examples/{{ im.id }}/delete" class="mt-2">
+          <button type="submit" class="text-[var(--status-suspended)] text-[11px]" onclick="return confirm('Delete this example?')">Delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="p-8 text-center text-sm text-[var(--text-muted)]">No examples yet. Upload images above.</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -616,6 +616,27 @@ async def handle_inbound(
                     print("link_inbound_att", _le)
                 if att.kind == "payment_proof":
                     ctx["payment_proof"] = str(att.id)
+                    try:
+                        from app.services.admin_notify import notify_company
+                        amt = ctx.get("locked_total") or ctx.get("quote_total") or ""
+                        svc_n = ctx.get("service_name") or ctx.get("selected_service") or "Order"
+                        await notify_company(
+                            db,
+                            company_id=int(company.id),
+                            title="NEW PAYMENT SCREENSHOT",
+                            body=(
+                                f"Customer: {from_wa}\n"
+                                f"Service: {svc_n}\n"
+                                f"Amount: {company.currency} {amt}\n"
+                                f"Status: Awaiting verification\n"
+                                f"Open Messages to view the screenshot."
+                            ),
+                            priority="high",
+                            conversation_id=int(conv.id) if conv else None,
+                            link_path=f"/company/messages?c={conv.id}" if conv else "/company/orders",
+                        )
+                    except Exception as _ne:
+                        print("pay_notify", _ne)
                 if att.kind in ("design", "document", "reference_image"):
                     ctx["design_status"] = "received"
                     ctx["awaiting_file"] = None
@@ -725,6 +746,25 @@ async def handle_inbound(
                 await db.commit()
                 await send_text(link.phone_number_id, link.access_token, from_wa, reply)
 
+                # Service example images queued by tools
+                for ex in list(ctx.pop("pending_example_images", None) or []):
+                    try:
+                        from app.services.whatsapp_send import upload_media_bytes, send_image_id
+                        from pathlib import Path as _P
+                        p = _P(ex.get("path") or "")
+                        if p.is_file():
+                            mid = await upload_media_bytes(
+                                link.phone_number_id, link.access_token,
+                                p.read_bytes(), ex.get("mime") or "image/jpeg",
+                                ex.get("filename") or p.name,
+                            )
+                            if mid:
+                                await send_image_id(
+                                    link.phone_number_id, link.access_token, from_wa, mid,
+                                    caption=ex.get("caption"),
+                                )
+                    except Exception as _ee:
+                        print("example_send", _ee)
                 # Catalog / reference sample to WhatsApp
                 pref = ctx.pop("pending_reference", None)
                 if pref:
