@@ -1395,80 +1395,164 @@ async def company_variant_delete(
 
 
 
+
 @app.get("/company/orders", response_class=HTMLResponse)
 async def company_orders(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    """List orders with raw SQL only — avoids MissingGreenlet from ORM enums/lazy loads."""
     from sqlalchemy import text as sa_text
-    company = await company_ctx(user, db)
+
+    cid = int(getattr(user, "company_id", 0) or 0)
+    company_name = "Company"
+    currency = "NGN"
+    user_name = getattr(user, "full_name", None) or "Admin"
     rows = []
+
     try:
-        result = await db.execute(sa_text("""
-            SELECT id, customer_wa_id, customer_name, service_name, status,
-                   COALESCE(total, 0) AS total, COALESCE(currency, :cur) AS currency
-            FROM orders
-            WHERE company_id = :cid
-            ORDER BY id DESC
-            LIMIT 200
-        """), {"cid": int(company.id), "cur": company.currency or "NGN"})
-        for o in result.mappings().all():
-            st = str(o.get("status") or "pending").lower()
-            rows.append({
-                "id": o["id"],
-                "customer": o.get("customer_name") or o.get("customer_wa_id") or "—",
-                "service": o.get("service_name") or "—",
-                "status": st.replace("_", " "),
-                "status_class": "pending" if ("await" in st or "payment" in st or "submitted" in st) else "active",
-                "total": f"{o.get('currency') or company.currency} {float(o.get('total') or 0):,.0f}",
-            })
+        crow = (await db.execute(sa_text(
+            "SELECT id, name, currency FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+        if crow:
+            company_name = crow.get("name") or company_name
+            currency = crow.get("currency") or currency
     except Exception as e:
-        print("orders query raw:", type(e).__name__, e)
+        print("orders company load:", type(e).__name__, e)
         try:
             await db.rollback()
         except Exception:
             pass
+
+    try:
+        result = await db.execute(sa_text("""
+            SELECT id,
+                   COALESCE(customer_name, customer_wa_id, '—') AS customer,
+                   COALESCE(service_name, '—') AS service,
+                   COALESCE(status::text, 'pending') AS status,
+                   COALESCE(total, 0) AS total,
+                   COALESCE(currency, :cur) AS currency
+            FROM orders
+            WHERE company_id = :cid
+            ORDER BY id DESC
+            LIMIT 200
+        """), {"cid": cid, "cur": currency})
+        for o in result.mappings().all():
+            st = str(o.get("status") or "pending").lower().replace("orderstatus.", "")
+            rows.append({
+                "id": o["id"],
+                "customer": o.get("customer") or "—",
+                "service": o.get("service") or "—",
+                "status": st.replace("_", " "),
+                "status_class": "pending" if any(x in st for x in ("await", "payment", "submitted")) else "active",
+                "total": f"{o.get('currency') or currency} {float(o.get('total') or 0):,.0f}",
+            })
+    except Exception as e:
+        print("orders query:", type(e).__name__, e)
         try:
-            orders = list((await db.execute(
-                select(Order).where(Order.company_id == company.id).order_by(Order.id.desc())
-            )).scalars().all())
-            for o in orders:
-                amt = getattr(o, "total", None) or getattr(o, "total_amount", 0) or 0
-                cur = getattr(o, "currency", None) or company.currency or "NGN"
-                st = o.status.value if hasattr(o.status, "value") else str(o.status)
-                sl = str(st).lower()
+            await db.rollback()
+        except Exception:
+            pass
+        # Minimal fallback without status cast
+        try:
+            result = await db.execute(sa_text("""
+                SELECT id, customer_wa_id, service_name, total, currency
+                FROM orders WHERE company_id = :cid ORDER BY id DESC LIMIT 200
+            """), {"cid": cid})
+            for o in result.mappings().all():
                 rows.append({
-                    "id": o.id,
-                    "customer": getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—",
-                    "service": o.service_name or "—",
-                    "status": sl.replace("_", " "),
-                    "status_class": "pending" if ("await" in sl or "payment" in sl) else "active",
-                    "total": f"{cur} {float(amt):,.0f}",
+                    "id": o["id"],
+                    "customer": o.get("customer_wa_id") or "—",
+                    "service": o.get("service_name") or "—",
+                    "status": "pending",
+                    "status_class": "pending",
+                    "total": f"{o.get('currency') or currency} {float(o.get('total') or 0):,.0f}",
                 })
         except Exception as e2:
-            print("orders query orm:", type(e2).__name__, e2)
-    return render(request, "company/orders.html", {
-        "active": "orders", "company_name": company.name, "user_name": user.full_name, "orders": rows,
-    })
+            print("orders query fallback:", type(e2).__name__, e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
+    return render(request, "company/orders.html", {
+        "active": "orders",
+        "company_name": company_name,
+        "user_name": user_name,
+        "orders": rows,
+    })
 
 
 @app.get("/company/orders/{order_id}", response_class=HTMLResponse)
 async def company_order_detail(
     order_id: int, request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    company = await company_ctx(user, db)
-    order = await db.get(Order, order_id)
-    if not order or order.company_id != company.id:
-        raise HTTPException(404)
+    """Order detail via raw SQL — no ORM enum greenlet issues."""
+    from sqlalchemy import text as sa_text
+
+    cid = int(getattr(user, "company_id", 0) or 0)
+    company_name = "Company"
+    user_name = getattr(user, "full_name", None) or "Admin"
+    currency = "NGN"
+
+    try:
+        crow = (await db.execute(sa_text(
+            "SELECT name, currency FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+        if crow:
+            company_name = crow.get("name") or company_name
+            currency = crow.get("currency") or currency
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    order_row = None
+    try:
+        order_row = (await db.execute(sa_text("""
+            SELECT id, customer_wa_id, customer_name, service_name, details,
+                   COALESCE(total, 0) AS total, COALESCE(currency, :cur) AS currency,
+                   COALESCE(status::text, 'pending') AS status,
+                   fulfillment, payment_proof, conversation_id
+            FROM orders
+            WHERE id = :oid AND company_id = :cid
+        """), {"oid": order_id, "cid": cid, "cur": currency})).mappings().first()
+    except Exception as e:
+        print("order detail:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        try:
+            order_row = (await db.execute(sa_text("""
+                SELECT id, customer_wa_id, service_name, total, currency, payment_proof, conversation_id
+                FROM orders WHERE id = :oid AND company_id = :cid
+            """), {"oid": order_id, "cid": cid})).mappings().first()
+        except Exception as e2:
+            print("order detail fallback:", e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    if not order_row:
+        raise HTTPException(404, "Order not found")
+
+    st = str(order_row.get("status") or "pending").lower().replace("orderstatus.", "")
+    proof = order_row.get("payment_proof") or ""
     return render(request, "company/order_detail.html", {
-        "active": "orders", "company_name": company.name, "user_name": user.full_name,
-        "order_id": order.id, "customer": (getattr(order, "customer_name", None) or getattr(order, "customer_wa_id", None) or "—"),
-        "service": order.service_name, "total": f"{getattr(order, 'currency', None) or company.currency} {float(getattr(order, 'total', None) if getattr(order, 'total', None) is not None else getattr(order, 'total_amount', 0) or 0):,.0f}",
-        "status": getattr(order.status, "value", order.status),
-        "payment_proof": getattr(order, "payment_proof", None) or getattr(order, "payment_proof_url", None),
-        "details": getattr(order, "details", None) or "",
-        "fulfillment": getattr(order, "fulfillment", None) or "",
-        "conversation_id": getattr(order, "conversation_id", None),
+        "active": "orders",
+        "company_name": company_name,
+        "user_name": user_name,
+        "order_id": order_row["id"],
+        "customer": order_row.get("customer_name") or order_row.get("customer_wa_id") or "—",
+        "service": order_row.get("service_name") or "—",
+        "total": f"{order_row.get('currency') or currency} {float(order_row.get('total') or 0):,.0f}",
+        "status": st.replace("_", " "),
+        "payment_proof": proof,
+        "details": order_row.get("details") or "",
+        "fulfillment": order_row.get("fulfillment") or "",
+        "conversation_id": order_row.get("conversation_id"),
     })
 
 
@@ -1477,21 +1561,57 @@ async def company_order_status(
     order_id: int, status: str = Form(...), note: Optional[str] = Form(None),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    order = await db.get(Order, order_id)
-    if not order or order.company_id != user.company_id:
-        raise HTTPException(404)
+    from sqlalchemy import text as sa_text
+    cid = int(getattr(user, "company_id", 0) or 0)
     try:
-        order.status = OrderStatus(status)
-    except ValueError:
-        pass
-    order.status_note = note
-    await db.commit()
+        await db.execute(sa_text("""
+            UPDATE orders
+            SET status = :st,
+                status_note = :note,
+                updated_at = NOW()
+            WHERE id = :oid AND company_id = :cid
+        """), {"st": status, "note": note, "oid": order_id, "cid": cid})
+        await db.commit()
+    except Exception as e:
+        print("order status update:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # without updated_at
+        try:
+            await db.execute(sa_text(
+                "UPDATE orders SET status = :st WHERE id = :oid AND company_id = :cid"
+            ), {"st": status, "oid": order_id, "cid": cid})
+            await db.commit()
+        except Exception as e2:
+            print("order status fallback:", e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
     try:
         from app.services.bot_engine import notify_order_status
-        await notify_order_status(db, order, status, note)
-    except Exception:
-        pass
+        # load minimal order-like object for notify
+        class _O:
+            pass
+        o = _O()
+        o.id = order_id
+        o.company_id = cid
+        o.status = status
+        o.customer_wa_id = None
+        o.conversation_id = None
+        row = (await db.execute(sa_text(
+            "SELECT customer_wa_id, conversation_id FROM orders WHERE id = :oid"
+        ), {"oid": order_id})).mappings().first()
+        if row:
+            o.customer_wa_id = row.get("customer_wa_id")
+            o.conversation_id = row.get("conversation_id")
+        await notify_order_status(db, o, status, note)
+    except Exception as e:
+        print("notify_order_status:", e)
     return RedirectResponse(f"/company/orders/{order_id}", status_code=303)
+
 
 
 @app.get("/company/payments", response_class=HTMLResponse)
