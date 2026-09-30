@@ -31,6 +31,8 @@ async def ensure_orders_columns(db: AsyncSession) -> None:
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS total DOUBLE PRECISION DEFAULT 0",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'NGN'",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(40)",
+        # Critical: if status is a PG ENUM, convert to text so payment_submitted always works
+        "ALTER TABLE orders ALTER COLUMN status TYPE VARCHAR(40) USING status::text",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_wa_id VARCHAR(50)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_name VARCHAR(200)",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS conversation_id INTEGER",

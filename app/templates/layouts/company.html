@@ -70,6 +70,9 @@
             aria-label="Notifications"
           >
             {{ icon('bell', 'w-[18px] h-[18px]') }}
+          <span x-show="notifications && notifications.length" x-cloak
+                class="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--primary)] text-white text-[10px] font-semibold flex items-center justify-center"
+                x-text="notifications.length"></span>
             <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white inline-flex items-center justify-center"
                   x-show="notifications && notifications.length" x-cloak
                   x-text="notifications.length > 9 ? '9+' : notifications.length"></span>

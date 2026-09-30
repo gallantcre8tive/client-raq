@@ -1399,32 +1399,57 @@ async def company_variant_delete(
 async def company_orders(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import text as sa_text
     company = await company_ctx(user, db)
     rows = []
     try:
-        orders = list((await db.execute(
-            select(Order).where(Order.company_id == company.id).order_by(Order.id.desc())
-        )).scalars().all())
-        for o in orders:
-            amt = getattr(o, "total", None)
-            if amt is None:
-                amt = getattr(o, "total_amount", 0) or 0
-            cur = getattr(o, "currency", None) or company.currency or "NGN"
-            st = o.status.value if hasattr(o.status, "value") else str(o.status)
-            sl = str(st).lower()
+        result = await db.execute(sa_text("""
+            SELECT id, customer_wa_id, customer_name, service_name, status,
+                   COALESCE(total, 0) AS total, COALESCE(currency, :cur) AS currency
+            FROM orders
+            WHERE company_id = :cid
+            ORDER BY id DESC
+            LIMIT 200
+        """), {"cid": int(company.id), "cur": company.currency or "NGN"})
+        for o in result.mappings().all():
+            st = str(o.get("status") or "pending").lower()
             rows.append({
-                "id": o.id,
-                "customer": getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—",
-                "service": o.service_name or "—",
-                "status": sl.replace("_", " "),
-                "status_class": "pending" if ("await" in sl or "payment" in sl) else "active",
-                "total": f"{cur} {float(amt):,.0f}",
+                "id": o["id"],
+                "customer": o.get("customer_name") or o.get("customer_wa_id") or "—",
+                "service": o.get("service_name") or "—",
+                "status": st.replace("_", " "),
+                "status_class": "pending" if ("await" in st or "payment" in st or "submitted" in st) else "active",
+                "total": f"{o.get('currency') or company.currency} {float(o.get('total') or 0):,.0f}",
             })
     except Exception as e:
-        print("orders query:", type(e).__name__, e)
+        print("orders query raw:", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        try:
+            orders = list((await db.execute(
+                select(Order).where(Order.company_id == company.id).order_by(Order.id.desc())
+            )).scalars().all())
+            for o in orders:
+                amt = getattr(o, "total", None) or getattr(o, "total_amount", 0) or 0
+                cur = getattr(o, "currency", None) or company.currency or "NGN"
+                st = o.status.value if hasattr(o.status, "value") else str(o.status)
+                sl = str(st).lower()
+                rows.append({
+                    "id": o.id,
+                    "customer": getattr(o, "customer_name", None) or getattr(o, "customer_wa_id", None) or "—",
+                    "service": o.service_name or "—",
+                    "status": sl.replace("_", " "),
+                    "status_class": "pending" if ("await" in sl or "payment" in sl) else "active",
+                    "total": f"{cur} {float(amt):,.0f}",
+                })
+        except Exception as e2:
+            print("orders query orm:", type(e2).__name__, e2)
     return render(request, "company/orders.html", {
         "active": "orders", "company_name": company.name, "user_name": user.full_name, "orders": rows,
     })
+
 
 
 @app.get("/company/orders/{order_id}", response_class=HTMLResponse)

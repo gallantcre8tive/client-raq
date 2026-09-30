@@ -790,6 +790,44 @@ async def handle_inbound(
 
 
 
+
+    # ── SAFETY NET: payment media always creates order + notify (even if earlier path missed) ──
+    try:
+        if media_id and (
+            ctx.get("payment_proof")
+            or ctx.get("payment_details_sent")
+            or ctx.get("quote_locked")
+            or float(ctx.get("locked_total") or ctx.get("total") or 0) > 0
+            or (conv.state or "") in ("await_payment", "await_proof", "await_fulfillment", "order_placed")
+        ):
+            from app.services.order_from_payment import create_or_update_payment_order
+            att_id = None
+            try:
+                att_id = int(ctx.get("payment_proof") or ctx.get("last_attachment_id") or 0) or None
+            except Exception:
+                att_id = None
+            # Only when we actually received media this turn
+            oid = await create_or_update_payment_order(
+                db,
+                company_id=int(company.id),
+                company_currency=str(getattr(company, "currency", None) or "NGN"),
+                from_wa=from_wa,
+                conversation_id=int(conv.id) if conv else None,
+                ctx=ctx,
+                att_id=att_id,
+            )
+            print("safety_net_payment_order", oid)
+            _save_ctx(conv, ctx)
+            try:
+                await db.commit()
+            except Exception:
+                pass
+    except Exception as _sn:
+        print("safety_net_FAIL", type(_sn).__name__, _sn)
+        import traceback
+        traceback.print_exc()
+
+
     # Formal conversation stage
     try:
         from app.services.conversation_states import next_state_after_facts, normalize_state

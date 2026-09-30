@@ -52,16 +52,16 @@
               <img src="{{ m.media_src }}" alt="Attachment" class="max-w-full max-h-56 rounded-lg object-contain bg-black/10">
             </a>
             <div class="flex gap-2 text-[11px] mb-1">
-              <a href="{{ m.media_src }}?download=1" class="underline opacity-90" download>Download image</a>
+              <a href="{{ m.media_src }}?download=1" class="inline-flex items-center gap-1 opacity-90 hover:opacity-100" download title="Download"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block align-middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
             </div>
             {% elif m.media_kind == 'video' and m.media_src %}
             <video controls class="max-w-full max-h-56 rounded-lg mb-2" src="{{ m.media_src }}"></video>
-            <a href="{{ m.media_src }}?download=1" class="text-[11px] underline opacity-90" download>Download video</a>
+            <a href="{{ m.media_src }}?download=1" class="inline-flex items-center gap-1 text-[11px] opacity-90" download title="Download"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block align-middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
             {% elif m.media_kind == 'audio' and m.media_src %}
             <audio controls class="w-full max-w-xs mb-2" src="{{ m.media_src }}"></audio>
-            <a href="{{ m.media_src }}?download=1" class="text-[11px] underline opacity-90" download>Download audio</a>
+            <a href="{{ m.media_src }}?download=1" class="inline-flex items-center gap-1 text-[11px] opacity-90" download title="Download"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block align-middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
             {% elif m.media_kind == 'document' and m.media_src %}
-            <a href="{{ m.media_src }}?download=1" class="text-xs underline opacity-90 block mb-1" download>Download file{% if m.media_name %}: {{ m.media_name }}{% endif %}</a>
+            <a href="{{ m.media_src }}?download=1" class="inline-flex items-center gap-1 text-xs opacity-90 mb-1" download title="Download"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block align-middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>{% if m.media_name %} <span class="truncate max-w-[120px] opacity-80">{{ m.media_name }}</span>{% endif %}</a>
             {% endif %}
             {% if m.body and m.body not in ('[media]', '[image]', '[document]', '[audio]', '—') %}
             <div class="whitespace-pre-wrap break-words">{{ m.body }}</div>
