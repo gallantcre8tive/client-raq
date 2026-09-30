@@ -8,33 +8,41 @@
   <div class="card p-6 space-y-4">
     <h3 class="font-semibold">Order details</h3>
     <dl class="text-sm space-y-2">
-      <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Customer</dt><dd>{{ customer|default('—') }}</dd></div>
-      <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Service</dt><dd>{{ service|default('—') }}</dd></div>
-      <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Total</dt><dd class="font-tabular">{{ total|default('—') }}</dd></div>
-      <div class="flex justify-between"><dt class="text-[var(--text-muted)]">Status</dt><dd><span class="status-pill status-pending">{{ status|default('pending') }}</span></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Customer</dt><dd class="text-right">{{ customer|default('—') }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Service</dt><dd class="text-right">{{ service|default('—') }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Details</dt><dd class="text-right text-xs">{{ details|default('—') }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Fulfillment</dt><dd class="text-right">{{ fulfillment|default('—') }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Total</dt><dd class="font-tabular">{{ total|default('—') }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Status</dt><dd><span class="status-pill status-pending">{{ status|default('pending') }}</span></dd></div>
     </dl>
     {% if payment_proof %}
     <div>
       <div class="text-xs font-medium text-[var(--text-muted)] mb-2">Payment screenshot</div>
-      <img src="{{ payment_proof }}" alt="Payment proof" class="rounded-lg max-h-48 border border-[var(--border-subtle)]">
+      <a href="{{ payment_proof }}" target="_blank" rel="noopener">
+        <img src="{{ payment_proof }}" alt="Payment proof" class="rounded-lg max-h-64 border border-[var(--border-subtle)]">
+      </a>
+      <a href="{{ payment_proof }}{% if '?' not in payment_proof %}?download=1{% else %}&download=1{% endif %}" class="text-xs text-[var(--primary)] underline mt-2 inline-block" download>Download screenshot</a>
     </div>
+    {% endif %}
+    {% if conversation_id %}
+    <a href="/company/messages?c={{ conversation_id }}" class="text-sm text-[var(--primary)] underline">Open conversation</a>
     {% endif %}
   </div>
   <div class="card p-6">
     <h3 class="font-semibold mb-4">Update status</h3>
-    <p class="text-xs text-[var(--text-muted)] mb-4">When you change status, the customer is notified on WhatsApp automatically.</p>
+    <p class="text-xs text-[var(--text-muted)] mb-4">When you confirm payment or change status, the customer is notified on WhatsApp.</p>
     <form method="post" action="/company/orders/{{ order_id }}/status" class="space-y-3">
       <select name="status" class="input-field">
         <option value="awaiting_acceptance">Awaiting acceptance</option>
-        <option value="payment_submitted">Payment submitted</option>
-        <option value="payment_confirmed">Payment confirmed</option>
+        <option value="payment_submitted" {% if status=='payment_submitted' %}selected{% endif %}>Payment submitted</option>
+        <option value="payment_confirmed" {% if status=='payment_confirmed' %}selected{% endif %}>Payment confirmed</option>
         <option value="in_production">In production</option>
         <option value="ready">Ready for pickup / delivery</option>
         <option value="completed">Completed</option>
         <option value="rejected">Rejected</option>
       </select>
       <textarea name="note" class="input-field" placeholder="Optional note to customer..."></textarea>
-      <button type="submit" class="btn-primary w-full">Update & notify bot</button>
+      <button type="submit" class="btn-primary w-full">Update & notify customer</button>
     </form>
   </div>
 </div>

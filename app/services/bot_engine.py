@@ -405,6 +405,116 @@ async def _send_size_options(link, company, service, variants, to, ctx: dict) ->
     )
 
 
+
+async def _ensure_order_for_payment(db, company, conv, ctx, from_wa, att_id=None):
+    """Create or update order when payment screenshot arrives so it always appears in Orders."""
+    from app.models.conversation import Order, OrderStatus, Attachment
+    from app.services.admin_notify import notify_company
+    from sqlalchemy import select
+
+    total = float(ctx.get("locked_total") or ctx.get("total") or ctx.get("quote_total") or 0)
+    service_name = (
+        ctx.get("service_name")
+        or ctx.get("selected_service")
+        or "Print order"
+    )
+    details_parts = []
+    for k in ("width", "height", "size_unit", "variant_label", "qty", "size", "fulfillment", "datetime", "address", "design_fee"):
+        if ctx.get(k) is not None and ctx.get(k) != "":
+            details_parts.append(f"{k}={ctx.get(k)}")
+    details = "; ".join(details_parts) if details_parts else (ctx.get("details") or "")
+
+    order = None
+    oid = ctx.get("order_id")
+    if oid:
+        try:
+            order = await db.get(Order, int(oid))
+            if order and order.company_id != company.id:
+                order = None
+        except Exception:
+            order = None
+    if order is None:
+        # latest open order for this customer
+        order = (await db.execute(
+            select(Order).where(
+                Order.company_id == company.id,
+                Order.customer_wa_id == from_wa,
+            ).order_by(Order.id.desc()).limit(1)
+        )).scalars().first()
+        # only reuse if not completed/rejected
+        if order and str(getattr(order.status, "value", order.status)) in (
+            "completed", "rejected", "cancelled"
+        ):
+            order = None
+
+    proof_ref = f"/company/attachments/{att_id}" if att_id else (str(ctx.get("payment_proof") or "") or None)
+
+    if order is None:
+        order = Order(
+            company_id=company.id,
+            conversation_id=conv.id if conv else None,
+            customer_wa_id=from_wa,
+            service_name=str(service_name)[:200],
+            details=details[:2000] if details else None,
+            total=total,
+            currency=getattr(company, "currency", None) or "NGN",
+            status=OrderStatus.PAYMENT_SUBMITTED,
+            fulfillment=ctx.get("fulfillment"),
+            schedule_note=ctx.get("datetime") or ctx.get("schedule"),
+            payment_proof=proof_ref,
+        )
+        db.add(order)
+        await db.flush()
+        ctx["order_id"] = order.id
+    else:
+        order.status = OrderStatus.PAYMENT_SUBMITTED
+        if total:
+            order.total = total
+        if service_name:
+            order.service_name = str(service_name)[:200]
+        if details:
+            order.details = details[:2000]
+        if proof_ref:
+            order.payment_proof = proof_ref
+        if ctx.get("fulfillment"):
+            order.fulfillment = ctx.get("fulfillment")
+        order.conversation_id = conv.id if conv else order.conversation_id
+        await db.flush()
+        ctx["order_id"] = order.id
+
+    # Link attachment to order
+    if att_id:
+        try:
+            att = await db.get(Attachment, int(att_id))
+            if att and att.company_id == company.id:
+                att.order_id = order.id
+                att.kind = "payment_proof"
+        except Exception:
+            pass
+
+    await db.commit()
+
+    body = (
+        f"Customer: {from_wa}\n"
+        f"Service: {order.service_name or service_name}\n"
+        f"Details: {order.details or details or '—'}\n"
+        f"Amount: {order.currency} {float(order.total or 0):,.0f}\n"
+        f"Fulfillment: {order.fulfillment or ctx.get('fulfillment') or '—'}\n"
+        f"Status: Payment screenshot received — verify in Orders\n"
+        f"Order #{order.id}"
+    )
+    await notify_company(
+        db,
+        company_id=int(company.id),
+        title="NEW PAYMENT SCREENSHOT",
+        body=body,
+        priority="high",
+        conversation_id=int(conv.id) if conv else None,
+        link_path=f"/company/orders/{order.id}",
+    )
+    return order
+
+
 async def handle_inbound(
     db: AsyncSession,
     *,
@@ -617,26 +727,13 @@ async def handle_inbound(
                 if att.kind == "payment_proof":
                     ctx["payment_proof"] = str(att.id)
                     try:
-                        from app.services.admin_notify import notify_company
-                        amt = ctx.get("locked_total") or ctx.get("quote_total") or ""
-                        svc_n = ctx.get("service_name") or ctx.get("selected_service") or "Order"
-                        await notify_company(
-                            db,
-                            company_id=int(company.id),
-                            title="NEW PAYMENT SCREENSHOT",
-                            body=(
-                                f"Customer: {from_wa}\n"
-                                f"Service: {svc_n}\n"
-                                f"Amount: {company.currency} {amt}\n"
-                                f"Status: Awaiting verification\n"
-                                f"Open Messages to view the screenshot."
-                            ),
-                            priority="high",
-                            conversation_id=int(conv.id) if conv else None,
-                            link_path=f"/company/messages?c={conv.id}" if conv else "/company/orders",
+                        await _ensure_order_for_payment(
+                            db, company, conv, ctx, from_wa, att_id=att.id,
                         )
+                        _save_ctx(conv, ctx)
                     except Exception as _ne:
-                        print("pay_notify", _ne)
+                        print("pay_order_notify", type(_ne).__name__, _ne)
+                        import traceback; traceback.print_exc()
                 if att.kind in ("design", "document", "reference_image"):
                     ctx["design_status"] = "received"
                     ctx["awaiting_file"] = None

@@ -3,7 +3,7 @@
 {% block page_title %}Messages{% endblock %}
 {% set active = 'messages' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-4">WhatsApp conversations. Reply as your team — the bot pauses auto-replies while you have taken over. Images and files appear in the thread.</p>
+<p class="text-sm text-[var(--text-secondary)] mb-4">WhatsApp conversations. Reply as your team — the bot pauses while you have taken over. Images and files appear here with download.</p>
 <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[min(70vh,640px)]">
   <div class="card overflow-hidden flex flex-col max-h-[min(70vh,640px)]">
     <div class="px-4 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm shrink-0">Conversations</div>
@@ -26,13 +26,17 @@
     {% if selected %}
     <div class="px-4 py-3 border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 shrink-0">
       <div class="font-semibold text-sm truncate">{{ selected.customer_name or selected.customer_wa_id }}</div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         {% if selected.is_live_takeover or selected.needs_human %}
         <form method="post" action="/company/messages/release" class="inline">
           <input type="hidden" name="conversation_id" value="{{ selected.id }}">
           <button type="submit" class="text-xs text-[var(--primary)] hover:underline">Return to bot</button>
         </form>
         {% endif %}
+        <form method="post" action="/company/messages/clear" class="inline" onsubmit="return confirm('Clear this chat in the admin panel only? Customer WhatsApp is not affected.')">
+          <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+          <button type="submit" class="text-xs text-[var(--text-muted)] hover:underline">Clear chat</button>
+        </form>
       </div>
     </div>
     <div class="flex-1 overflow-y-auto p-4 space-y-3" id="crq-msg-scroll">
@@ -40,16 +44,24 @@
         {% for m in messages %}
         <div class="flex {% if m.direction=='outbound' %}justify-end{% else %}justify-start{% endif %}">
           <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm {% if m.direction=='outbound' %}bg-[var(--primary)] text-white{% else %}bg-[var(--surface-subtle)] text-[var(--text-primary)]{% endif %}">
+            {% if m.pinned %}
+            <div class="text-[10px] opacity-80 mb-1">Pinned · until {{ m.pinned_until }}</div>
+            {% endif %}
             {% if m.media_kind == 'image' and m.media_src %}
             <a href="{{ m.media_src }}" target="_blank" rel="noopener" class="block mb-2">
               <img src="{{ m.media_src }}" alt="Attachment" class="max-w-full max-h-56 rounded-lg object-contain bg-black/10">
             </a>
+            <div class="flex gap-2 text-[11px] mb-1">
+              <a href="{{ m.media_src }}?download=1" class="underline opacity-90" download>Download image</a>
+            </div>
             {% elif m.media_kind == 'video' and m.media_src %}
             <video controls class="max-w-full max-h-56 rounded-lg mb-2" src="{{ m.media_src }}"></video>
+            <a href="{{ m.media_src }}?download=1" class="text-[11px] underline opacity-90" download>Download video</a>
             {% elif m.media_kind == 'audio' and m.media_src %}
             <audio controls class="w-full max-w-xs mb-2" src="{{ m.media_src }}"></audio>
+            <a href="{{ m.media_src }}?download=1" class="text-[11px] underline opacity-90" download>Download audio</a>
             {% elif m.media_kind == 'document' and m.media_src %}
-            <a href="{{ m.media_src }}" target="_blank" class="text-xs underline opacity-90 block mb-1">Open file{% if m.media_name %}: {{ m.media_name }}{% endif %}</a>
+            <a href="{{ m.media_src }}?download=1" class="text-xs underline opacity-90 block mb-1" download>Download file{% if m.media_name %}: {{ m.media_name }}{% endif %}</a>
             {% endif %}
             {% if m.body and m.body not in ('[media]', '[image]', '[document]', '[audio]', '—') %}
             <div class="whitespace-pre-wrap break-words">{{ m.body }}</div>
@@ -58,6 +70,28 @@
             {% endif %}
             {% if m.order_summary %}
             <div class="mt-2 pt-2 border-t border-white/20 text-[11px] opacity-95 whitespace-pre-wrap">{{ m.order_summary }}</div>
+            {% endif %}
+            {% if m.id %}
+            <div class="mt-1 flex flex-wrap gap-2 text-[10px] opacity-80">
+              <form method="post" action="/company/messages/pin" class="inline">
+                <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+                <input type="hidden" name="message_id" value="{{ m.id }}">
+                <input type="hidden" name="days" value="1">
+                <button type="submit" class="underline">Pin 24h</button>
+              </form>
+              <form method="post" action="/company/messages/pin" class="inline">
+                <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+                <input type="hidden" name="message_id" value="{{ m.id }}">
+                <input type="hidden" name="days" value="7">
+                <button type="submit" class="underline">Pin 7d</button>
+              </form>
+              <form method="post" action="/company/messages/pin" class="inline">
+                <input type="hidden" name="conversation_id" value="{{ selected.id }}">
+                <input type="hidden" name="message_id" value="{{ m.id }}">
+                <input type="hidden" name="days" value="30">
+                <button type="submit" class="underline">Pin 30d</button>
+              </form>
+            </div>
             {% endif %}
           </div>
         </div>

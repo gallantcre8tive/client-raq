@@ -1439,7 +1439,11 @@ async def company_order_detail(
         "active": "orders", "company_name": company.name, "user_name": user.full_name,
         "order_id": order.id, "customer": (getattr(order, "customer_name", None) or getattr(order, "customer_wa_id", None) or "—"),
         "service": order.service_name, "total": f"{getattr(order, 'currency', None) or company.currency} {float(getattr(order, 'total', None) if getattr(order, 'total', None) is not None else getattr(order, 'total_amount', 0) or 0):,.0f}",
-        "status": order.status.value, "payment_proof": getattr(order, "payment_proof", None) or getattr(order, "payment_proof_url", None),
+        "status": getattr(order.status, "value", order.status),
+        "payment_proof": getattr(order, "payment_proof", None) or getattr(order, "payment_proof_url", None),
+        "details": getattr(order, "details", None) or "",
+        "fulfillment": getattr(order, "fulfillment", None) or "",
+        "conversation_id": getattr(order, "conversation_id", None),
     })
 
 
@@ -1530,6 +1534,7 @@ async def company_bot_alias(request: Request, user: User = Depends(require_compa
 @app.get("/company/attachments/{attachment_id}")
 async def company_attachment_file(
     attachment_id: int,
+    request: Request,
     user: User = Depends(require_company),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1545,7 +1550,8 @@ async def company_attachment_file(
     if not resolved:
         raise HTTPException(404, detail="File not available")
     content, mime, fname = resolved
-    disp = "inline" if (mime or "").startswith("image/") else "attachment"
+    force_dl = request.query_params.get("download") in ("1", "true", "yes")
+    disp = "attachment" if force_dl or not (mime or "").startswith("image/") else "inline"
     return Response(
         content=content,
         media_type=mime or "application/octet-stream",
@@ -1787,6 +1793,64 @@ async def company_messages_reply(
 
     return RedirectResponse(f"/company/messages?c={conversation_id}&sent=1", status_code=303)
 
+
+
+
+@app.post("/company/messages/clear")
+async def company_messages_clear(
+    conversation_id: int = Form(...),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    """Clear chat in admin panel only — does not delete customer WhatsApp history."""
+    from app.models.conversation import Conversation, Message
+    from sqlalchemy import delete
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.company_id != user.company_id:
+        raise HTTPException(404)
+    await db.execute(delete(Message).where(Message.conversation_id == conversation_id))
+    await db.commit()
+    return RedirectResponse(f"/company/messages?c={conversation_id}&cleared=1", status_code=303)
+
+
+@app.post("/company/messages/pin")
+async def company_messages_pin(
+    conversation_id: int = Form(...),
+    message_id: int = Form(...),
+    days: int = Form(1),
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from app.models.conversation import Conversation, Message
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import text as sa_text
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.company_id != user.company_id:
+        raise HTTPException(404)
+    msg = await db.get(Message, message_id)
+    if not msg or msg.conversation_id != conversation_id:
+        raise HTTPException(404)
+    days = 1 if days not in (1, 7, 30) else days
+    until = datetime.now(timezone.utc) + timedelta(days=days)
+    # ensure column
+    try:
+        await db.execute(sa_text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_until TIMESTAMPTZ"))
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        await db.execute(sa_text(
+            "UPDATE messages SET pinned_until = :u WHERE id = :id"
+        ), {"u": until, "id": message_id})
+        await db.commit()
+    except Exception as e:
+        print("pin", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return RedirectResponse(f"/company/messages?c={conversation_id}", status_code=303)
 
 
 @app.post("/company/messages/release")
@@ -2109,6 +2173,51 @@ async def company_broadcast_send(
 @app.get("/company/api/notifications")
 async def company_notifications_api_alias(user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
     return await company_notifications_api(user=user, db=db)
+
+
+
+@app.post("/company/api/notifications/read-all")
+async def company_notifications_read_all(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import text as sa_text
+    cid = getattr(user, "company_id", None)
+    if not cid:
+        return {"ok": False}
+    try:
+        await db.execute(sa_text(
+            "UPDATE admin_notifications SET is_read = true WHERE company_id = :cid AND COALESCE(is_read, false) = false"
+        ), {"cid": int(cid)})
+        await db.commit()
+    except Exception as e:
+        print("read_all", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@app.post("/company/api/notifications/clear")
+async def company_notifications_clear(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    """Remove all notifications for this company (does not affect WhatsApp)."""
+    from sqlalchemy import text as sa_text
+    cid = getattr(user, "company_id", None)
+    if not cid:
+        return {"ok": False}
+    try:
+        await db.execute(sa_text("DELETE FROM admin_notifications WHERE company_id = :cid"), {"cid": int(cid)})
+        await db.commit()
+    except Exception as e:
+        print("clear_notif", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return {"ok": True}
+
 
 
 @app.get("/api/company/notifications")
