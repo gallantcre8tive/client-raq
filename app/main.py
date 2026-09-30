@@ -1403,7 +1403,7 @@ async def company_orders(
     rows = []
     try:
         orders = list((await db.execute(
-            select(Order).where(Order.company_id == company.id).order_by(Order.created_at.desc())
+            select(Order).where(Order.company_id == company.id).order_by(Order.id.desc())
         )).scalars().all())
         for o in orders:
             amt = getattr(o, "total", None)

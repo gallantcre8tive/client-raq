@@ -573,6 +573,7 @@ async def execute_tool(name: str, args: dict, tc: ToolContext) -> dict[str, Any]
             }
 
         if name == "get_payment_information":
+            tc.ctx["payment_details_sent"] = True
             rows = list((await db.execute(
                 select(PaymentDetail).where(PaymentDetail.company_id == cid)
             )).scalars().all())
@@ -675,14 +676,18 @@ async def execute_tool(name: str, args: dict, tc: ToolContext) -> dict[str, Any]
             tc.created_order_id = order.id
             tc.ctx["order_id"] = order.id
             try:
-                db.add(AdminNotification(
+                from app.services.admin_notify import notify_company
+                await notify_company(
+                    db,
                     company_id=cid,
-                    title="New order",
-                    body=f"Order #{order.id} from {tc.from_wa} — {company.currency} {total:,.0f}",
-                    link_path="/company/orders",
-                ))
-            except Exception:
-                pass
+                    title="NEW ORDER",
+                    body=f"Order #{order.id} from {tc.from_wa} — {company.currency} {total:,.0f} — {tc.ctx.get('service_name') or ''}",
+                    priority="high",
+                    conversation_id=tc.conv.id if tc.conv else None,
+                    link_path=f"/company/orders/{order.id}",
+                )
+            except Exception as _e:
+                print("create_order_notify", _e)
             return {"ok": True, "order_id": order.id, "total": total, "status": status.value}
 
         if name == "get_customer":

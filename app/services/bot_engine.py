@@ -688,7 +688,14 @@ async def handle_inbound(
             kind = media_kind or "file"
             if kind == "audio":
                 kind = "audio"
-            elif state in ("await_payment", "await_proof") or (ctx.get("awaiting_file") == "payment_proof"):
+            elif (
+                state in ("await_payment", "await_proof", "await_fulfillment", "order_placed")
+                or ctx.get("awaiting_file") == "payment_proof"
+                or ctx.get("payment_details_sent")
+                or ctx.get("quote_locked")
+                or float(ctx.get("locked_total") or ctx.get("total") or 0) > 0
+            ) and kind in ("image", "document", "file", None, "sticker"):
+                # Any image/doc after a quote / payment request = payment proof
                 kind = "payment_proof"
             elif ctx.get("awaiting_file") in ("design", "document", "reference_image") or state in ("awaiting_file", "await_design"):
                 kind = ctx.get("awaiting_file") or "design"
@@ -724,16 +731,30 @@ async def handle_inbound(
                             last_in.body = att.original_name or att.kind or "Attachment"
                 except Exception as _le:
                     print("link_inbound_att", _le)
-                if att.kind == "payment_proof":
+                if att.kind == "payment_proof" or (
+                    att.kind in ("image", "document") and (
+                        ctx.get("quote_locked") or float(ctx.get("locked_total") or 0) > 0
+                    )
+                ):
                     ctx["payment_proof"] = str(att.id)
+                    att.kind = "payment_proof"
                     try:
-                        await _ensure_order_for_payment(
-                            db, company, conv, ctx, from_wa, att_id=att.id,
+                        from app.services.order_from_payment import create_or_update_payment_order
+                        oid = await create_or_update_payment_order(
+                            db,
+                            company_id=int(company.id),
+                            company_currency=str(getattr(company, "currency", None) or "NGN"),
+                            from_wa=from_wa,
+                            conversation_id=int(conv.id) if conv else None,
+                            ctx=ctx,
+                            att_id=int(att.id),
                         )
+                        print("payment_order_result", oid)
                         _save_ctx(conv, ctx)
                     except Exception as _ne:
                         print("pay_order_notify", type(_ne).__name__, _ne)
-                        import traceback; traceback.print_exc()
+                        import traceback
+                        traceback.print_exc()
                 if att.kind in ("design", "document", "reference_image"):
                     ctx["design_status"] = "received"
                     ctx["awaiting_file"] = None
@@ -758,10 +779,10 @@ async def handle_inbound(
                             content, mime,
                             "Does this look like a bank transfer or payment receipt? Reply in one short sentence.",
                         )) or ""
-                    attachment_note = f"Customer sent a payment screenshot/file (attachment_id={att.id}). {vision}".strip()
+                    attachment_note = f"Customer sent a payment screenshot. {vision} Confirm you received it and that staff will verify. Do NOT invent payment confirmation. Do NOT mention internal IDs.".strip()
                     conv.state = "await_payment"
                 elif att.kind in ("design", "image", "document", "reference_image"):
-                    attachment_note = f"Customer sent a {att.kind} file (attachment_id={att.id}, mime={att.mime_type}). Acknowledge and continue the order."
+                    attachment_note = f"Customer sent a {att.kind} file. Acknowledge and continue the order. Do NOT mention internal IDs."
                 _save_ctx(conv, ctx)
                 await db.flush()
         except Exception as e:
