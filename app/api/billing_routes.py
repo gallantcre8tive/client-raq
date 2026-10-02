@@ -47,6 +47,14 @@ from app.services.paystack import (
 )
 
 router = APIRouter(tags=["billing"])
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_gate(request: Request):
+    """Hidden platform entry — not linked from the public landing page."""
+    return _render(request, "public/admin_gate.html", {})
+
+
+
 settings = get_settings()
 
 
@@ -989,7 +997,26 @@ async def privacy_page(request: Request):
 
 
 
-# ── Email verification for trial signup ──────────────────────────────────────
+# ── Email verification for trial signup (raw SQL — no ORM greenlet issues) ──
+
+def _trial_verify_ctx(email: str, error=None, tip=None, smtp_ok=None, cooldown_seconds=300):
+    return {
+        "email": email,
+        "error": error,
+        "tip": tip,
+        "smtp_ok": smtp_ok if smtp_ok is not None else smtp_configured(),
+        "cooldown_seconds": cooldown_seconds,
+    }
+
+
+@router.get("/trial/verify", response_class=HTMLResponse)
+async def trial_verify_get(request: Request, email: str = ""):
+    """Allow refresh of verify page without crashing."""
+    email = (email or "").strip().lower()
+    if not email:
+        return RedirectResponse("/trial", status_code=303)
+    return _render(request, "public/trial_verify.html", _trial_verify_ctx(email, cooldown_seconds=0))
+
 
 @router.post("/trial/send-code")
 async def trial_send_code(
@@ -1004,29 +1031,26 @@ async def trial_send_code(
     honeypot: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Step 1: validate form, email a 6-digit code, stash payload."""
     if honeypot:
         return RedirectResponse("/trial", status_code=303)
     ip = request.client.host if request.client else "unknown"
-    if not rate_allow(f"trial_code:{ip}", limit=5, window=600):
+    pricing = await get_pricing(db)
+    trial_hours = pricing.get("trial_hours", 48)
+    if not rate_allow(f"trial_code:{ip}", limit=8, window=600):
         return _render(request, "public/trial.html", {
-            "trial_hours": (await get_pricing(db)).get("trial_hours", 48),
-            "error": "Too many attempts. Please wait a few minutes.",
-            "step": "form",
+            "trial_hours": trial_hours, "error": "Too many attempts. Please wait a few minutes.", "step": "form",
         })
     email = (email or "").strip().lower()
     business_name = (business_name or "").strip()
     if len(password or "") < 6:
         return _render(request, "public/trial.html", {
-            "trial_hours": (await get_pricing(db)).get("trial_hours", 48),
-            "error": "Password must be at least 6 characters.",
-            "step": "form",
+            "trial_hours": trial_hours, "error": "Password must be at least 6 characters.", "step": "form",
         })
     existing = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if existing:
         return _render(request, "public/trial.html", {
-            "trial_hours": (await get_pricing(db)).get("trial_hours", 48),
-            "error": "An account with this email already exists. Please log in or subscribe under Billing.",
+            "trial_hours": trial_hours,
+            "error": "An account with this email already exists. Please log in.",
             "step": "form",
         })
 
@@ -1039,65 +1063,72 @@ async def trial_send_code(
         "business_type": business_type or "printing",
         "phone": phone or "",
     })
-    # invalidate old codes
+
+    await ensure_billing_tables(db)
     try:
-        await db.execute(text(
-            "UPDATE email_verifications SET used = true WHERE email = :e AND purpose = 'trial' AND used = false"
-        ), {"e": email})
+        await db.execute(text("""
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255),
+                code VARCHAR(12),
+                purpose VARCHAR(40) DEFAULT 'signup',
+                payload_json VARCHAR(4000),
+                attempts INTEGER DEFAULT 0,
+                used BOOLEAN DEFAULT false,
+                expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        await db.commit()
     except Exception:
         try:
             await db.rollback()
         except Exception:
             pass
-        await ensure_billing_tables(db)
-        try:
-            await db.execute(text("""
-                CREATE TABLE IF NOT EXISTS email_verifications (
-                    id SERIAL PRIMARY KEY,
-                    email VARCHAR(255),
-                    code VARCHAR(12),
-                    purpose VARCHAR(40) DEFAULT 'signup',
-                    payload_json VARCHAR(4000),
-                    attempts INTEGER DEFAULT 0,
-                    used BOOLEAN DEFAULT false,
-                    expires_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """))
-            await db.commit()
-        except Exception:
-            try:
-                await db.rollback()
-            except Exception:
-                pass
 
-    ev = EmailVerification(
-        email=email,
-        code=code,
-        purpose="trial",
-        payload_json=payload[:4000],
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-    )
-    db.add(ev)
-    await db.commit()
+    try:
+        await db.execute(text(
+            "UPDATE email_verifications SET used = true WHERE email = :e AND purpose = 'trial' AND used = false"
+        ), {"e": email})
+        await db.execute(text("""
+            INSERT INTO email_verifications (email, code, purpose, payload_json, attempts, used, expires_at, created_at)
+            VALUES (:email, :code, 'trial', :payload, 0, false, NOW() + INTERVAL '5 minutes', NOW())
+        """), {"email": email, "code": code, "payload": payload[:4000]})
+        await db.commit()
+    except Exception as e:
+        print("email_verifications_insert_fail", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return _render(request, "public/trial.html", {
+            "trial_hours": trial_hours,
+            "error": "Could not start verification. Please try again.",
+            "step": "form",
+        })
 
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
-        tip = "SMTP is not configured. Open Render → Logs and search EMAIL_CODE for your 6-digit code."
+        tip = "SMTP_PASSWORD not set. Open Render → Logs and search EMAIL_CODE for your code."
     elif not result.get("ok"):
         tip = (
-            "We could not reach your inbox yet ("
-            + str(result.get("error") or "SMTP error")[:180]
-            + "). Open Render → Logs and search EMAIL_CODE for the code, or wait and use Resend below."
+            "Email delivery had a problem. Your code is still in Render logs (search EMAIL_CODE). "
+            "Error: " + str(result.get("error") or "")[:160]
         )
-    return _render(request, "public/trial_verify.html", {
-        "email": email,
-        "error": None,
-        "tip": tip,
-        "smtp_ok": smtp_configured() and result.get("ok") and not result.get("dev_fallback"),
-        "cooldown_seconds": 300,
-    })
+    else:
+        tip = "Code sent. Check inbox and spam for Client-RaQ."
+
+    return _render(
+        request,
+        "public/trial_verify.html",
+        _trial_verify_ctx(
+            email,
+            tip=tip,
+            smtp_ok=bool(result.get("ok") and not result.get("dev_fallback")),
+            cooldown_seconds=300,
+        ),
+    )
 
 
 @router.post("/trial/verify")
@@ -1111,54 +1142,48 @@ async def trial_verify_code(
     code = (code or "").strip()
     ip = request.client.host if request.client else "unknown"
     if not rate_allow(f"trial_verify:{ip}", limit=20, window=600):
-        return _render(request, "public/trial_verify.html", {
-            "email": email, "error": "Too many attempts. Try again later.", "tip": None, "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 300,
-        })
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(email, error="Too many attempts. Try again later."))
 
-    row = (await db.execute(
-        select(EmailVerification)
-        .where(
-            EmailVerification.email == email,
-            EmailVerification.purpose == "trial",
-            EmailVerification.used == False,  # noqa: E712
-        )
-        .order_by(EmailVerification.id.desc())
-    )).scalars().first()
+    row = (await db.execute(text("""
+        SELECT id, code, payload_json, attempts, expires_at, used
+        FROM email_verifications
+        WHERE email = :e AND purpose = 'trial' AND used = false
+        ORDER BY id DESC LIMIT 1
+    """), {"e": email})).mappings().first()
 
     if not row:
-        return _render(request, "public/trial_verify.html", {
-            "email": email, "error": "No active code. Start again from the trial form.", "tip": None, "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 0,
-        })
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+            email, error="No active code. Start again from the trial form.", cooldown_seconds=0,
+        ))
 
+    exp = row["expires_at"]
     now = datetime.now(timezone.utc)
-    exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if now > exp:
-        return _render(request, "public/trial_verify.html", {
-            "email": email, "error": "Code expired. Request a new one.", "tip": None, "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 0,
-        })
+    if exp is not None:
+        if getattr(exp, "tzinfo", None) is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if now > exp:
+            return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+                email, error="Code expired. Use Resend code below.", cooldown_seconds=0,
+            ))
 
-    row.attempts = int(row.attempts or 0) + 1
-    if row.attempts > 8:
-        row.used = True
+    attempts = int(row["attempts"] or 0) + 1
+    await db.execute(text("UPDATE email_verifications SET attempts = :a WHERE id = :id"), {"a": attempts, "id": row["id"]})
+    await db.commit()
+
+    if attempts > 8:
+        await db.execute(text("UPDATE email_verifications SET used = true WHERE id = :id"), {"id": row["id"]})
         await db.commit()
-        return _render(request, "public/trial_verify.html", {
-            "email": email, "error": "Too many wrong attempts. Start again.", "tip": None, "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 0,
-        })
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+            email, error="Too many wrong attempts. Start again.", cooldown_seconds=0,
+        ))
 
-    if (row.code or "") != code:
-        await db.commit()
-        return _render(request, "public/trial_verify.html", {
-            "email": email, "error": "Incorrect code. Check your email and try again.", "tip": None, "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 300,
-        })
+    if (row["code"] or "") != code:
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+            email, error="Incorrect code. Check your email and try again.",
+        ))
 
-    # success — create account from payload
     try:
-        payload = _json.loads(row.payload_json or "{}")
+        payload = _json.loads(row["payload_json"] or "{}")
     except Exception:
         payload = {}
     business_name = (payload.get("business_name") or "My Business").strip()
@@ -1169,7 +1194,7 @@ async def trial_verify_code(
 
     existing = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if existing:
-        row.used = True
+        await db.execute(text("UPDATE email_verifications SET used = true WHERE id = :id"), {"id": row["id"]})
         await db.commit()
         return RedirectResponse("/company/login?verified=1", status_code=303)
 
@@ -1211,7 +1236,7 @@ async def trial_verify_code(
         is_active=True,
     )
     db.add(user)
-    row.used = True
+    await db.execute(text("UPDATE email_verifications SET used = true WHERE id = :id"), {"id": row["id"]})
     await db.commit()
     await db.refresh(company)
     await db.refresh(user)
@@ -1230,76 +1255,53 @@ async def trial_verify_code(
     return _set_company_session(resp, user.id)
 
 
-
-
-
 @router.post("/trial/resend-code")
 async def trial_resend_code(
     request: Request,
     email: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resend verification code using the latest unused trial payload."""
     email = (email or "").strip().lower()
     ip = request.client.host if request.client else "unknown"
-    if not rate_allow(f"trial_resend:{ip}:{email}", limit=4, window=600):
-        return _render(request, "public/trial_verify.html", {
-            "email": email,
-            "error": "Please wait a few minutes before requesting another code.",
-            "tip": None,
-            "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 300,
-        })
+    if not rate_allow(f"trial_resend:{ip}:{email}", limit=5, window=600):
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+            email, error="Please wait a few minutes before requesting another code.",
+        ))
 
-    row = (await db.execute(
-        select(EmailVerification)
-        .where(
-            EmailVerification.email == email,
-            EmailVerification.purpose == "trial",
-            EmailVerification.used == False,  # noqa: E712
-        )
-        .order_by(EmailVerification.id.desc())
-    )).scalars().first()
+    row = (await db.execute(text("""
+        SELECT id, payload_json FROM email_verifications
+        WHERE email = :e AND purpose = 'trial' AND used = false
+        ORDER BY id DESC LIMIT 1
+    """), {"e": email})).mappings().first()
 
-    if not row or not (row.payload_json or "").strip():
-        return _render(request, "public/trial_verify.html", {
-            "email": email,
-            "error": "No pending signup found. Start again from the trial form.",
-            "tip": None,
-            "smtp_ok": smtp_configured(),
-            "cooldown_seconds": 0,
-        })
+    if not row or not (row["payload_json"] or "").strip():
+        return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+            email, error="No pending signup found. Start again from the trial form.", cooldown_seconds=0,
+        ))
 
     code = generate_verification_code(6)
-    try:
-        await db.execute(text(
-            "UPDATE email_verifications SET used = true WHERE email = :e AND purpose = 'trial' AND used = false AND id != :id"
-        ), {"e": email, "id": row.id})
-    except Exception:
-        pass
-
-    row.code = code
-    row.attempts = 0
-    row.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    row.used = False
+    await db.execute(text("""
+        UPDATE email_verifications
+        SET code = :code, attempts = 0, used = false, expires_at = NOW() + INTERVAL '5 minutes'
+        WHERE id = :id
+    """), {"code": code, "id": row["id"]})
     await db.commit()
 
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
-        tip = "SMTP not configured — search Render logs for EMAIL_CODE."
+        tip = "SMTP_PASSWORD not set — search Render logs for EMAIL_CODE."
     elif not result.get("ok"):
-        tip = "Inbox delivery failed. Search Render logs for EMAIL_CODE, or try again shortly."
+        tip = "Inbox delivery failed. Search Render logs for EMAIL_CODE."
     else:
         tip = "A new code was sent. Check inbox and spam."
 
-    return _render(request, "public/trial_verify.html", {
-        "email": email,
-        "error": None,
-        "tip": tip,
-        "smtp_ok": smtp_configured() and result.get("ok") and not result.get("dev_fallback"),
-        "cooldown_seconds": 300,
-    })
+    return _render(request, "public/trial_verify.html", _trial_verify_ctx(
+        email,
+        tip=tip,
+        smtp_ok=bool(result.get("ok") and not result.get("dev_fallback")),
+        cooldown_seconds=300,
+    ))
 
 
 # ── Forgot / reset password ──────────────────────────────────────────────────

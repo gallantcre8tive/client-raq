@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "components/logo.html" import logo %}
+{% block title %}Platform – Client-RaQ{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+  <header class="border-b border-[var(--border-subtle)]">
+    <div class="max-w-6xl mx-auto px-4 h-14 sm:h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 font-semibold">
+        {{ logo('w-8 h-8') }}
+        <span>Client-RaQ</span>
+      </a>
+      <a href="/" class="text-sm text-[var(--text-secondary)] hover:text-[var(--primary)]">Back to site</a>
+    </div>
+  </header>
+  <main class="max-w-md mx-auto px-4 py-14 sm:py-20">
+    <div class="text-center mb-8">
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Platform operator</div>
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Platform access</h1>
+      <p class="text-sm text-[var(--text-secondary)] leading-relaxed">
+        This area is for the Client-RaQ platform owner only. Companies use Company Login on the main site.
+      </p>
+    </div>
+    <div class="card p-6 sm:p-8 space-y-4">
+      <a href="/platform/login" class="btn-primary w-full min-h-[48px] flex items-center justify-center">Platform login</a>
+      <a href="/company/login" class="btn-ghost w-full min-h-[44px] flex items-center justify-center">Company login</a>
+    </div>
+    <p class="mt-6 text-center text-xs text-[var(--text-muted)]">Bookmark <code class="text-[var(--text-secondary)]">/admin</code> for quick access.</p>
+  </main>
+</div>
+{% endblock %}
