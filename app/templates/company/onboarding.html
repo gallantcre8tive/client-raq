@@ -18,23 +18,25 @@
     <li class="card p-5">
       <div class="font-semibold mb-1">1. Confirm business profile</div>
       <p class="text-sm text-[var(--text-secondary)] mb-3">Name, about text, hours, website, language — so the AI answers as your brand.</p>
-      <a href="/company/settings" class="btn-primary inline-block text-sm">Open settings</a>
+      <a href="/company/settings" class="btn-primary text-sm">Open settings</a>
     </li>
     <li class="card p-5">
       <div class="font-semibold mb-1">2. Connect a channel</div>
       <p class="text-sm text-[var(--text-secondary)] mb-3">WhatsApp Cloud API is the primary channel. Telegram is available if your plan includes it.</p>
-      <a href="/company/whatsapp" class="btn-primary inline-block text-sm mr-2">WhatsApp API</a>
-      <a href="/company/guides" class="btn-ghost inline-block text-sm">Setup guides</a>
+      <div class="flex flex-wrap gap-2 items-center">
+        <a href="/company/whatsapp" class="btn-primary text-sm">WhatsApp API</a>
+        <a href="/company/guides" class="btn-ghost text-sm">Setup guides</a>
+      </div>
     </li>
     <li class="card p-5">
       <div class="font-semibold mb-1">3. Add services for {{ template.label }}</div>
       <p class="text-sm text-[var(--text-secondary)] mb-3">Typical flow: {{ template.workflow_hints }}. Add only what you actually offer — the bot will not invent catalogue items.</p>
-      <a href="/company/services" class="btn-primary inline-block text-sm">Services</a>
+      <a href="/company/services" class="btn-primary text-sm">Services</a>
     </li>
     <li class="card p-5">
       <div class="font-semibold mb-1">4. Customer payment details</div>
       <p class="text-sm text-[var(--text-secondary)] mb-3">Bank accounts or payment info the bot should send when customers are ready to pay you.</p>
-      <a href="/company/payments" class="btn-primary inline-block text-sm">Payments</a>
+      <a href="/company/payments" class="btn-primary text-sm">Payments</a>
     </li>
     <li class="card p-5">
       <div class="font-semibold mb-1">5. Test a real message</div>
