@@ -1,0 +1,58 @@
+{% extends "layouts/company.html" %}
+{% block title %}Setup guides – Client-RaQ{% endblock %}
+{% block page_title %}Setup guides{% endblock %}
+{% set active = 'guides' %}
+{% block content %}
+{% if not unlocked %}
+<div class="card p-6 max-w-xl">
+  <h3 class="font-semibold mb-2">Guides locked</h3>
+  <p class="text-sm text-[var(--text-secondary)] mb-4">Start a trial or subscribe to unlock step-by-step WhatsApp and Telegram setup.</p>
+  <a href="/company/billing" class="btn-primary inline-block">Go to billing</a>
+</div>
+{% else %}
+<div class="space-y-6 max-w-3xl">
+  <div class="card p-6 space-y-3">
+    <h3 class="font-semibold">1. Business profile</h3>
+    <p class="text-sm text-[var(--text-secondary)]">Open <a href="/company/settings" class="text-[var(--primary)] underline">Settings</a> and <a href="/company/bot-settings" class="text-[var(--primary)] underline">Bot settings</a>. Add greeting, about text, hours, and website so the AI answers with your real information.</p>
+  </div>
+  <div class="card p-6 space-y-3">
+    <h3 class="font-semibold">2. WhatsApp Cloud API</h3>
+    <ol class="text-sm text-[var(--text-secondary)] list-decimal pl-5 space-y-2">
+      <li>In Meta Developer, open your WhatsApp app → API Setup.</li>
+      <li>Copy <strong>Phone number ID</strong> and create a permanent <strong>System User</strong> access token.</li>
+      <li>Paste them under <a href="/company/whatsapp" class="text-[var(--primary)] underline">WhatsApp API</a> in Client-RaQ and save.</li>
+      <li>Webhook URL: <code class="text-xs bg-[var(--surface-subtle)] px-1 rounded">https://clientraq.com/webhook</code></li>
+      <li>Verify token: the value from your server env <code class="text-xs">WHATSAPP_VERIFY_TOKEN</code>.</li>
+      <li>Subscribe to messages. Send a test WhatsApp message to your business number.</li>
+    </ol>
+  </div>
+  <div class="card p-6 space-y-3">
+    <h3 class="font-semibold">3. Telegram (if included in your plan)</h3>
+    <ol class="text-sm text-[var(--text-secondary)] list-decimal pl-5 space-y-2">
+      <li>Talk to @BotFather on Telegram → /newbot → copy the bot token.</li>
+      <li>Add the token in company channel settings when available.</li>
+      <li>Set webhook to your Client-RaQ Telegram endpoint (documented when Telegram is enabled on your plan).</li>
+    </ol>
+    {% if sub and not sub.channel_telegram %}
+    <p class="text-xs text-[var(--text-muted)]">Your current plan does not include Telegram. Upgrade under Billing.</p>
+    {% endif %}
+  </div>
+  <div class="card p-6 space-y-3">
+    <h3 class="font-semibold">4. Services & bank details</h3>
+    <p class="text-sm text-[var(--text-secondary)]">Add services and prices under <a href="/company/services" class="text-[var(--primary)] underline">Services</a>. Add customer payment accounts under <a href="/company/payments" class="text-[var(--primary)] underline">Payments</a> so the bot can send bank details.</p>
+  </div>
+  <div class="card p-6 space-y-3">
+    <h3 class="font-semibold">Need help?</h3>
+    <p class="text-sm text-[var(--text-secondary)]">If setup is unclear, contact platform support:</p>
+    <ul class="text-sm space-y-1">
+      {% if support_whatsapp %}
+      <li>WhatsApp: <a class="text-[var(--primary)] underline" href="https://wa.me/{{ support_whatsapp|replace('+','')|replace(' ','') }}">{{ support_whatsapp }}</a></li>
+      {% endif %}
+      {% if support_email %}
+      <li>Email: {{ support_email }}</li>
+      {% endif %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

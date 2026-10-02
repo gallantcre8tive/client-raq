@@ -1,0 +1,42 @@
+{% extends "layouts/company.html" %}
+{% block title %}Telegram – Client-RaQ{% endblock %}
+{% block page_title %}Telegram bot{% endblock %}
+{% set active = 'telegram' %}
+{% block content %}
+<div class="space-y-6 max-w-2xl">
+  {% if saved %}
+  <div class="p-3 rounded-lg border border-[var(--primary)]/30 text-sm">Telegram settings saved.</div>
+  {% endif %}
+  {% if error %}
+  <div class="p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
+    {% if error == 'not_allowed' %}Your plan does not include Telegram. Upgrade under Billing.{% else %}Could not save. Try again.{% endif %}
+  </div>
+  {% endif %}
+  {% if not allowed %}
+  <div class="card p-6 border border-amber-500/30">
+    <h3 class="font-semibold mb-2">Telegram not on this plan</h3>
+    <p class="text-sm text-[var(--text-secondary)] mb-4">{{ allow_msg }}</p>
+    <a href="/company/billing" class="btn-primary inline-block">Open billing</a>
+  </div>
+  {% else %}
+  <div class="card p-6 space-y-4">
+    <p class="text-sm text-[var(--text-secondary)]">Create a bot with @BotFather, then paste the token. Set webhook to the URL below.</p>
+    <form method="post" action="/company/telegram" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Bot token</label>
+        <input type="password" name="telegram_bot_token" class="input-field" value="{{ company.telegram_bot_token|default('') }}" placeholder="123456:ABC..." autocomplete="off">
+      </div>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="telegram_enabled" class="rounded" {% if company.telegram_enabled %}checked{% endif %}>
+        Enable Telegram for this company
+      </label>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Webhook URL (set in BotFather / setWebhook)</label>
+        <code class="block text-xs p-3 rounded-xl break-all" style="background:var(--surface-canvas);color:var(--primary)">{{ webhook_url }}</code>
+      </div>
+      <button type="submit" class="btn-primary">Save Telegram</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

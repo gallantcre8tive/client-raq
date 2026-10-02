@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "components/icons.html" import icon %}
 {% from "components/logo.html" import logo %}
-{% block title %}Client-RaQ – Enterprise WhatsApp Automation for Printing{% endblock %}
+{% block title %}Client-RaQ – WhatsApp & Telegram AI for growing businesses{% endblock %}
 {% block body %}
 <!-- Minimal top bar only (not full enterprise nav from mock) -->
 <header class="fixed top-0 inset-x-0 z-50 border-b border-[var(--border-subtle)]" style="background:color-mix(in srgb,var(--surface-base) 85%,transparent);backdrop-filter:blur(12px)">
@@ -39,7 +39,8 @@
         Client-RaQ equips print shops with automated WhatsApp quote engines, instant payment proof verification, and fully isolated multi-tenant workspaces.
       </p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
-        <a href="#pricing" class="btn-primary px-8">Explore Platform Plans</a>
+        <a href="/trial" class="btn-primary px-8">Start free trial</a>
+        <a href="#pricing" class="btn-ghost px-8">View plans</a>
         <a href="/company/login" class="btn-ghost px-8">Unified Company Login</a>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto text-left">
@@ -167,21 +168,43 @@
   </section>
 
   <!-- Pricing -->
+  
+  <section id="businesses" class="py-16 border-t border-[var(--border-subtle)]">
+    <div class="max-w-6xl mx-auto px-4">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Built for more than one kind of business</h2>
+        <p class="text-sm text-[var(--text-secondary)] max-w-2xl mx-auto">Choose your type when you sign up. The assistant follows rules for that industry — not a print-only script forced on everyone.</p>
+      </div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="card p-5"><div class="font-semibold mb-1">Printing & branding</div><p class="text-sm text-[var(--text-secondary)]">Banners, stickers, frames, nylon, apparel. Size units, min qty, design files, payment proof.</p></div>
+        <div class="card p-5"><div class="font-semibold mb-1">Skincare & beauty</div><p class="text-sm text-[var(--text-secondary)]">Products, facials, consultations. Bookings and payments without medical overclaim.</p></div>
+        <div class="card p-5"><div class="font-semibold mb-1">Retail / phone store</div><p class="text-sm text-[var(--text-secondary)]">Catalogue questions, variants, pickup or delivery, staff confirmation for stock.</p></div>
+        <div class="card p-5"><div class="font-semibold mb-1">Payment exchanger</div><p class="text-sm text-[var(--text-secondary)]">Corridors, amounts, proof of payment, staff verification — rates only from your config.</p></div>
+        <div class="card p-5"><div class="font-semibold mb-1">Logistics</div><p class="text-sm text-[var(--text-secondary)]">Pickup, drop-off, quotes, dispatch handoff to your team.</p></div>
+        <div class="card p-5"><div class="font-semibold mb-1">Custom</div><p class="text-sm text-[var(--text-secondary)]">Configure your own services and policies. Same AI engine, your rules.</p></div>
+      </div>
+    </div>
+  </section>
+
   <section id="pricing" class="py-16 border-t border-[var(--border-subtle)]" x-data="{
-      rates: { NGN: 1, USD: 0.00062, EUR: 0.00057, GBP: 0.00049, GHS: 0.0095, KES: 0.08, ZAR: 0.011 },
-      symbols: { NGN: '₦', USD: '$', EUR: '€', GBP: '£', GHS: 'GH₵', KES: 'KSh', ZAR: 'R' },
+      rates: { NGN: 1, USD: 0.00062, EUR: 0.00057, GBP: 0.00049, GHS: 0.0095, KES: 0.08, ZAR: 0.011, CAD: 0.00085, AED: 0.0023 },
+      symbols: { NGN: '₦', USD: '$', EUR: '€', GBP: '£', GHS: 'GH₵', KES: 'KSh', ZAR: 'R', CAD: 'C$', AED: 'AED ' },
       currency: 'NGN',
+      monthlyPrice: {{ pricing.monthly_ngn|default(18000)|int }},
+      sixPrice: {{ pricing.six_month_ngn|default(102000)|int }},
+      yearPrice: {{ pricing.yearly_ngn|default(198000)|int }},
+      guideFee: {{ pricing.guide_fee_ngn|default(5000)|int }},
       fmt(naira) {
         const r = this.rates[this.currency] || 1;
         const v = naira * r;
         const sym = this.symbols[this.currency] || '';
-        if (this.currency === 'NGN') return '₦' + naira.toLocaleString();
+        if (this.currency === 'NGN') return '₦' + Number(naira).toLocaleString();
         return sym + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
       }
     }">
     <div class="max-w-6xl mx-auto px-4">
       <div class="text-center mb-6">
-        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Simple plans for every print house</h2>
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Simple plans for every business</h2>
         <p class="text-sm text-[var(--text-secondary)] mb-4">Prices set in Naira. Amounts convert for your selected currency.</p>
         <select x-model="currency" class="input-field w-auto inline-block min-w-[140px]">
           <option value="NGN">NGN – Naira</option>
@@ -196,19 +219,19 @@
       <div class="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
         <div class="card p-6 flex flex-col">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Monthly</div>
-          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(18000)"></div>
-          <div class="text-xs text-[var(--text-muted)] mb-6">Billed every month · ₦18,000 base</div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(monthlyPrice)"></div>
+          <div class="text-xs text-[var(--text-muted)] mb-6">Billed every month</div>
           <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
             <li>1 company workspace</li>
             <li>WhatsApp bot + admin panel</li>
             <li>Orders, payments, live chats</li>
             <li>Email support</li>
           </ul>
-          <a href="/company/login" class="btn-ghost w-full">Get started</a>
+          <a href="/checkout?plan=monthly" class="btn-ghost w-full">Subscribe</a>
         </div>
         <div class="card p-6 flex flex-col border-2" style="border-color:var(--primary)">
           <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--primary)">6 months · Best value</div>
-          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(102000)"></div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(sixPrice)"></div>
           <div class="text-xs text-[var(--text-muted)] mb-6">Save vs monthly · ₦102,000 base</div>
           <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
             <li>Everything in Monthly</li>
@@ -220,7 +243,7 @@
         </div>
         <div class="card p-6 flex flex-col">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Yearly</div>
-          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(198000)"></div>
+          <div class="text-3xl font-bold font-tabular mb-1" x-text="fmt(yearPrice)"></div>
           <div class="text-xs text-[var(--text-muted)] mb-6">Best long-term · ₦198,000 base</div>
           <ul class="text-sm text-[var(--text-secondary)] space-y-2 flex-1 mb-6">
             <li>Everything in 6 months</li>
@@ -253,7 +276,7 @@
   <div class="max-w-6xl mx-auto px-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-8 text-sm mb-10">
     <div>
       <div class="flex items-center gap-2 font-semibold mb-3">{{ logo('w-7 h-7') }} Client-RaQ</div>
-      <p class="text-xs text-[var(--text-secondary)] leading-relaxed">AI WhatsApp assistant for printing and branding companies. Multi-tenant. Production-ready orders.</p>
+      <p class="text-xs text-[var(--text-secondary)] leading-relaxed">AI customer assistant for WhatsApp and Telegram businesses — printing, beauty, retail, and more. Multi-tenant. You configure; the bot operates.</p>
     </div>
     <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Product</div>
@@ -261,12 +284,26 @@
         <li><a href="#pricing" class="hover:text-[var(--primary)]">Pricing</a></li>
         <li><a href="/company/login" class="hover:text-[var(--primary)]">Company login</a></li>
         <li><a href="/platform/login" class="hover:text-[var(--primary)]">Platform login</a></li>
+        <li><a href="/terms" class="hover:text-[var(--primary)]">Terms</a></li>
+        <li><a href="/privacy" class="hover:text-[var(--primary)]">Privacy</a></li>
       </ul>
     </div>
     <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Support</div>
       <ul class="space-y-2 text-[var(--text-secondary)]">
         <li><a href="https://wa.me/2349169158961" target="_blank" class="hover:text-[var(--primary)]">WhatsApp support</a></li>
+        <li><a href="/trial" class="hover:text-[var(--primary)]">Free trial</a></li>
+        <li><a href="/checkout" class="hover:text-[var(--primary)]">Subscribe</a></li>
+      </ul>
+    </div>
+    <div>
+      <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Social</div>
+      <ul class="space-y-2 text-[var(--text-secondary)]">
+        <li><a href="{{ pricing.social_instagram|default('https://instagram.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">Instagram @client_raq</a></li>
+        <li><a href="{{ pricing.social_x|default('https://x.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">X @client_raq</a></li>
+        <li><a href="{{ pricing.social_facebook|default('https://facebook.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">Facebook @client_raq</a></li>
+        <li><a href="{{ pricing.social_tiktok|default('https://tiktok.com/@client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">TikTok @client_raq</a></li>
+        <li><a href="{{ pricing.social_linkedin|default('https://linkedin.com/company/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">LinkedIn</a></li>
       </ul>
     </div>
     <div>

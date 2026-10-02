@@ -1,0 +1,57 @@
+{% extends "layouts/company.html" %}
+{% block title %}Billing – Client-RaQ{% endblock %}
+{% block page_title %}Billing{% endblock %}
+{% set active = 'billing' %}
+{% block content %}
+<div class="space-y-6 max-w-2xl">
+  {% if request.query_params.get('renewed') %}
+  <div class="p-3 rounded-lg border border-[var(--primary)]/30 text-sm">Subscription updated. Your bot stays active for the new period.</div>
+  {% endif %}
+  {% if request.query_params.get('error') %}
+  <div class="p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">Payment could not be completed. Try again or contact support.</div>
+  {% endif %}
+
+  <div class="card p-6">
+    <h3 class="font-semibold mb-2">Subscription status</h3>
+    {% if sub %}
+    <dl class="text-sm space-y-2">
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Status</dt><dd class="font-medium">{{ sub.status }}{% if live %} · live{% else %} · paused{% endif %}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Plan</dt><dd>{{ sub.plan_code or '—' }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">WhatsApp</dt><dd>{{ 'Included' if sub.channel_whatsapp else 'Not included' }}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Telegram</dt><dd>{{ 'Included' if sub.channel_telegram else 'Not included' }}</dd></div>
+      {% if sub.trial_ends_at %}<div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Trial ends</dt><dd>{{ sub.trial_ends_at }}</dd></div>{% endif %}
+      {% if sub.subscription_ends_at %}<div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Paid until</dt><dd>{{ sub.subscription_ends_at }}</dd></div>{% endif %}
+    </dl>
+    {% else %}
+    <p class="text-sm text-[var(--text-muted)]">No subscription yet. Choose a plan below.</p>
+    {% endif %}
+  </div>
+
+  <div class="card p-6 space-y-4">
+    <h3 class="font-semibold">{{ 'Renew or change plan' if live else 'Subscribe to reactivate' }}</h3>
+    <p class="text-sm text-[var(--text-secondary)]">After Paystack confirms payment, your subscription period starts counting (30 / 180 / 365 days). Used trials can subscribe anytime — same login.</p>
+    <form method="post" action="/company/billing/renew" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Plan</label>
+        <select name="plan_code" class="input-field">
+          <option value="monthly">Monthly — ₦{{ "{:,.0f}".format(pricing.monthly_ngn) }}</option>
+          <option value="six_month">6 months — ₦{{ "{:,.0f}".format(pricing.six_month_ngn) }} (WhatsApp + Telegram)</option>
+          <option value="yearly">Yearly — ₦{{ "{:,.0f}".format(pricing.yearly_ngn) }} (WhatsApp + Telegram)</option>
+        </select>
+      </div>
+      <div class="space-y-2 text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" name="channel_whatsapp" checked class="rounded"> WhatsApp</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="channel_telegram" class="rounded"> Telegram (add-on on monthly)</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="include_guide" class="rounded"> Configuration guide — ₦{{ "{:,.0f}".format(pricing.guide_fee_ngn) }}</label>
+      </div>
+      <button type="submit" class="btn-primary w-full sm:w-auto">Pay with Paystack</button>
+    </form>
+  </div>
+
+  <p class="text-sm flex flex-wrap gap-3">
+    <a href="/company/billing/history" class="text-[var(--primary)] underline">Payment history</a>
+    <a href="/company/guides" class="text-[var(--primary)] underline">Setup guides</a>
+    <a href="/checkout" class="text-[var(--text-muted)] underline">Public checkout</a>
+  </p>
+</div>
+{% endblock %}

@@ -26,6 +26,23 @@ settings = get_settings()
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="Client-RaQ")
 
+
+# Billing / trial / Paystack (self-serve)
+try:
+    from app.api.billing_routes import router as billing_router
+    app.include_router(billing_router)
+except Exception as _br:
+    print("billing_routes mount failed:", _br)
+
+try:
+    from app.api.telegram_routes import router as telegram_router
+    app.include_router(telegram_router)
+    print("telegram_routes: mounted")
+    print("billing_routes: mounted")
+except Exception as _br:
+    print("billing_routes mount failed:", _br)
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Prefer redirects for browser auth errors on company/platform pages."""
@@ -195,8 +212,19 @@ async def revenue_stats(db: AsyncSession, company_id: int | None = None) -> dict
 
 
 @app.get("/", response_class=HTMLResponse)
-async def landing(request: Request):
-    return render(request, "public/landing.html")
+async def landing(request: Request, db: AsyncSession = Depends(get_db)):
+    pricing = None
+    try:
+        from app.services.billing_service import get_pricing
+        pricing = await get_pricing(db)
+    except Exception as e:
+        print("landing pricing:", e)
+        pricing = {
+            "monthly_ngn": 18000, "six_month_ngn": 102000, "yearly_ngn": 198000,
+            "guide_fee_ngn": 5000, "trial_hours": 48, "trial_enabled": True,
+            "channel_addon_monthly_ngn": 18000,
+        }
+    return render(request, "public/landing.html", {"pricing": pricing})
 
 
 # ---------- Platform auth ----------

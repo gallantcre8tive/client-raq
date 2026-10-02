@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     # Local folder for WhatsApp media (payment screenshots, designs)
     MEDIA_ROOT: str = "uploads"
+    # Paystack (platform subscription payments)
+    PAYSTACK_SECRET_KEY: str = ""
+    PAYSTACK_PUBLIC_KEY: str = ""
+    APP_BASE_URL: str = "https://clientraq.com"
+    # Email (signup verification) — leave empty to log codes in Render logs
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "Client-RaQ <noreply@clientraq.com>"
 
 
     class Config:

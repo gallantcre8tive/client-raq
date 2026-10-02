@@ -1,0 +1,80 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Pricing – Platform{% endblock %}
+{% block page_title %}Plan pricing{% endblock %}
+{% set active = 'pricing' %}
+{% block content %}
+{% if saved %}
+<div class="mb-4 p-3 rounded-lg border border-[var(--primary)]/30 text-sm">Prices saved. Landing page will use these amounts.</div>
+{% endif %}
+<p class="text-sm text-[var(--text-secondary)] mb-6">Amounts are in NGN. Landing page and checkout read these values live.</p>
+<form method="post" action="/platform/pricing" class="card p-6 space-y-4 max-w-xl">
+  <div class="grid sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Monthly (NGN)</label>
+      <input type="number" step="1" name="monthly_ngn" value="{{ pricing.monthly_ngn }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">6 months (NGN)</label>
+      <input type="number" step="1" name="six_month_ngn" value="{{ pricing.six_month_ngn }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Yearly (NGN)</label>
+      <input type="number" step="1" name="yearly_ngn" value="{{ pricing.yearly_ngn }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Extra channel / month (NGN)</label>
+      <input type="number" step="1" name="channel_addon_monthly_ngn" value="{{ pricing.channel_addon_monthly_ngn }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Config guide fee (NGN)</label>
+      <input type="number" step="1" name="guide_fee_ngn" value="{{ pricing.guide_fee_ngn }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Trial hours</label>
+      <input type="number" name="trial_hours" value="{{ pricing.trial_hours }}" class="input-field" required>
+    </div>
+  </div>
+  <label class="flex items-center gap-2 text-sm">
+    <input type="checkbox" name="trial_enabled" {% if pricing.trial_enabled %}checked{% endif %} class="rounded">
+    Free trial enabled
+  </label>
+  <div>
+    <label class="block text-xs font-medium mb-1.5">Support WhatsApp</label>
+    <input type="text" name="support_whatsapp" value="{{ pricing.support_whatsapp|default('') }}" class="input-field">
+  </div>
+  <div>
+    <label class="block text-xs font-medium mb-1.5">Support email</label>
+    <input type="email" name="support_email" value="{{ pricing.support_email|default('') }}" class="input-field">
+  </div>
+  <hr class="border-[var(--border-subtle)]">
+  <h3 class="font-semibold text-sm">Landing page social links</h3>
+  <p class="text-xs text-[var(--text-muted)]">Full URLs. Shown on the public website footer.</p>
+  <div class="grid sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Instagram</label>
+      <input type="url" name="social_instagram" value="{{ pricing.social_instagram|default('') }}" class="input-field" placeholder="https://instagram.com/client_raq">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">X (Twitter)</label>
+      <input type="url" name="social_x" value="{{ pricing.social_x|default('') }}" class="input-field" placeholder="https://x.com/client_raq">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">Facebook</label>
+      <input type="url" name="social_facebook" value="{{ pricing.social_facebook|default('') }}" class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">TikTok</label>
+      <input type="url" name="social_tiktok" value="{{ pricing.social_tiktok|default('') }}" class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">LinkedIn</label>
+      <input type="url" name="social_linkedin" value="{{ pricing.social_linkedin|default('') }}" class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">YouTube</label>
+      <input type="url" name="social_youtube" value="{{ pricing.social_youtube|default('') }}" class="input-field">
+    </div>
+  </div>
+  <button type="submit" class="btn-primary">Save prices</button>
+</form>
+{% endblock %}

@@ -44,4 +44,38 @@
     </table>
   </div>
 </div>
+
+<div class="card p-6 mt-6 max-w-3xl">
+  <h3 class="font-semibold mb-2">Subscription actions</h3>
+  <p class="text-sm text-[var(--text-secondary)] mb-4">Use company ID from the table. Suspend freezes the bot; mark paid grants a plan period without Paystack.</p>
+  <form method="post" action="" id="subActionForm" class="grid sm:grid-cols-2 gap-3 text-sm" onsubmit="this.action='/platform/companies/'+this.company_id.value+'/subscription'">
+    <div>
+      <label class="block text-xs mb-1">Company ID</label>
+      <input name="company_id" required class="input-field" placeholder="e.g. 3">
+    </div>
+    <div>
+      <label class="block text-xs mb-1">Action</label>
+      <select name="action" class="input-field">
+        <option value="suspend">Suspend</option>
+        <option value="activate">Activate / set days</option>
+        <option value="extend_trial">Extend trial (days→hours*24)</option>
+        <option value="mark_paid">Mark paid (manual)</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs mb-1">Days (activate / trial days)</label>
+      <input type="number" name="days" value="30" class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs mb-1">Plan code (mark_paid / activate)</label>
+      <select name="plan_code" class="input-field">
+        <option value="monthly">monthly</option>
+        <option value="six_month">six_month</option>
+        <option value="yearly">yearly</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-primary sm:col-span-2">Apply</button>
+  </form>
+</div>
+
 {% endblock %}

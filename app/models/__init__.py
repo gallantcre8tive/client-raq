@@ -12,3 +12,8 @@ __all__ = [
 
 from app.models.conversation import Attachment  # noqa
 from app.models.conversation import Customer, AdminNotification, Broadcast  # noqa
+from app.models.platform_message import PlatformMessage  # noqa: F401
+
+from app.models.billing import PlatformPricing, Subscription, Payment, RegistrationToken  # noqa: F401
+
+from app.models.verification import EmailVerification  # noqa: F401

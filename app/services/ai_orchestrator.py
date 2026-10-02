@@ -183,7 +183,8 @@ def calc_from_service(service, ctx: dict) -> float | None:
         return None
     if method == "fixed_size" and unit_price is None:
         return None
-    return _calc_total(service, w, h, qty, size_text)
+    unit = ctx.get("size_unit") or None
+    return _calc_total(service, w, h, qty, size_text, size_unit=unit)
 
 
 async def build_verified_facts(

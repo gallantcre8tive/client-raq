@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Subscribe – Client-RaQ{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+  <div class="max-w-lg mx-auto px-4 py-12">
+    <a href="/" class="text-sm text-[var(--primary)] hover:underline">Back to home</a>
+    <h1 class="text-2xl font-bold mt-4 mb-2">Subscribe to Client-RaQ</h1>
+    <p class="text-sm text-[var(--text-secondary)] mb-6">
+      Pay securely with Paystack. After payment you create your company login.
+    </p>
+    {% if error %}
+    <div class="mb-4 p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">{{ error }}</div>
+    {% endif %}
+    {% if not paystack_ready %}
+    <div class="mb-4 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-sm">
+      Paystack keys are not set on the server yet. In development, checkout may complete without a live charge.
+    </div>
+    {% endif %}
+    <form method="post" action="/checkout/pay" class="card p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Email for receipt & account</label>
+        <input type="email" name="email" required class="input-field" placeholder="you@business.com">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Plan</label>
+        <select name="plan_code" id="plan_code" class="input-field">
+          <option value="monthly" {% if plan=='monthly' %}selected{% endif %}>Monthly — ₦{{ "{:,.0f}".format(pricing.monthly_ngn) }}</option>
+          <option value="six_month" {% if plan=='six_month' %}selected{% endif %}>6 months — ₦{{ "{:,.0f}".format(pricing.six_month_ngn) }} (WhatsApp + Telegram)</option>
+          <option value="yearly" {% if plan=='yearly' %}selected{% endif %}>Yearly — ₦{{ "{:,.0f}".format(pricing.yearly_ngn) }} (WhatsApp + Telegram)</option>
+        </select>
+      </div>
+      <div class="space-y-2 text-sm">
+        <p class="text-xs font-medium text-[var(--text-secondary)]">Channels</p>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="channel_whatsapp" checked class="rounded"> WhatsApp
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="channel_telegram" class="rounded"> Telegram
+          <span class="text-xs text-[var(--text-muted)]">(add-on on monthly; included on 6-month & yearly)</span>
+        </label>
+      </div>
+      <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="include_guide" class="rounded mt-1">
+        <span>Add configuration guide — ₦{{ "{:,.0f}".format(pricing.guide_fee_ngn) }} one-time
+          <span class="block text-xs text-[var(--text-muted)]">Step-by-step WhatsApp/Telegram setup inside your panel</span>
+        </span>
+      </label>
+      <button type="submit" class="btn-primary w-full">Continue to payment</button>
+    </form>
+    <p class="text-xs text-[var(--text-muted)] mt-4 text-center">
+      Prefer to try first? <a href="/trial" class="text-[var(--primary)] underline">Start free {{ pricing.trial_hours }}-hour trial</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

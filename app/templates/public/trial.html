@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Free trial – Client-RaQ{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+  <div class="max-w-lg mx-auto px-4 py-12">
+    <a href="/" class="text-sm text-[var(--primary)] hover:underline">Back to home</a>
+    <h1 class="text-2xl font-bold mt-4 mb-2">Start your free trial</h1>
+    <p class="text-sm text-[var(--text-secondary)] mb-6">
+      {{ trial_hours|default(48) }} hours to connect a channel, add services, and test the bot.
+      We will email a verification code to confirm your address.
+    </p>
+    {% if error %}
+    <div class="mb-4 p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/trial/send-code" class="card p-6 space-y-4">
+      <input type="text" name="honeypot" value="" class="hidden" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Business name</label>
+        <input type="text" name="business_name" required class="input-field" placeholder="e.g. AlphaLite Prints">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Work email</label>
+        <input type="email" name="email" required class="input-field" placeholder="you@business.com">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Password</label>
+        <input type="password" name="password" required minlength="6" class="input-field" autocomplete="new-password">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Country</label>
+        <input type="text" name="country" value="Nigeria" class="input-field">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Business type</label>
+        <select name="business_type" class="input-field">
+          <option value="printing">Printing</option>
+          <option value="skincare">Skincare / Beauty</option>
+          <option value="retail">Retail / Phone store</option>
+          <option value="exchanger">Payment exchanger</option>
+          <option value="logistics">Logistics</option>
+          <option value="custom">Custom / Other</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Phone (optional)</label>
+        <input type="text" name="phone" class="input-field" placeholder="+234...">
+      </div>
+      <button type="submit" class="btn-primary w-full">Email me a verification code</button>
+    </form>
+    <p class="text-xs text-[var(--text-muted)] mt-4 text-center">
+      Already paid? <a href="/checkout" class="text-[var(--primary)] underline">Subscribe</a>
+      · Have an account? <a href="/company/login" class="text-[var(--primary)] underline">Log in</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

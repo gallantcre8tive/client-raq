@@ -20,6 +20,16 @@ from app.services.agent_tools import TOOL_DEFINITIONS, ToolContext, execute_tool
 
 log = logging.getLogger("client_raq.agent")
 
+
+def _company_system_prompt(company) -> str:
+    try:
+        from app.data.business_templates import build_system_prompt
+        return build_system_prompt(company, getattr(company, "business_type", None))
+    except Exception as e:
+        print("build_system_prompt_fail", e)
+        return SYSTEM_PROMPT.replace("a real print shop", getattr(company, "name", "this business") or "this business")
+
+
 SYSTEM_PROMPT = """You are Client RaQ, the WhatsApp customer-service agent for a real print shop.
 
 You sound like a helpful human staff member — warm, concise, professional. Never say you are an AI or Grok.
@@ -105,27 +115,20 @@ async def _chat_with_tools(messages: list[dict], tools: list[dict] | None = None
 
 
 def _build_system(company: Company, ctx: dict) -> str:
-    lang = ctx.get("lang") or getattr(company, "bot_language", None) or "both"
-    personality = getattr(company, "bot_personality", None) or "friendly"
-    custom = (getattr(company, "custom_ai_instructions", None) or "").strip()
-    parts = [
-        SYSTEM_PROMPT,
-        f"Company: {company.name}",
-        f"Currency: {company.currency or 'NGN'}",
-        f"Language preference setting: {lang}",
-        f"Tone: {personality}",
-    ]
-    if custom:
-        parts.append(f"Shop rules: {custom[:800]}")
-    if getattr(company, "business_hours", None):
-        parts.append(f"Hours: {company.business_hours}")
-    if getattr(company, "location_text", None):
-        parts.append(f"Location: {company.location_text}")
+    try:
+        from app.data.business_templates import build_system_prompt
+        base = build_system_prompt(company, getattr(company, "business_type", None))
+    except Exception as e:
+        print("business_prompt_fail", e)
+        base = SYSTEM_PROMPT
+    parts = [base]
     if ctx.get("quote_locked") and ctx.get("locked_total"):
         parts.append(
             f"LOCKED QUOTE: total={ctx.get('locked_total')} service={ctx.get('service_name')} "
             f"size={ctx.get('width')}x{ctx.get('height')} {ctx.get('size_unit')} qty={ctx.get('qty')}. Do not change total."
         )
+    if ctx.get("lang"):
+        parts.append(f"Active reply language for this chat: {ctx.get('lang')}")
     return "\n".join(parts)
 
 

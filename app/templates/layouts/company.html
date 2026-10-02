@@ -25,6 +25,7 @@
     </div>
     <nav class="flex-1 p-2.5 space-y-0.5 overflow-y-auto" @click="if (window.innerWidth < 1024) sidebarOpen = false">
       <a href="/company/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
+      <a href="/company/onboarding" class="nav-item {% if active=='onboarding' %}active{% endif %}">{{ icon('activity') }} Get started</a>
       <a href="/company/orders" class="nav-item {% if active=='orders' %}active{% endif %}">{{ icon('receipt') }} Orders</a>
       <a href="/company/broadcast" class="nav-item {% if active=='broadcast' %}active{% endif %}">{{ icon('bell') }} Broadcast</a>
       <a href="/company/messages" class="nav-item {% if active=='messages' %}active{% endif %}">{{ icon('messages-square') }} Messages</a>
@@ -32,6 +33,9 @@
       <a href="/company/payments" class="nav-item {% if active=='payments' %}active{% endif %}">{{ icon('credit-card') }} Payments</a>
       <a href="/company/bot" class="nav-item {% if active=='bot' %}active{% endif %}">{{ icon('bot') }} Bot settings</a>
       <a href="/company/whatsapp" class="nav-item {% if active=='whatsapp' %}active{% endif %}">{{ icon('phone') }} WhatsApp API</a>
+      <a href="/company/telegram" class="nav-item {% if active=='telegram' %}active{% endif %}">{{ icon('message-square') }} Telegram</a>
+      <a href="/company/billing" class="nav-item {% if active=='billing' %}active{% endif %}">{{ icon('settings') }} Billing</a>
+      <a href="/company/guides" class="nav-item {% if active=='guides' %}active{% endif %}">{{ icon('activity') }} Setup guides</a>
       <a href="/company/settings" class="nav-item {% if active=='settings' %}active{% endif %}">{{ icon('settings') }} Settings</a>
     </nav>
     <div class="p-2.5 border-t border-[var(--border-subtle)] space-y-0.5 shrink-0">
@@ -113,7 +117,24 @@
     </header>
 
     <main class="app-page flex-1 w-full max-w-full min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6" style="padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: max(16px, env(safe-area-inset-bottom));">
-      {% block content %}{% endblock %}
+      
+    <div x-data="{acc:null}" x-init="fetch('/api/company/access').then(r=>r.json()).then(d=>acc=d).catch(()=>{})" class="contents">
+      <template x-if="acc && !acc.live">
+        <div class="mx-3 sm:mx-4 mt-3 p-3 rounded-xl text-sm border border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100">
+          Bot is paused (trial ended or subscription inactive).
+          <a href="/company/billing" class="underline font-medium ml-1">Subscribe to reactivate</a>
+        </div>
+      </template>
+      <template x-if="acc && acc.live && acc.status==='trial' && acc.hours_left!=null">
+        <div class="mx-3 sm:mx-4 mt-3 p-3 rounded-xl text-sm border border-[var(--primary)]/30 bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]">
+          Free trial: about <span x-text="Math.max(0, Math.round(acc.hours_left*10)/10)"></span> hours left
+          · messages <span x-text="acc.trial_messages"></span>/<span x-text="acc.trial_message_limit"></span>
+          <a href="/company/billing" class="underline ml-1">Subscribe</a>
+        </div>
+      </template>
+    </div>
+
+    {% block content %}{% endblock %}
     </main>
   </div>
 
@@ -228,6 +249,42 @@
   }
   document.addEventListener('visibilitychange', function(){
     if (!document.hidden) pollNotify();
+  });
+})();
+</script>
+
+
+<script>
+(function(){
+  window.crqNotifySound = function(){
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880;
+      g.gain.value = 0.08;
+      o.connect(g); g.connect(ctx.destination);
+      o.start();
+      setTimeout(function(){ o.frequency.value = 1175; }, 120);
+      setTimeout(function(){ o.stop(); ctx.close(); }, 320);
+    } catch(e) {}
+  };
+  // Play once when unread count increases (if Alpine store present)
+  document.addEventListener('alpine:init', function(){
+    try {
+      Alpine.effect(function(){
+        const s = Alpine.store('crqBell');
+        if (!s) return;
+        if (typeof s._lastCount === 'undefined') s._lastCount = s.unread || 0;
+        if ((s.unread || 0) > (s._lastCount || 0)) {
+          window.crqNotifySound();
+        }
+        s._lastCount = s.unread || 0;
+      });
+    } catch(e) {}
   });
 })();
 </script>

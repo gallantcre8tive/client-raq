@@ -87,6 +87,24 @@
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">About / description</label>
       <textarea name="about_text" rows="2" class="input-field">{{ about_text|default('') }}</textarea>
     </div>
+    <div class="pt-2 border-t border-[var(--border-subtle)]">
+      <h4 class="text-sm font-semibold mb-2">Enquiry contact (when bot cannot answer)</h4>
+      <p class="text-xs text-[var(--text-muted)] mb-3">Shown to customers for complex questions so they can reach you quickly.</p>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Enquiry WhatsApp number</label>
+          <input type="text" name="enquiry_whatsapp" class="input-field min-h-[44px]" value="{{ enquiry_whatsapp|default('') }}" placeholder="+2348012345678">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Enquiry call number</label>
+          <input type="text" name="enquiry_phone" class="input-field min-h-[44px]" value="{{ enquiry_phone|default('') }}" placeholder="+2348012345678">
+        </div>
+      </div>
+      <div class="mt-3">
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Short note (optional)</label>
+        <input type="text" name="enquiry_note" class="input-field min-h-[44px]" value="{{ enquiry_note|default('') }}" placeholder="e.g. Call between 9am–5pm for custom jobs">
+      </div>
+    </div>
   </div>
 
   <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">

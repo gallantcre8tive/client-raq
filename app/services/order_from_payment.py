@@ -59,7 +59,7 @@ async def create_or_update_payment_order(
     att_id: int | None = None,
 ) -> int | None:
     """Always try to land an order row + notification. Returns order id or None."""
-    from app.services.admin_notify import notify_company
+    from app.services.admin_notify import notify_company, notify_new_order, notify_payment_proof
 
     await ensure_orders_columns(db)
 
@@ -279,4 +279,29 @@ async def create_or_update_payment_order(
 
     if order_id:
         ctx["order_id"] = order_id
+    
+    try:
+        await notify_payment_proof(
+            db,
+            company_id=int(company_id),
+            order_id=int(order_id) if order_id else None,
+            amount=float(total) if total is not None else None,
+            currency=str(cur or "NGN"),
+            customer_label=str(from_wa or ""),
+            conversation_id=int(conversation_id) if conversation_id else None,
+            attachment_path=(f"/company/attachments/{att_id}" if att_id else None),
+        )
+        await notify_new_order(
+            db,
+            company_id=int(company_id),
+            order_id=int(order_id) if order_id else None,
+            service_name=str(service_name or "Order"),
+            total=float(total) if total is not None else None,
+            currency=str(cur or "NGN"),
+            customer_label=str(from_wa or ""),
+            conversation_id=int(conversation_id) if conversation_id else None,
+        )
+    except Exception as _ne:
+        print("order_notify_extra", _ne)
+
     return order_id

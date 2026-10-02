@@ -679,6 +679,51 @@ async def handle_inbound(
     except Exception as e:
         print("returning_customer", type(e).__name__, e)
 
+
+    # ── Subscription / trial gate (platform billing) ──
+    try:
+        from app.services.subscription_access import assert_bot_may_reply
+        from app.services.billing_service import get_company_subscription, get_pricing
+        ok_bot, pause_msg = await assert_bot_may_reply(db, company.id)
+        if not ok_bot:
+            try:
+                await send_text(link.phone_number_id, link.access_token, from_wa, pause_msg)
+            except Exception:
+                pass
+            return
+        # count trial messages
+        sub = await get_company_subscription(db, company.id)
+        if sub and sub.status == "trial":
+            sub.message_count_trial = int(sub.message_count_trial or 0) + 1
+            try:
+                await db.commit()
+            except Exception:
+                pass
+    except Exception as _sub_e:
+        print("subscription_gate", type(_sub_e).__name__, _sub_e)
+
+    # trial message counting
+    try:
+        from app.services.billing_service import get_company_subscription, get_pricing
+        from sqlalchemy import text as _t
+        sub = await get_company_subscription(db, company.id)
+        if sub and sub.status == "trial":
+            sub.message_count_trial = int(sub.message_count_trial or 0) + 1
+            pricing = await get_pricing(db)
+            limit = int(pricing.get("trial_message_limit") or 50)
+            await db.commit()
+            if sub.message_count_trial > limit:
+                try:
+                    from app.services.whatsapp_send import send_text
+                    await send_text(link.phone_number_id, link.access_token, from_wa,
+                        "This free trial has reached its message limit. Please subscribe on Client-RaQ to continue.")
+                except Exception:
+                    pass
+                return
+    except Exception as _tm:
+        print("trial_message_count", _tm)
+
+
     # ── Media: store file, voice transcript, payment/design context ──
     attachment_note = None
     if media_id:

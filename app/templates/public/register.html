@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Create company – Client-RaQ{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-[var(--surface-canvas)] text-[var(--text-primary)]">
+  <div class="max-w-lg mx-auto px-4 py-12">
+    <h1 class="text-2xl font-bold mb-2">Create your company account</h1>
+    <p class="text-sm text-[var(--text-secondary)] mb-6">Payment received. Set up your login to access the dashboard and bot.</p>
+    {% if error %}
+    <div class="mb-4 p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">{{ error }}</div>
+    {% endif %}
+    {% if token %}
+    <form method="post" action="/register" class="card p-6 space-y-4">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Business name</label>
+        <input type="text" name="business_name" required class="input-field">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Email</label>
+        <input type="email" name="email" value="{{ email|default('') }}" required class="input-field">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Password</label>
+        <input type="password" name="password" required minlength="6" class="input-field" autocomplete="new-password">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Country</label>
+        <input type="text" name="country" value="Nigeria" class="input-field">
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Business type</label>
+        <select name="business_type" class="input-field">
+          <option value="printing">Printing</option>
+          <option value="skincare">Skincare / Beauty</option>
+          <option value="retail">Retail</option>
+          <option value="exchanger">Exchanger</option>
+          <option value="logistics">Logistics</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium mb-1.5">Phone (optional)</label>
+        <input type="text" name="phone" class="input-field">
+      </div>
+      <p class="text-xs text-[var(--text-muted)]">Plan: {{ plan_code|default('monthly') }}</p>
+      <button type="submit" class="btn-primary w-full">Create account & open dashboard</button>
+    </form>
+    {% else %}
+    <p class="text-sm"><a href="/checkout" class="text-[var(--primary)] underline">Go to checkout</a></p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

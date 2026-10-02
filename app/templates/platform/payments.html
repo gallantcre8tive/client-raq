@@ -1,0 +1,38 @@
+{% extends "layouts/platform.html" %}
+{% block title %}Payments – Platform{% endblock %}
+{% block page_title %}Platform payments{% endblock %}
+{% set active = 'payments' %}
+{% block content %}
+<div class="card overflow-x-auto">
+  <table class="w-full text-sm text-left">
+    <thead class="text-xs text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+      <tr>
+        <th class="p-3">ID</th>
+        <th class="p-3">Company</th>
+        <th class="p-3">Email</th>
+        <th class="p-3">Reference</th>
+        <th class="p-3">Plan</th>
+        <th class="p-3">Amount</th>
+        <th class="p-3">Status</th>
+        <th class="p-3">When</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr class="border-b border-[var(--border-subtle)]">
+        <td class="p-3">{{ p.id }}</td>
+        <td class="p-3">{{ p.company_id or '—' }}</td>
+        <td class="p-3">{{ p.email }}</td>
+        <td class="p-3 font-mono text-xs">{{ p.reference }}</td>
+        <td class="p-3">{{ p.plan_code }}</td>
+        <td class="p-3">₦{{ "%.0f"|format((p.amount_kobo or 0) / 100) }}</td>
+        <td class="p-3">{{ p.status }}</td>
+        <td class="p-3 text-[var(--text-muted)]">{{ p.paid_at or p.created_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="p-6 text-[var(--text-muted)]">No payments recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

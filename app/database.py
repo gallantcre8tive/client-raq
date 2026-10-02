@@ -129,6 +129,115 @@ async def ensure_schema():
             print("ensure_schema skip:", str(e)[:120])
 
 
+
+async def ensure_billing_schema():
+    """Billing tables — safe to run repeatedly."""
+    from sqlalchemy import text
+    stmts = [
+        """CREATE TABLE IF NOT EXISTS platform_pricing (
+            id SERIAL PRIMARY KEY,
+            monthly_ngn DOUBLE PRECISION DEFAULT 18000,
+            six_month_ngn DOUBLE PRECISION DEFAULT 102000,
+            yearly_ngn DOUBLE PRECISION DEFAULT 198000,
+            channel_addon_monthly_ngn DOUBLE PRECISION DEFAULT 18000,
+            guide_fee_ngn DOUBLE PRECISION DEFAULT 5000,
+            trial_hours INTEGER DEFAULT 48,
+            trial_enabled BOOLEAN DEFAULT true,
+            trial_message_limit INTEGER DEFAULT 50,
+            six_month_includes_both_channels BOOLEAN DEFAULT true,
+            yearly_includes_both_channels BOOLEAN DEFAULT true,
+            support_whatsapp VARCHAR(40),
+            support_email VARCHAR(255),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS subscriptions (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER,
+            status VARCHAR(30) DEFAULT 'trial',
+            plan_code VARCHAR(40),
+            channel_whatsapp BOOLEAN DEFAULT true,
+            channel_telegram BOOLEAN DEFAULT false,
+            trial_ends_at TIMESTAMPTZ,
+            subscription_ends_at TIMESTAMPTZ,
+            message_count_trial INTEGER DEFAULT 0,
+            guide_unlocked BOOLEAN DEFAULT false,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS platform_payments (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER,
+            email VARCHAR(255),
+            reference VARCHAR(100) UNIQUE,
+            amount_kobo INTEGER DEFAULT 0,
+            currency VARCHAR(10) DEFAULT 'NGN',
+            plan_code VARCHAR(40),
+            channel_whatsapp BOOLEAN DEFAULT true,
+            channel_telegram BOOLEAN DEFAULT false,
+            include_guide BOOLEAN DEFAULT false,
+            status VARCHAR(30) DEFAULT 'pending',
+            paystack_raw TEXT,
+            registration_token VARCHAR(64),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            paid_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS registration_tokens (
+            id SERIAL PRIMARY KEY,
+            token VARCHAR(64) UNIQUE,
+            email VARCHAR(255),
+            plan_code VARCHAR(40),
+            channel_whatsapp BOOLEAN DEFAULT true,
+            channel_telegram BOOLEAN DEFAULT false,
+            include_guide BOOLEAN DEFAULT false,
+            payment_reference VARCHAR(100),
+            amount_kobo INTEGER DEFAULT 0,
+            used BOOLEAN DEFAULT false,
+            expires_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_type VARCHAR(40) DEFAULT 'printing'",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS website_url VARCHAR(300)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(200)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT false",
+
+        """CREATE TABLE IF NOT EXISTS email_verifications (
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(255),
+            code VARCHAR(12),
+            purpose VARCHAR(40) DEFAULT 'signup',
+            payload_json VARCHAR(4000),
+            attempts INTEGER DEFAULT 0,
+            used BOOLEAN DEFAULT false,
+            expires_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_instagram VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_x VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_facebook VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_tiktok VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_linkedin VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_youtube VARCHAR(200)",
+        """CREATE TABLE IF NOT EXISTS audit_logs (
+            id SERIAL PRIMARY KEY,
+            actor_user_id INTEGER,
+            actor_email VARCHAR(255),
+            company_id INTEGER,
+            action VARCHAR(80),
+            detail TEXT,
+            ip VARCHAR(60),
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+
+    ]
+    async with engine.begin() as conn:
+        for sql in stmts:
+            try:
+                await conn.execute(text(sql))
+            except Exception as e:
+                print("billing schema:", e)
+
+
+
 async def init_db():
     """Create tables quickly. Never block Render port detection forever."""
     import asyncio
@@ -163,6 +272,11 @@ async def init_db():
 
     try:
         await asyncio.wait_for(ensure_schema(), timeout=45)
+        try:
+            await asyncio.wait_for(ensure_billing_schema(), timeout=20)
+            print("init_db: billing schema ok")
+        except Exception as be:
+            print("init_db billing:", be)
         print("init_db: ensure_schema ok")
     except Exception as e:
         print("init_db ensure_schema:", type(e).__name__, e)
