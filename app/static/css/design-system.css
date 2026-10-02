@@ -672,3 +672,18 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+
+/* Mobile public pages */
+@media (max-width: 640px) {
+  .input-field { font-size: 16px; } /* prevent iOS zoom */
+  header .btn-primary, header .btn-ghost {
+    height: 36px !important;
+    min-height: 36px !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  main section { overflow-x: hidden; }
+  h1, h2 { word-wrap: break-word; overflow-wrap: break-word; }
+  .card { margin-left: 0; margin-right: 0; }
+}

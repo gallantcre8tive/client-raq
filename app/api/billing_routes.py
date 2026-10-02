@@ -1076,7 +1076,7 @@ async def trial_send_code(
         code=code,
         purpose="trial",
         payload_json=payload[:4000],
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
     db.add(ev)
     await db.commit()
@@ -1084,12 +1084,19 @@ async def trial_send_code(
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
-        tip = "Email SMTP is not configured yet — check Render logs for EMAIL_DEV_FALLBACK and the code."
+        tip = "SMTP is not configured. Open Render → Logs and search EMAIL_CODE for your 6-digit code."
+    elif not result.get("ok"):
+        tip = (
+            "We could not reach your inbox yet ("
+            + str(result.get("error") or "SMTP error")[:180]
+            + "). Open Render → Logs and search EMAIL_CODE for the code, or wait and use Resend below."
+        )
     return _render(request, "public/trial_verify.html", {
         "email": email,
         "error": None,
         "tip": tip,
-        "smtp_ok": smtp_configured(),
+        "smtp_ok": smtp_configured() and result.get("ok") and not result.get("dev_fallback"),
+        "cooldown_seconds": 300,
     })
 
 
@@ -1106,6 +1113,7 @@ async def trial_verify_code(
     if not rate_allow(f"trial_verify:{ip}", limit=20, window=600):
         return _render(request, "public/trial_verify.html", {
             "email": email, "error": "Too many attempts. Try again later.", "tip": None, "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 300,
         })
 
     row = (await db.execute(
@@ -1121,6 +1129,7 @@ async def trial_verify_code(
     if not row:
         return _render(request, "public/trial_verify.html", {
             "email": email, "error": "No active code. Start again from the trial form.", "tip": None, "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 0,
         })
 
     now = datetime.now(timezone.utc)
@@ -1128,6 +1137,7 @@ async def trial_verify_code(
     if now > exp:
         return _render(request, "public/trial_verify.html", {
             "email": email, "error": "Code expired. Request a new one.", "tip": None, "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 0,
         })
 
     row.attempts = int(row.attempts or 0) + 1
@@ -1136,12 +1146,14 @@ async def trial_verify_code(
         await db.commit()
         return _render(request, "public/trial_verify.html", {
             "email": email, "error": "Too many wrong attempts. Start again.", "tip": None, "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 0,
         })
 
     if (row.code or "") != code:
         await db.commit()
         return _render(request, "public/trial_verify.html", {
             "email": email, "error": "Incorrect code. Check your email and try again.", "tip": None, "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 300,
         })
 
     # success — create account from payload
@@ -1217,6 +1229,77 @@ async def trial_verify_code(
     resp = RedirectResponse("/company/onboarding?trial=1", status_code=303)
     return _set_company_session(resp, user.id)
 
+
+
+
+
+@router.post("/trial/resend-code")
+async def trial_resend_code(
+    request: Request,
+    email: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend verification code using the latest unused trial payload."""
+    email = (email or "").strip().lower()
+    ip = request.client.host if request.client else "unknown"
+    if not rate_allow(f"trial_resend:{ip}:{email}", limit=4, window=600):
+        return _render(request, "public/trial_verify.html", {
+            "email": email,
+            "error": "Please wait a few minutes before requesting another code.",
+            "tip": None,
+            "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 300,
+        })
+
+    row = (await db.execute(
+        select(EmailVerification)
+        .where(
+            EmailVerification.email == email,
+            EmailVerification.purpose == "trial",
+            EmailVerification.used == False,  # noqa: E712
+        )
+        .order_by(EmailVerification.id.desc())
+    )).scalars().first()
+
+    if not row or not (row.payload_json or "").strip():
+        return _render(request, "public/trial_verify.html", {
+            "email": email,
+            "error": "No pending signup found. Start again from the trial form.",
+            "tip": None,
+            "smtp_ok": smtp_configured(),
+            "cooldown_seconds": 0,
+        })
+
+    code = generate_verification_code(6)
+    try:
+        await db.execute(text(
+            "UPDATE email_verifications SET used = true WHERE email = :e AND purpose = 'trial' AND used = false AND id != :id"
+        ), {"e": email, "id": row.id})
+    except Exception:
+        pass
+
+    row.code = code
+    row.attempts = 0
+    row.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    row.used = False
+    await db.commit()
+
+    result = send_verification_code(email, code, purpose="trial")
+    tip = None
+    if result.get("dev_fallback"):
+        tip = "SMTP not configured — search Render logs for EMAIL_CODE."
+    elif not result.get("ok"):
+        tip = "Inbox delivery failed. Search Render logs for EMAIL_CODE, or try again shortly."
+    else:
+        tip = "A new code was sent. Check inbox and spam."
+
+    return _render(request, "public/trial_verify.html", {
+        "email": email,
+        "error": None,
+        "tip": tip,
+        "smtp_ok": smtp_configured() and result.get("ok") and not result.get("dev_fallback"),
+        "cooldown_seconds": 300,
+    })
 
 
 # ── Forgot / reset password ──────────────────────────────────────────────────

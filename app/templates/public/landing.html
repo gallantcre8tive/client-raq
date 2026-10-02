@@ -5,33 +5,33 @@
 {% block body %}
 <!-- Minimal top bar only (not full enterprise nav from mock) -->
 <header class="fixed top-0 inset-x-0 z-50 border-b border-[var(--border-subtle)]" style="background:color-mix(in srgb,var(--surface-base) 85%,transparent);backdrop-filter:blur(12px)">
-  <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-    <a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight">
-      {{ logo('w-9 h-9') }}
-      <span>Client-RaQ</span>
+  <div class="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
+    <a href="/" class="flex items-center gap-2 font-semibold tracking-tight min-w-0 shrink">
+      {{ logo('w-8 h-8 sm:w-9 sm:h-9') }}
+      <span class="text-sm sm:text-base truncate">Client-RaQ</span>
     </a>
-    <div class="flex items-center gap-2 sm:gap-3">
-      <button type="button" @click="dark=!dark" class="w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)]">
+    <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
+      <button type="button" @click="dark=!dark" class="w-9 h-9 rounded-lg border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)]" aria-label="Toggle theme">
         <span x-show="dark">{{ icon('sun', 'w-[18px] h-[18px]') }}</span>
         <span x-show="!dark" x-cloak>{{ icon('moon', 'w-[18px] h-[18px]') }}</span>
       </button>
-      <a href="/platform/login" class="btn-ghost h-9 text-xs hidden sm:inline-flex">Platform Login</a>
-      <a href="/company/login" class="btn-primary h-9 text-xs">Company Login</a>
+      <a href="/platform/login" class="btn-ghost h-9 px-2.5 text-[11px] sm:text-xs hidden xs:inline-flex sm:inline-flex">Platform</a>
+      <a href="/company/login" class="btn-primary h-9 px-3 text-[11px] sm:text-xs whitespace-nowrap">Company Login</a>
     </div>
   </div>
 </header>
 
 <main class="pt-16">
   <!-- Hero -->
-  <section class="relative overflow-hidden py-20 sm:py-28">
+  <section class="relative overflow-hidden py-14 sm:py-20 lg:py-28">
     <div class="absolute inset-0 -z-10 pointer-events-none">
       <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full blur-3xl opacity-30" style="background:radial-gradient(circle,var(--primary),transparent 70%)"></div>
     </div>
     <div class="max-w-6xl mx-auto px-4 text-center">
-      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wider mb-6 border" style="border-color:color-mix(in srgb,var(--primary) 30%,transparent);color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent)">
+      <div class="inline-flex items-center gap-2 px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider mb-5 sm:mb-6 border max-w-full text-center leading-snug" style="border-color:color-mix(in srgb,var(--primary) 30%,transparent);color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent)">
         Enterprise WhatsApp automation for printing and branding companies
       </div>
-      <h1 class="text-4xl sm:text-5xl lg:text-[3.5rem] font-bold tracking-tight leading-[1.08] mb-6 max-w-4xl mx-auto">
+      <h1 class="text-[1.75rem] leading-tight sm:text-5xl lg:text-[3.5rem] font-bold tracking-tight sm:leading-[1.08] mb-5 sm:mb-6 max-w-4xl mx-auto px-1">
         Turn WhatsApp chats into structured,<br class="hidden sm:block">
         <span style="color:var(--primary)">production-ready</span> print orders.
       </h1>
@@ -281,7 +281,7 @@
   </section>
 </main>
 
-<footer class="border-t border-[var(--border-subtle)] py-12">
+<footer class="border-t border-[var(--border-subtle)] py-10 sm:py-12">
   <div class="max-w-6xl mx-auto px-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-8 text-sm mb-10">
     <div>
       <div class="flex items-center gap-2 font-semibold mb-3">{{ logo('w-7 h-7') }} Client-RaQ</div>
@@ -322,7 +322,7 @@
       <p class="text-xs text-[var(--text-secondary)]">Tenant isolation · Encrypted secrets · Role-based access</p>
     </div>
   </div>
-  <div class="max-w-6xl mx-auto px-4 pt-6 border-t border-[var(--border-subtle)] flex flex-col sm:flex-row justify-between gap-2 text-xs text-[var(--text-muted)]">
+  <div class="max-w-6xl mx-auto px-4 pt-6 border-t border-[var(--border-subtle)] flex flex-col gap-2 sm:flex-row justify-between gap-2 text-xs text-[var(--text-muted)]">
     <span>© 2026 Client-RaQ. All rights reserved.</span>
     <span>Multi-tenant architecture · WhatsApp Cloud API ready</span>
   </div>
