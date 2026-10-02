@@ -67,12 +67,20 @@
       <input type="url" name="social_tiktok" value="{{ pricing.social_tiktok|default('') }}" class="input-field">
     </div>
     <div>
-      <label class="block text-xs font-medium mb-1.5">LinkedIn</label>
-      <input type="url" name="social_linkedin" value="{{ pricing.social_linkedin|default('') }}" class="input-field">
+      <label class="block text-xs font-medium mb-1.5">WhatsApp link</label>
+      <input type="url" name="social_whatsapp" value="{{ pricing.social_whatsapp|default('') }}" class="input-field" placeholder="https://wa.me/234...">
     </div>
     <div>
-      <label class="block text-xs font-medium mb-1.5">YouTube</label>
+      <label class="block text-xs font-medium mb-1.5">Telegram link</label>
+      <input type="url" name="social_telegram" value="{{ pricing.social_telegram|default('') }}" class="input-field" placeholder="https://t.me/client_raq">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">YouTube (optional)</label>
       <input type="url" name="social_youtube" value="{{ pricing.social_youtube|default('') }}" class="input-field">
+    </div>
+    <div>
+      <label class="block text-xs font-medium mb-1.5">LinkedIn (optional)</label>
+      <input type="url" name="social_linkedin" value="{{ pricing.social_linkedin|default('') }}" class="input-field">
     </div>
   </div>
   <button type="submit" class="btn-primary">Save prices</button>

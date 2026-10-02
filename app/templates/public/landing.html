@@ -186,10 +186,19 @@
     </div>
   </section>
 
-  <section id="pricing" class="py-16 border-t border-[var(--border-subtle)]" x-data="{
+  <section id="pricing" class="py-16 border-t border-[var(--border-subtle)]" x-init="detectCurrency()" x-data="{
       rates: { NGN: 1, USD: 0.00062, EUR: 0.00057, GBP: 0.00049, GHS: 0.0095, KES: 0.08, ZAR: 0.011, CAD: 0.00085, AED: 0.0023 },
       symbols: { NGN: '₦', USD: '$', EUR: '€', GBP: '£', GHS: 'GH₵', KES: 'KSh', ZAR: 'R', CAD: 'C$', AED: 'AED ' },
       currency: 'NGN',
+      async detectCurrency() {
+        try {
+          const r = await fetch('https://ipapi.co/json/');
+          const d = await r.json();
+          const map = { NG: 'NGN', US: 'USD', GB: 'GBP', GH: 'GHS', KE: 'KES', ZA: 'ZAR', CA: 'CAD', AE: 'AED', FR: 'EUR', DE: 'EUR', NL: 'EUR' };
+          const c = map[d.country_code] || 'NGN';
+          if (this.rates[c]) this.currency = c;
+        } catch(e) {}
+      },
       monthlyPrice: {{ pricing.monthly_ngn|default(18000)|int }},
       sixPrice: {{ pricing.six_month_ngn|default(102000)|int }},
       yearPrice: {{ pricing.yearly_ngn|default(198000)|int }},
@@ -204,9 +213,9 @@
     }">
     <div class="max-w-6xl mx-auto px-4">
       <div class="text-center mb-6">
-        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Simple plans for every business</h2>
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Simple plans for every business type</h2>
         <p class="text-sm text-[var(--text-secondary)] mb-4">Prices set in Naira. Amounts convert for your selected currency.</p>
-        <select x-model="currency" class="input-field w-auto inline-block min-w-[140px]">
+        <select x-model="currency" class="input-field w-auto inline-block min-w-[140px] opacity-80 text-sm" aria-label="Display currency">
           <option value="NGN">NGN – Naira</option>
           <option value="USD">USD – US Dollar</option>
           <option value="EUR">EUR – Euro</option>
@@ -261,11 +270,11 @@
   <section class="py-16">
     <div class="max-w-3xl mx-auto px-4">
       <div class="card p-10 sm:p-12 text-center" style="background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 15%,var(--surface-card)),var(--surface-card))">
-        <h2 class="text-2xl font-bold mb-3">Equip your print plant with automated intake</h2>
-        <p class="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">Connect WhatsApp Business API and watch customer chats become queued print jobs.</p>
+        <h2 class="text-2xl font-bold mb-3">Put AI customer service on your WhatsApp and Telegram</h2>
+        <p class="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">Connect your channel, set your services, and let Client-RaQ handle inquiries, quotes, and orders — for any business type you run.</p>
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
           <a href="/platform/login" class="btn-primary">Platform admin</a>
-          <a href="https://wa.me/2349169158961" target="_blank" class="btn-ghost">Chat on WhatsApp</a>
+          <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="btn-ghost inline-flex items-center justify-center gap-2" aria-label="WhatsApp support">{{ icon('phone') }} WhatsApp</a>
         </div>
       </div>
     </div>
@@ -298,13 +307,22 @@
     </div>
     <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Social</div>
-      <ul class="space-y-2 text-[var(--text-secondary)]">
-        <li><a href="{{ pricing.social_instagram|default('https://instagram.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">Instagram @client_raq</a></li>
-        <li><a href="{{ pricing.social_x|default('https://x.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">X @client_raq</a></li>
-        <li><a href="{{ pricing.social_facebook|default('https://facebook.com/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">Facebook @client_raq</a></li>
-        <li><a href="{{ pricing.social_tiktok|default('https://tiktok.com/@client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">TikTok @client_raq</a></li>
-        <li><a href="{{ pricing.social_linkedin|default('https://linkedin.com/company/client_raq') }}" target="_blank" rel="noopener" class="hover:text-[var(--primary)]">LinkedIn</a></li>
-      </ul>
+      <div class="flex flex-wrap gap-3 items-center">
+        {% if pricing and pricing.social_whatsapp %}
+        <a href="{{ pricing.social_whatsapp }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="WhatsApp" title="WhatsApp">{{ icon('phone') }}</a>
+        {% else %}
+        <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="WhatsApp" title="WhatsApp">{{ icon('phone') }}</a>
+        {% endif %}
+        <a href="{{ pricing.social_x|default('https://x.com/client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-sm font-bold" aria-label="X" title="X">𝕏</a>
+        <a href="{{ pricing.social_telegram|default('https://t.me/client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="Telegram" title="Telegram">{{ icon('message-square') }}</a>
+        <a href="{{ pricing.social_tiktok|default('https://tiktok.com/@client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="TikTok" title="TikTok">TT</a>
+        {% if pricing and pricing.social_instagram %}
+        <a href="{{ pricing.social_instagram }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="Instagram" title="Instagram">IG</a>
+        {% endif %}
+        {% if pricing and pricing.social_facebook %}
+        <a href="{{ pricing.social_facebook }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="Facebook" title="Facebook">f</a>
+        {% endif %}
+      </div>
     </div>
     <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Security</div>

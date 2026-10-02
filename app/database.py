@@ -217,6 +217,8 @@ async def ensure_billing_schema():
         "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_tiktok VARCHAR(200)",
         "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_linkedin VARCHAR(200)",
         "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_youtube VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_whatsapp VARCHAR(200)",
+        "ALTER TABLE platform_pricing ADD COLUMN IF NOT EXISTS social_telegram VARCHAR(200)",
         """CREATE TABLE IF NOT EXISTS audit_logs (
             id SERIAL PRIMARY KEY,
             actor_user_id INTEGER,

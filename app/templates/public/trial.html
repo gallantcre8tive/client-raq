@@ -2,55 +2,70 @@
 {% block title %}Free trial – Client-RaQ{% endblock %}
 {% block body %}
 <div class="min-h-screen bg-[var(--surface-canvas)] text-[var(--text-primary)]">
-  <div class="max-w-lg mx-auto px-4 py-12">
-    <a href="/" class="text-sm text-[var(--primary)] hover:underline">Back to home</a>
-    <h1 class="text-2xl font-bold mt-4 mb-2">Start your free trial</h1>
-    <p class="text-sm text-[var(--text-secondary)] mb-6">
+  <div class="max-w-lg mx-auto px-4 py-10 sm:py-14">
+    <a href="/" class="text-sm text-[var(--primary)] hover:opacity-80">Back to home</a>
+    <h1 class="text-2xl sm:text-3xl font-bold mt-5 mb-2 tracking-tight">Start your free trial</h1>
+    <p class="text-sm text-[var(--text-secondary)] mb-8 leading-relaxed">
       {{ trial_hours|default(48) }} hours to connect a channel, add services, and test the bot.
-      We will email a verification code to confirm your address.
+      We email a verification code to confirm your address.
     </p>
     {% if error %}
-    <div class="mb-4 p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">{{ error }}</div>
+    <div class="mb-5 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-sm">{{ error }}</div>
     {% endif %}
-    <form method="post" action="/trial/send-code" class="card p-6 space-y-4">
+    <form method="post" action="/trial/send-code" class="card p-6 sm:p-8 space-y-5" x-data="{ loading: false }" @submit="loading = true">
       <input type="text" name="honeypot" value="" class="hidden" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div>
-        <label class="block text-xs font-medium mb-1.5">Business name</label>
-        <input type="text" name="business_name" required class="input-field" placeholder="e.g. AlphaLite Prints">
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Business name</label>
+        <input type="text" name="business_name" required class="input-field min-h-[44px]" placeholder="e.g. AlphaLite Prints">
       </div>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Work email</label>
-        <input type="email" name="email" required class="input-field" placeholder="you@business.com">
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Work email</label>
+        <input type="email" name="email" required class="input-field min-h-[44px]" placeholder="you@business.com">
       </div>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Password</label>
-        <input type="password" name="password" required minlength="6" class="input-field" autocomplete="new-password">
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Password</label>
+        <input type="password" name="password" required minlength="6" class="input-field min-h-[44px]" autocomplete="new-password">
       </div>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Country</label>
-        <input type="text" name="country" value="Nigeria" class="input-field">
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Country</label>
+        <input type="text" name="country" value="Nigeria" class="input-field min-h-[44px]">
       </div>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Business type</label>
-        <select name="business_type" class="input-field">
-          <option value="printing">Printing</option>
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Business type</label>
+        <select name="business_type" class="input-field min-h-[44px]">
+          <option value="printing">Printing & branding</option>
           <option value="skincare">Skincare / Beauty</option>
+          <option value="phone_repair">Phone repair</option>
           <option value="retail">Retail / Phone store</option>
           <option value="exchanger">Payment exchanger</option>
-          <option value="logistics">Logistics</option>
+          <option value="logistics">Logistics & delivery</option>
+          <option value="real_estate">Real estate</option>
+          <option value="laundry">Laundry & dry cleaning</option>
+          <option value="fashion">Fashion & tailoring</option>
+          <option value="restaurant">Restaurant & food</option>
+          <option value="education">Education & training</option>
           <option value="custom">Custom / Other</option>
         </select>
       </div>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Phone (optional)</label>
-        <input type="text" name="phone" class="input-field" placeholder="+234...">
+        <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">Phone (optional)</label>
+        <input type="text" name="phone" class="input-field min-h-[44px]" placeholder="+234...">
       </div>
-      <button type="submit" class="btn-primary w-full">Email me a verification code</button>
+      <button type="submit" class="btn-primary w-full min-h-[48px] flex items-center justify-center gap-2" :disabled="loading">
+        <span x-show="!loading">Email me a verification code</span>
+        <span x-show="loading" class="inline-flex items-center gap-2">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+          Sending code…
+        </span>
+      </button>
     </form>
-    <p class="text-xs text-[var(--text-muted)] mt-4 text-center">
-      Already paid? <a href="/checkout" class="text-[var(--primary)] underline">Subscribe</a>
-      · Have an account? <a href="/company/login" class="text-[var(--primary)] underline">Log in</a>
-    </p>
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-[var(--text-muted)]">
+      <a href="/checkout" class="text-[var(--primary)] hover:opacity-80">Subscribe</a>
+      <span>·</span>
+      <a href="/company/login" class="text-[var(--primary)] hover:opacity-80">Log in</a>
+      <span>·</span>
+      <a href="/company/forgot-password" class="text-[var(--primary)] hover:opacity-80">Forgot password</a>
+    </div>
   </div>
 </div>
 {% endblock %}

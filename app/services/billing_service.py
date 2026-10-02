@@ -147,7 +147,9 @@ async def get_pricing(db: AsyncSession) -> dict[str, Any]:
         "social_facebook": getattr(row, "social_facebook", None) or "https://facebook.com/client_raq",
         "social_tiktok": getattr(row, "social_tiktok", None) or "https://tiktok.com/@client_raq",
         "social_linkedin": getattr(row, "social_linkedin", None) or "https://linkedin.com/company/client_raq",
-        "social_youtube": getattr(row, "social_youtube", None) or "https://youtube.com/@client_raq",
+        "social_youtube": getattr(row, "social_youtube", None) or "",
+        "social_whatsapp": getattr(row, "social_whatsapp", None) or "https://wa.me/2349169158961",
+        "social_telegram": getattr(row, "social_telegram", None) or "https://t.me/client_raq",
     }
 
 

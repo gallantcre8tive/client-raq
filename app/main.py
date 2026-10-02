@@ -96,6 +96,23 @@ templates = Jinja2Templates(directory=str(BASE / "templates"))
 def render(request: Request, name: str, context: dict | None = None, status_code: int = 200):
     ctx = dict(context or {})
     ctx["request"] = request
+    # Business-type nav labels + live company name on company pages
+    try:
+        company = ctx.get("company")
+        if company is not None or str(name).startswith("company/"):
+            # apply_nav_labels is defined later in this module; resolve at call time
+            fn = globals().get("apply_nav_labels")
+            if fn:
+                fn(ctx, company)
+            else:
+                from app.services.nav_labels import labels_for_company
+                labs = labels_for_company(company)
+                for k, v in labs.items():
+                    ctx.setdefault(k, v)
+                if company is not None and getattr(company, "name", None):
+                    ctx["company_name"] = company.name
+    except Exception as _e:
+        print("render_nav_labels", _e)
     try:
         return templates.TemplateResponse(request=request, name=name, context=ctx, status_code=status_code)
     except TypeError:
@@ -792,6 +809,28 @@ async def platform_secrets_save(
 
 
 # ---------- Company auth ----------
+
+
+@app.post("/platform/messages/clear")
+async def platform_messages_clear(
+    request: Request,
+    user: User = Depends(require_platform),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear platform message history notes (not company notification bell items)."""
+    try:
+        from sqlalchemy import text as sa_text
+        await db.execute(sa_text("DELETE FROM platform_messages"))
+        await db.commit()
+    except Exception as e:
+        print("clear_platform_messages", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return RedirectResponse("/platform/messages?cleared=1", status_code=303)
+
+
 @app.get("/company/login", response_class=HTMLResponse)
 async def company_login_page(request: Request):
     return render(request, "auth/company_login.html", {"error": None, "brand": ""})
@@ -883,11 +922,12 @@ async def company_ctx(user: User, db: AsyncSession):
             await db.rollback()
         except Exception:
             pass
-        # Last resort: load by id with only core columns via text
         try:
             from sqlalchemy import text
             row = (await db.execute(text(
-                "SELECT id, name, slug, currency, platform_note, status FROM companies WHERE id = :id"
+                """SELECT id, name, slug, currency, platform_note, status,
+                          business_type, email, phone, greeting_message
+                   FROM companies WHERE id = :id"""
             ), {"id": user.company_id})).mappings().first()
             if not row:
                 return None
@@ -898,6 +938,16 @@ async def company_ctx(user: User, db: AsyncSession):
             c.currency = row.get("currency") or "NGN"
             c.platform_note = row.get("platform_note")
             c.status = row.get("status") or "active"
+            try:
+                c.business_type = row.get("business_type") or "printing"
+            except Exception:
+                pass
+            try:
+                c.email = row.get("email")
+                c.phone = row.get("phone")
+                c.greeting_message = row.get("greeting_message")
+            except Exception:
+                pass
             return c
         except Exception as e2:
             print("company_ctx fallback:", e2)
@@ -906,6 +956,25 @@ async def company_ctx(user: User, db: AsyncSession):
             except Exception:
                 pass
             return None
+
+
+def apply_nav_labels(ctx: dict, company=None) -> dict:
+    """Merge business-type nav labels into any company page context."""
+    try:
+        from app.services.nav_labels import labels_for_company
+        labs = labels_for_company(company)
+        for k, v in labs.items():
+            if k == "company_name" and ctx.get("company_name") and ctx["company_name"] not in ("Company", ""):
+                continue  # keep explicit name already set
+            ctx.setdefault(k, v)
+        if company is not None:
+            ctx["company"] = company
+            nm = getattr(company, "name", None)
+            if nm:
+                ctx["company_name"] = nm
+    except Exception as e:
+        print("apply_nav_labels", e)
+    return ctx
 
 
 @app.get("/company/dashboard", response_class=HTMLResponse)

@@ -589,6 +589,8 @@ async def platform_pricing_save(
     social_tiktok: Optional[str] = Form(None),
     social_linkedin: Optional[str] = Form(None),
     social_youtube: Optional[str] = Form(None),
+    social_whatsapp: Optional[str] = Form(None),
+    social_telegram: Optional[str] = Form(None),
 ):
     await ensure_billing_tables(db)
     row = (await db.execute(select(PlatformPricing).where(PlatformPricing.id == 1))).scalars().first()
@@ -611,6 +613,11 @@ async def platform_pricing_save(
     row.social_tiktok = (social_tiktok or "")[:200] or None
     row.social_linkedin = (social_linkedin or "")[:200] or None
     row.social_youtube = (social_youtube or "")[:200] or None
+    try:
+        row.social_whatsapp = (social_whatsapp or "")[:200] or None
+        row.social_telegram = (social_telegram or "")[:200] or None
+    except Exception:
+        pass
     await db.commit()
     try:
         await write_audit(db, action="platform_pricing_update", detail="prices/socials", actor_user_id=user.id, actor_email=user.email)
@@ -1209,3 +1216,100 @@ async def trial_verify_code(
 
     resp = RedirectResponse("/company/onboarding?trial=1", status_code=303)
     return _set_company_session(resp, user.id)
+
+
+
+# ── Forgot / reset password ──────────────────────────────────────────────────
+
+@router.get("/company/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page(request: Request):
+    return _render(request, "auth/forgot_password.html", {"error": None, "message": None})
+
+
+@router.post("/company/forgot-password")
+async def forgot_password_submit(
+    request: Request,
+    email: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    email = (email or "").strip().lower()
+    ip = request.client.host if request.client else "unknown"
+    if not rate_allow(f"forgot:{ip}", limit=5, window=600):
+        return _render(request, "auth/forgot_password.html", {
+            "error": "Too many attempts. Please wait a few minutes.",
+            "message": None,
+        })
+    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
+    # Always show same message (no email enumeration)
+    msg = "If that email exists, a reset code was sent. Check your inbox or Render logs if SMTP is not set."
+    if user and user.company_id:
+        code = generate_verification_code(6)
+        try:
+            await db.execute(text(
+                "UPDATE email_verifications SET used = true WHERE email = :e AND purpose = 'reset' AND used = false"
+            ), {"e": email})
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        db.add(EmailVerification(
+            email=email,
+            code=code,
+            purpose="reset",
+            payload_json="{}",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=20),
+        ))
+        await db.commit()
+        send_verification_code(email, code, purpose="password_reset")
+        return _render(request, "auth/reset_password.html", {"email": email, "error": None})
+    return _render(request, "auth/forgot_password.html", {"error": None, "message": msg})
+
+
+@router.get("/company/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, email: str = ""):
+    return _render(request, "auth/reset_password.html", {"email": email, "error": None})
+
+
+@router.post("/company/reset-password")
+async def reset_password_submit(
+    request: Request,
+    email: str = Form(...),
+    code: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    email = (email or "").strip().lower()
+    code = (code or "").strip()
+    if len(password or "") < 6:
+        return _render(request, "auth/reset_password.html", {
+            "email": email, "error": "Password must be at least 6 characters.",
+        })
+    row = (await db.execute(
+        select(EmailVerification)
+        .where(
+            EmailVerification.email == email,
+            EmailVerification.purpose == "reset",
+            EmailVerification.used == False,  # noqa: E712
+        )
+        .order_by(EmailVerification.id.desc())
+    )).scalars().first()
+    if not row:
+        return _render(request, "auth/reset_password.html", {
+            "email": email, "error": "Invalid or expired code. Request a new one.",
+        })
+    now = datetime.now(timezone.utc)
+    exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
+    if now > exp or (row.code or "") != code:
+        return _render(request, "auth/reset_password.html", {
+            "email": email, "error": "Invalid or expired code.",
+        })
+    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
+    if not user:
+        return _render(request, "auth/reset_password.html", {
+            "email": email, "error": "Account not found.",
+        })
+    user.hashed_password = hash_password(password)
+    row.used = True
+    await db.commit()
+    return RedirectResponse("/company/login?reset=1", status_code=303)

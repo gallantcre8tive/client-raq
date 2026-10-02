@@ -27,7 +27,7 @@
 <div class="mb-8">
   <p class="text-sm text-[var(--text-secondary)]">Welcome back,</p>
   <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">{{ user_name|default('Admin') }}</h2>
-  <p class="text-sm text-[var(--text-muted)] mt-1">{{ company_name|default('Your company') }} · Manage orders, bot and WhatsApp from one place.</p>
+  <p class="text-sm text-[var(--text-muted)] mt-1">{{ company_name|default('Your company') }} · {{ business_summary|default('Manage chats, orders and your AI assistant from one place.') }}</p>
 </div>
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
   <div class="card p-5">

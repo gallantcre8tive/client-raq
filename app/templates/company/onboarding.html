@@ -7,7 +7,7 @@
   <div class="card p-6">
     <h3 class="font-semibold text-lg mb-1">Welcome{% if company %} to {{ company.name }}{% endif %}</h3>
     <p class="text-sm text-[var(--text-secondary)]">
-      Business type: <strong>{{ template.label }}</strong> — {{ template.summary }}
+      {% if company %}Company ID: <strong>{{ company.id }}</strong> · {% endif %}Business type: <strong>{{ template.label }}</strong> — {{ template.summary }}
     </p>
     {% if not live %}
     <p class="mt-3 text-sm text-amber-600 dark:text-amber-400">Your bot is paused until you subscribe or while trial is inactive. <a class="underline" href="/company/billing">Billing</a></p>

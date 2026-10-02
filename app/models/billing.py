@@ -29,6 +29,8 @@ class PlatformPricing(Base):
     social_tiktok: Mapped[str | None] = mapped_column(String(200), nullable=True)
     social_linkedin: Mapped[str | None] = mapped_column(String(200), nullable=True)
     social_youtube: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    social_whatsapp: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    social_telegram: Mapped[str | None] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

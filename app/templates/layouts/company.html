@@ -24,12 +24,12 @@
       </button>
     </div>
     <nav class="flex-1 p-2.5 space-y-0.5 overflow-y-auto" @click="if (window.innerWidth < 1024) sidebarOpen = false">
-      <a href="/company/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} Dashboard</a>
+      <a href="/company/dashboard" class="nav-item {% if active=='dashboard' %}active{% endif %}">{{ icon('layout-dashboard') }} {{ nav_dashboard|default('Dashboard') }}</a>
       <a href="/company/onboarding" class="nav-item {% if active=='onboarding' %}active{% endif %}">{{ icon('activity') }} Get started</a>
-      <a href="/company/orders" class="nav-item {% if active=='orders' %}active{% endif %}">{{ icon('receipt') }} Orders</a>
+      <a href="/company/orders" class="nav-item {% if active=='orders' %}active{% endif %}">{{ icon('receipt') }} {{ nav_orders|default('Orders') }}</a>
       <a href="/company/broadcast" class="nav-item {% if active=='broadcast' %}active{% endif %}">{{ icon('bell') }} Broadcast</a>
       <a href="/company/messages" class="nav-item {% if active=='messages' %}active{% endif %}">{{ icon('messages-square') }} Messages</a>
-      <a href="/company/services" class="nav-item {% if active=='services' %}active{% endif %}">{{ icon('printer') }} Services</a>
+      <a href="/company/services" class="nav-item {% if active=='services' %}active{% endif %}">{{ icon('printer') }} {{ nav_services|default('Services') }}</a>
       <a href="/company/payments" class="nav-item {% if active=='payments' %}active{% endif %}">{{ icon('credit-card') }} Payments</a>
       <a href="/company/bot" class="nav-item {% if active=='bot' %}active{% endif %}">{{ icon('bot') }} Bot settings</a>
       <a href="/company/whatsapp" class="nav-item {% if active=='whatsapp' %}active{% endif %}">{{ icon('phone') }} WhatsApp API</a>
@@ -39,7 +39,7 @@
       <a href="/company/settings" class="nav-item {% if active=='settings' %}active{% endif %}">{{ icon('settings') }} Settings</a>
     </nav>
     <div class="p-2.5 border-t border-[var(--border-subtle)] space-y-0.5 shrink-0">
-      <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="nav-item w-full">{{ icon('phone') }} Contact platform</a>
+      <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="nav-item w-full">{{ icon('phone') }} <span class="lg:inline">Support</span></a>
       <button type="button" @click="dark = !dark" class="nav-item w-full">
         <span x-show="dark">{{ icon('sun') }}</span>
         <span x-show="!dark" x-cloak>{{ icon('moon') }}</span>

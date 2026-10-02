@@ -23,7 +23,7 @@
       <tbody>
         {% for c in companies|default([]) %}
         <tr class="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)]">
-          <td class="px-4 py-3.5 font-medium">{{ c.name }}<div class="text-xs text-[var(--text-muted)]">{{ c.slug }}</div></td>
+          <td class="px-4 py-3.5 font-medium">{{ c.id }}</td><td class="p-3">{{ c.name }}<div class="text-xs text-[var(--text-muted)]">{{ c.slug }}</div></td>
           <td class="px-4 py-3.5 text-[var(--text-secondary)]">{{ c.country or '—' }}</td>
           <td class="px-4 py-3.5">{{ c.currency }}</td>
           <td class="px-4 py-3.5"><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
@@ -48,7 +48,7 @@
 <div class="card p-6 mt-6 max-w-3xl">
   <h3 class="font-semibold mb-2">Subscription actions</h3>
   <p class="text-sm text-[var(--text-secondary)] mb-4">Use company ID from the table. Suspend freezes the bot; mark paid grants a plan period without Paystack.</p>
-  <form method="post" action="" id="subActionForm" class="grid sm:grid-cols-2 gap-3 text-sm" onsubmit="this.action='/platform/companies/'+this.company_id.value+'/subscription'">
+  <form method="post" action="" id="subActionForm" x-data="{ plan: 'yearly', days: 30 }" x-init="$watch('plan', v => { days = ({monthly:30, six_month:180, yearly:365})[v] || 30 })" class="grid sm:grid-cols-2 gap-3 text-sm" onsubmit="this.action='/platform/companies/'+this.company_id.value+'/subscription'">
     <div>
       <label class="block text-xs mb-1">Company ID</label>
       <input name="company_id" required class="input-field" placeholder="e.g. 3">
@@ -64,11 +64,11 @@
     </div>
     <div>
       <label class="block text-xs mb-1">Days (activate / trial days)</label>
-      <input type="number" name="days" value="30" class="input-field">
+      <input type="number" name="days" class="input-field" x-model.number="days">
     </div>
     <div>
       <label class="block text-xs mb-1">Plan code (mark_paid / activate)</label>
-      <select name="plan_code" class="input-field">
+      <select name="plan_code" class="input-field" x-model="plan">
         <option value="monthly">monthly</option>
         <option value="six_month">six_month</option>
         <option value="yearly">yearly</option>
