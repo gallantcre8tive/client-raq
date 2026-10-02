@@ -87,25 +87,54 @@ html.dark .logo-for-dark { display: block !important; }
 }
 .card-hover:hover { background: var(--surface-card-hover); }
 
+.btn-primary,
+.btn-ghost,
+.btn-danger {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  box-sizing: border-box;
+  cursor: pointer;
+  border: none;
+  transition: filter 0.15s, background 0.15s, border-color 0.15s;
+}
+a.btn-primary,
+a.btn-ghost,
+a.btn-danger,
+button.btn-primary,
+button.btn-ghost,
+button.btn-danger {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
 .btn-primary {
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  height: 42px; padding: 0 16px; border-radius: 0.5rem;
-  background: var(--primary); color: var(--on-primary); font-weight: 600; font-size: 13px;
-  transition: filter 0.15s;
+  background: var(--primary);
+  color: var(--on-primary);
 }
 .btn-primary:hover { filter: brightness(1.08); }
 .btn-ghost {
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  height: 42px; padding: 0 16px; border-radius: 0.5rem;
-  background: transparent; border: 1px solid var(--border-subtle);
-  color: var(--text-primary); font-weight: 500; font-size: 13px;
-  transition: background 0.15s;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-weight: 500;
 }
 .btn-ghost:hover { background: var(--surface-subtle); }
 .btn-danger {
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  height: 42px; padding: 0 16px; border-radius: 0.5rem;
-  background: var(--status-suspended); color: #fff; font-weight: 600; font-size: 13px;
+  background: var(--status-suspended);
+  color: #fff;
 }
 
 .input-field {
@@ -617,4 +646,29 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+}
+
+
+/* Footer social brand icons */
+.social-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  background: transparent;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+}
+.social-icon-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  transform: translateY(-1px);
+}
+.social-icon-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }

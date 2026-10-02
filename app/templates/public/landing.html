@@ -305,25 +305,18 @@
         <li><a href="/checkout" class="hover:text-[var(--primary)]">Subscribe</a></li>
       </ul>
     </div>
-    <div>
+        <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Social</div>
-      <div class="flex flex-wrap gap-3 items-center">
-        {% if pricing and pricing.social_whatsapp %}
-        <a href="{{ pricing.social_whatsapp }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="WhatsApp" title="WhatsApp">{{ icon('phone') }}</a>
-        {% else %}
-        <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="WhatsApp" title="WhatsApp">{{ icon('phone') }}</a>
-        {% endif %}
-        <a href="{{ pricing.social_x|default('https://x.com/client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-sm font-bold" aria-label="X" title="X">𝕏</a>
-        <a href="{{ pricing.social_telegram|default('https://t.me/client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition" aria-label="Telegram" title="Telegram">{{ icon('message-square') }}</a>
-        <a href="{{ pricing.social_tiktok|default('https://tiktok.com/@client_raq') }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="TikTok" title="TikTok">TT</a>
-        {% if pricing and pricing.social_instagram %}
-        <a href="{{ pricing.social_instagram }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="Instagram" title="Instagram">IG</a>
-        {% endif %}
-        {% if pricing and pricing.social_facebook %}
-        <a href="{{ pricing.social_facebook }}" target="_blank" rel="noopener" class="w-10 h-10 rounded-full flex items-center justify-center border border-[var(--border-subtle)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition text-xs font-semibold" aria-label="Facebook" title="Facebook">f</a>
-        {% endif %}
+      <div class="flex flex-wrap gap-2.5 items-center">
+        <a href="{{ pricing.social_whatsapp|default('https://wa.me/2349169158961') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="WhatsApp" title="WhatsApp">{{ icon('brand-whatsapp', 'w-[18px] h-[18px]') }}</a>
+        <a href="{{ pricing.social_x|default('https://x.com/client_raq') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="X" title="X">{{ icon('brand-x', 'w-[16px] h-[16px]') }}</a>
+        <a href="{{ pricing.social_telegram|default('https://t.me/client_raq') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="Telegram" title="Telegram">{{ icon('brand-telegram', 'w-[18px] h-[18px]') }}</a>
+        <a href="{{ pricing.social_tiktok|default('https://tiktok.com/@client_raq') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="TikTok" title="TikTok">{{ icon('brand-tiktok', 'w-[16px] h-[16px]') }}</a>
+        <a href="{{ pricing.social_instagram|default('https://instagram.com/client_raq') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="Instagram" title="Instagram">{{ icon('brand-instagram', 'w-[18px] h-[18px]') }}</a>
+        <a href="{{ pricing.social_facebook|default('https://facebook.com/client_raq') }}" target="_blank" rel="noopener" class="social-icon-btn" aria-label="Facebook" title="Facebook">{{ icon('brand-facebook', 'w-[18px] h-[18px]') }}</a>
       </div>
     </div>
+
     <div>
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Security</div>
       <p class="text-xs text-[var(--text-secondary)]">Tenant isolation · Encrypted secrets · Role-based access</p>
