@@ -1008,19 +1008,25 @@ async def company_ctx(user: User, db: AsyncSession):
 
 
 def apply_nav_labels(ctx: dict, company=None) -> dict:
-    """Merge business-type nav labels into any company page context."""
+    """Merge business-type nav labels. Never attach live ORM objects to Jinja context."""
     try:
         from app.services.nav_labels import labels_for_company
-        labs = labels_for_company(company)
+        # Prefer plain strings already in ctx (safe); only pass company if it is a simple namespace
+        bt = ctx.get("business_type")
+        labs = labels_for_company(None, business_type=bt) if bt else labels_for_company(company)
         for k, v in labs.items():
             if k == "company_name" and ctx.get("company_name") and ctx["company_name"] not in ("Company", ""):
-                continue  # keep explicit name already set
+                continue
             ctx.setdefault(k, v)
         if company is not None:
-            ctx["company"] = company
-            nm = getattr(company, "name", None)
+            try:
+                nm = company.get("name") if isinstance(company, dict) else getattr(company, "name", None)
+            except Exception:
+                nm = None
             if nm:
                 ctx["company_name"] = nm
+        # Do NOT set ctx["company"] = ORM instance (causes MissingGreenlet in templates)
+        ctx.pop("company", None)
     except Exception as e:
         print("apply_nav_labels", e)
     return ctx
@@ -1297,98 +1303,128 @@ async def company_services_guide(
 async def company_services(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Raw-SQL only — avoids MissingGreenlet on Service ORM attributes."""
+    """Fully isolated from ORM lazy-loads — plain dicts only into Jinja."""
     from sqlalchemy import text as sa_text
-    from app.data.seed_catalog import services_for
-    from app.data.business_templates import get_template
+    import traceback
 
-    cid = int(user.company_id)
-    # Company snapshot (no lazy loads)
-    crow = (await db.execute(sa_text("""
-        SELECT id, name, currency, COALESCE(business_type, 'printing') AS business_type
-        FROM companies WHERE id = :id
-    """), {"id": cid})).mappings().first()
-    if not crow:
+    try:
+        cid = int(getattr(user, "company_id", 0) or 0)
+    except Exception:
+        cid = 0
+    if not cid:
         return RedirectResponse("/company/login", status_code=303)
 
-    cname = crow.get("name") or "Company"
-    cur = crow.get("currency") or "NGN"
-    bt = crow.get("business_type") or "printing"
-    tpl = get_template(bt)
-    bt_key = (bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
-
-    # Count existing services
-    existing_count = int((await db.execute(sa_text(
-        "SELECT COUNT(*) FROM services WHERE company_id = :cid"
-    ), {"cid": cid})).scalar() or 0)
-
-    if existing_count == 0:
-        try:
-            from app.services.seed_company import seed_company_from_template
-            await seed_company_from_template(
-                db, company_id=cid, business_type=bt, company_name=cname,
-            )
-        except Exception as se:
-            print("services_auto_seed", type(se).__name__, se)
-
-    # Load enabled services as plain dicts
     try:
-        srows = (await db.execute(sa_text("""
-            SELECT id, name, category, base_price, unit,
-                   COALESCE(pricing_method, 'piece') AS pricing_method,
-                   COALESCE(is_active, true) AS is_active,
-                   COALESCE(description, '') AS description,
-                   COALESCE(min_qty, 1) AS min_qty,
-                   catalog_key
-            FROM services
-            WHERE company_id = :cid
-            ORDER BY category NULLS LAST, name
-        """), {"cid": cid})).mappings().all()
+        uname = str(getattr(user, "full_name", None) or getattr(user, "email", None) or "")
+    except Exception:
+        uname = ""
+
+    cname, cur, bt = "Company", "NGN", "printing"
+    try:
+        crow = (await db.execute(sa_text(
+            "SELECT id, name, currency FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+        if crow:
+            cname = crow.get("name") or "Company"
+            cur = crow.get("currency") or "NGN"
+        try:
+            bt_row = (await db.execute(sa_text(
+                "SELECT business_type FROM companies WHERE id = :id"
+            ), {"id": cid})).first()
+            if bt_row and bt_row[0]:
+                bt = str(bt_row[0])
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            bt = "printing"
     except Exception as e:
-        print("services_list_fallback", e)
+        print("services_company_load", type(e).__name__, e)
         try:
             await db.rollback()
         except Exception:
             pass
-        srows = (await db.execute(sa_text("""
-            SELECT id, name, category, base_price, unit, is_active, description
-            FROM services WHERE company_id = :cid ORDER BY name
-        """), {"cid": cid})).mappings().all()
 
-    enabled_keys = set()
-    enabled_names = set()
+    try:
+        from app.data.business_templates import get_template
+        from app.data.seed_catalog import services_for
+        tpl = get_template(bt)
+    except Exception as e:
+        print("services_tpl", e)
+        tpl = {"label": "Business", "services_label": "Services"}
+        def services_for(_):
+            return []
+
+    bt_key = (bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+
+    # Optional auto-seed when empty
+    try:
+        existing_count = int((await db.execute(sa_text(
+            "SELECT COUNT(*) FROM services WHERE company_id = :cid"
+        ), {"cid": cid})).scalar() or 0)
+        if existing_count == 0:
+            try:
+                from app.services.seed_company import seed_company_from_template
+                await seed_company_from_template(
+                    db, company_id=cid, business_type=bt, company_name=cname,
+                )
+            except Exception as se:
+                print("services_auto_seed", type(se).__name__, se)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+    except Exception as e:
+        print("services_count", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     rows = []
-    for s in srows:
-        cat = s.get("category") or ""
-        name = s.get("name") or ""
-        ck = s.get("catalog_key")
-        if ck:
-            enabled_keys.add(ck)
-        enabled_names.add((cat, name))
-        price = float(s.get("base_price") or 0)
-        unit = s.get("unit") or "piece"
-        rows.append({
-            "id": s.get("id"),
-            "name": name,
-            "category": cat,
-            "price": f"{cur} {price:,.0f} / {unit}",
-            "base_price": price,
-            "unit": unit,
-            "pricing_method": s.get("pricing_method") or "piece",
-            "active": bool(s.get("is_active", True)),
-            "description": s.get("description") or "",
-            "min_qty": int(s.get("min_qty") or 1),
-        })
+    enabled_names = set()
+    enabled_keys = set()
+    try:
+        srows = (await db.execute(sa_text(
+            "SELECT id, name, category, base_price, unit, is_active, description FROM services "
+            "WHERE company_id = :cid ORDER BY name"
+        ), {"cid": cid})).mappings().all()
+        for s in srows:
+            cat = str(s.get("category") or "")
+            name = str(s.get("name") or "")
+            enabled_names.add((cat, name))
+            key = f"{cat}::{name}".lower().replace(" ", "_")
+            enabled_keys.add(key)
+            price = float(s.get("base_price") or 0)
+            unit = str(s.get("unit") or "piece")
+            rows.append({
+                "id": s.get("id"),
+                "name": name,
+                "category": cat,
+                "price": f"{cur} {price:,.0f} / {unit}",
+                "base_price": price,
+                "unit": unit,
+                "pricing_method": "piece",
+                "active": bool(s.get("is_active", True)),
+                "description": str(s.get("description") or ""),
+                "min_qty": 1,
+            })
+    except Exception as e:
+        print("services_list", type(e).__name__, e)
+        traceback.print_exc()
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
-    # Catalogue for this business type only
-    seed_items = services_for(bt)
     catalog_view = []
     categories = []
-
-    if seed_items:
+    try:
+        seed_items = services_for(bt) or []
         for item in seed_items:
-            cat = item.get("category") or "General"
-            name = item.get("name") or "Service"
+            cat = str(item.get("category") or "General")
+            name = str(item.get("name") or "Service")
             key = f"{cat}::{name}".lower().replace(" ", "_")
             on = key in enabled_keys or (cat, name) in enabled_names
             if cat not in categories:
@@ -1405,37 +1441,39 @@ async def company_services(
                 "min_qty": int(item.get("min_qty") or 1),
                 "enabled": on,
             })
-    elif bt_key in ("printing", "print"):
-        try:
-            from app.data.master_catalog import MASTER_CATALOG, catalog_key as mk_key
-            for item in MASTER_CATALOG:
-                key = mk_key(item["category"], item["name"])
-                on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
-                if item["category"] not in categories:
-                    categories.append(item["category"])
-                catalog_view.append({**item, "key": key, "enabled": on})
-        except Exception as e:
-            print("master_catalog_load", e)
-    else:
-        categories = sorted({r["category"] for r in rows if r.get("category")})
+        if not seed_items and bt_key in ("printing", "print"):
+            try:
+                from app.data.master_catalog import MASTER_CATALOG, catalog_key as mk_key
+                for item in MASTER_CATALOG:
+                    key = mk_key(item["category"], item["name"])
+                    on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
+                    if item["category"] not in categories:
+                        categories.append(item["category"])
+                    catalog_view.append({**item, "key": key, "enabled": on})
+            except Exception as e:
+                print("master_catalog", e)
+    except Exception as e:
+        print("services_catalog", type(e).__name__, e)
+        traceback.print_exc()
 
     q = (request.query_params.get("q") or "").strip().lower()
     cat_filter = (request.query_params.get("cat") or "").strip()
     if q:
-        catalog_view = [
-            c for c in catalog_view
-            if q in (c.get("name") or "").lower() or q in (c.get("category") or "").lower()
-        ]
+        catalog_view = [c for c in catalog_view if q in (c.get("name") or "").lower() or q in (c.get("category") or "").lower()]
     if cat_filter:
         catalog_view = [c for c in catalog_view if c.get("category") == cat_filter]
 
-    return render(request, "company/services.html", {
+    # Plain context only — never pass ORM User/Company into Jinja
+    ctx = {
         "active": "services",
         "business_type": bt_key,
-        "business_label": tpl.get("label") or bt_key,
-        "services_label": tpl.get("services_label") or "Services",
+        "business_label": (tpl.get("label") if isinstance(tpl, dict) else None) or bt_key,
+        "services_label": (tpl.get("services_label") if isinstance(tpl, dict) else None) or "Services",
+        "nav_services": (tpl.get("services_label") if isinstance(tpl, dict) else None) or "Services",
+        "nav_orders": (tpl.get("orders_label") if isinstance(tpl, dict) else None) or "Orders",
+        "nav_dashboard": "Dashboard",
         "company_name": cname,
-        "user_name": getattr(user, "full_name", None) or getattr(user, "email", "") or "",
+        "user_name": uname,
         "services": rows,
         "catalog": catalog_view,
         "categories": categories,
@@ -1443,7 +1481,19 @@ async def company_services(
         "q": request.query_params.get("q") or "",
         "cat": cat_filter,
         "saved": request.query_params.get("saved"),
-    })
+    }
+    try:
+        return render(request, "company/services.html", ctx)
+    except Exception as e:
+        print("services_render", type(e).__name__, e)
+        traceback.print_exc()
+        # Absolute fallback — still avoid ORM
+        from fastapi.responses import HTMLResponse as _HR
+        return _HR(
+            f"<h1>Services</h1><p>{cname}</p><p>Could not render full page. Check logs.</p>"
+            f"<p><a href='/company/dashboard'>Dashboard</a></p>",
+            status_code=200,
+        )
 
 
 @app.post("/company/services/add")
