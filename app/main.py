@@ -96,21 +96,27 @@ templates = Jinja2Templates(directory=str(BASE / "templates"))
 def render(request: Request, name: str, context: dict | None = None, status_code: int = 200):
     ctx = dict(context or {})
     ctx["request"] = request
-    # Business-type nav labels + live company name on company pages
+    # Business-type nav labels on every company page (from request.state set by require_company)
     try:
-        company = ctx.get("company")
-        if company is not None or str(name).startswith("company/"):
-            # apply_nav_labels is defined later in this module; resolve at call time
-            fn = globals().get("apply_nav_labels")
-            if fn:
-                fn(ctx, company)
-            else:
-                from app.services.nav_labels import labels_for_company
-                labs = labels_for_company(company)
-                for k, v in labs.items():
+        if str(name).startswith("company/"):
+            bt = ctx.get("business_type") or getattr(getattr(request, "state", None), "company_business_type", None)
+            cname = ctx.get("company_name") or getattr(getattr(request, "state", None), "company_display_name", None)
+            if bt:
+                ctx["business_type"] = bt
+            from app.services.nav_labels import labels_for_company
+            labs = labels_for_company(None, business_type=bt)
+            for k, v in labs.items():
+                if k == "company_name" and cname:
+                    ctx["company_name"] = cname
+                    continue
+                # Always overwrite nav labels so they cannot stick as Print from a previous partial ctx
+                if k.startswith("nav_") or k in ("orders_label", "services_label", "business_label", "dashboard_label", "business_type"):
+                    ctx[k] = v
+                else:
                     ctx.setdefault(k, v)
-                if company is not None and getattr(company, "name", None):
-                    ctx["company_name"] = company.name
+            if cname:
+                ctx["company_name"] = cname
+            ctx.pop("company", None)
     except Exception as _e:
         print("render_nav_labels", _e)
     try:
@@ -961,9 +967,55 @@ async def company_logout():
 
 
 # ---------- Company pages ----------
+
+def company_page_labels(company) -> dict:
+    """Plain dict of nav labels from company.business_type — safe for every page."""
+    bt = None
+    name = ""
+    try:
+        if company is not None:
+            bt = getattr(company, "business_type", None) if not isinstance(company, dict) else company.get("business_type")
+            name = getattr(company, "name", None) if not isinstance(company, dict) else company.get("name")
+    except Exception:
+        pass
+    from app.services.nav_labels import labels_for_company
+    labs = labels_for_company(None, business_type=bt or "printing")
+    if name:
+        labs["company_name"] = name
+    labs["business_type"] = bt or labs.get("business_type") or "printing"
+    return labs
+
+
 async def company_ctx(user: User, db: AsyncSession):
+    """Load company and always attach business_type (column may exist even if older code omitted it)."""
+    from sqlalchemy import text as sa_text
     try:
         company = await db.get(Company, user.company_id)
+        # Always overlay business_type + trial from raw SQL so nav never falls back to printing
+        try:
+            row = (await db.execute(sa_text("""
+                SELECT business_type, trial_ends_at, subscription_ends_at, subscription_plan,
+                       name, currency, status
+                FROM companies WHERE id = :id
+            """), {"id": int(user.company_id)})).mappings().first()
+            if row and company is not None:
+                bt = row.get("business_type") or "printing"
+                try:
+                    company.business_type = bt
+                except Exception:
+                    object.__setattr__(company, "business_type", bt)
+                for k in ("trial_ends_at", "subscription_ends_at", "subscription_plan", "name", "currency", "status"):
+                    if row.get(k) is not None:
+                        try:
+                            setattr(company, k, row.get(k))
+                        except Exception:
+                            pass
+        except Exception as e_bt:
+            print("company_ctx bt overlay", type(e_bt).__name__, e_bt)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         return company
     except Exception as e:
         print("company_ctx:", type(e).__name__, e)

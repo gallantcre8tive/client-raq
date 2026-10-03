@@ -54,4 +54,25 @@
     <a href="/checkout" class="text-[var(--text-muted)] underline">Public checkout</a>
   </p>
 </div>
+
+<script>
+(function(){
+  const el = document.getElementById('trial-countdown');
+  if (!el) return;
+  const end = el.getAttribute('data-end');
+  if (!end) return;
+  function tick(){
+    const ms = new Date(end).getTime() - Date.now();
+    if (isNaN(ms)) return;
+    if (ms <= 0) { el.textContent = 'Trial ended — subscribe to continue'; return; }
+    const h = Math.floor(ms/3600000);
+    const m = Math.floor((ms%3600000)/60000);
+    const s = Math.floor((ms%60000)/1000);
+    el.textContent = h + 'h ' + m + 'm ' + s + 's left on free trial';
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+
 {% endblock %}

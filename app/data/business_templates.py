@@ -116,25 +116,30 @@ BUSINESS_TYPES: dict[str, dict[str, Any]] = {
     "exchanger": {
         "label": "Payment exchanger",
         "summary": "Rates, corridors, proof of payment, verification.",
-        "dashboard_label": "Transactions",
         "orders_label": "Transactions",
         "services_label": "Corridors / methods",
+        "dashboard_label": "Today's volume",
         "agent_role": "customer-service agent for a payment exchange / transfer desk",
+        "example_services": [],
         "domain_rules": [
-            "Never invent exchange rates — use configured tools or say staff will confirm the live rate.",
-            "Collect: direction (e.g. NGN→USD), amount, preferred method, required customer details.",
-            "Payment proofs are for verification only; admin must confirm before complete.",
-            "Never ask for full card PINs or seed phrases. Escalate fraud concerns.",
-            "Never talk about printing or beauty services.",
+            "Only offer payment methods the company has enabled (PayPal, bank, crypto, gift cards, Chime, Revolut, etc.).",
+            "Never invent rates. Use the rate the company configured or say staff will confirm the live rate.",
+            "For payouts: collect amount, currency direction, and customer's receiving details only after inbound payment is confirmed by staff.",
+            "Payment screenshots are pending until admin confirms — never tell the customer funds are released early.",
+            "If a method is not enabled, say you will check with the team and escalate — do not invent availability.",
         ],
-        "default_greeting": "Welcome to {name}. Share the corridor (e.g. NGN to USD), amount, and preferred method.",
-        "example_services": [
-            {"name": "FX transfer", "flow_type": "rate_based", "unit": "transaction"},
-            {"name": "Local payout", "flow_type": "quote", "unit": "transaction"},
-            {"name": "Crypto to cash", "flow_type": "rate_based", "unit": "transaction"},
-            {"name": "Cash pickup", "flow_type": "quote", "unit": "transaction"},
-        ],
-        "workflow_hints": "corridor → amount → rate confirm → customer pays → proof → staff verifies → payout",
+        "workflow_hints": "method → amount/corridor → show pay-in instructions → customer pays + screenshot → staff confirms → collect customer payout details → complete",
+        "extra_ai_rules": """EXCHANGER RULES:
+- Customer may ask for PayPal, Chime, Revolut, Zelle, CashApp, bank transfer, USDT/BTC, gift cards. Only continue if that corridor is in the enabled services list.
+- If they ask for a method that is not enabled: "Abeg hold on, make I confirm with the team if we still dey do that one." Then call notify_human_agent.
+- When quoting: ask amount + direction (e.g. USD→NGN or NGN→USD). Apply company rate if configured; otherwise "I go confirm today's rate with the desk."
+- Pay-in instructions come from the enabled service description / payment rules (PayPal email, F&F only, bank account, wallet address). Read them carefully and pass them to the customer.
+- Always ask for payment screenshot after they pay. Acknowledge: "Screenshot received — we are verifying. You will hear from us shortly."
+- After admin confirms payment, ask for the customer's payout details (bank name, account name, account number — or wallet address for crypto).
+- Never ask the customer to pay a second time without a clear reason.
+- Stay on exchange topics. Do not talk about printing, banners, or skincare.
+- Match language: Pidgin, English, Yoruba mix, French, etc. as the customer writes.
+""",
     },
     "logistics": {
         "label": "Logistics & delivery",

@@ -95,4 +95,25 @@ async def require_company(request: Request, db: AsyncSession = Depends(get_db)) 
         )
     if not getattr(user, "company_id", None):
         raise HTTPException(status_code=403, detail="No company linked to this account")
+    # Attach business_type for nav labels on every company page (avoid printing fallback)
+    try:
+        from sqlalchemy import text as sa_text
+        row = (await db.execute(
+            sa_text("SELECT business_type, name FROM companies WHERE id = :id"),
+            {"id": int(user.company_id)},
+        )).mappings().first()
+        if row:
+            request.state.company_business_type = (row.get("business_type") or "printing")
+            request.state.company_display_name = row.get("name") or ""
+        else:
+            request.state.company_business_type = "printing"
+            request.state.company_display_name = ""
+    except Exception as e:
+        print("require_company bt", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        request.state.company_business_type = getattr(request.state, "company_business_type", "printing")
+        request.state.company_display_name = getattr(request.state, "company_display_name", "")
     return user
