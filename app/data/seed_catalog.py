@@ -406,7 +406,7 @@ def services_for(business_type: str | None) -> list[dict]:
     t = (business_type or "printing").strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
         "beauty": "skincare", "phone": "phone_repair", "repair": "phone_repair",
-        "fx": "exchanger", "exchange": "exchanger", "delivery": "logistics",
+        "fx": "exchanger", "exchange": "exchanger", "payment_exchanger": "exchanger", "payment": "exchanger", "payments": "exchanger", "delivery": "logistics",
         "shipping": "logistics", "property": "real_estate", "estate": "real_estate",
         "tailoring": "fashion", "food": "restaurant", "training": "education",
         "school": "education",

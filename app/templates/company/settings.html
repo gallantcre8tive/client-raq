@@ -4,7 +4,7 @@
 {% set active = 'settings' %}
 {% block content %}
 <p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
-  Update your login profile. Name and email changes are visible to the platform admin.
+  Update your profile, business type, and password. Business type controls the services catalogue, sidebar labels, and how the bot talks to customers.
 </p>
 
 {% if success %}
@@ -20,7 +20,18 @@
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Company display name</label>
       <input type="text" name="company_display_name" required class="input-field" value="{{ company_name|default('') }}" autocomplete="organization">
-      <p class="text-[11px] text-[var(--text-muted)] mt-1.5">Shows in the sidebar, dashboard, and bot replies to customers.</p>
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5">Shows in the sidebar, dashboard, and bot replies.</p>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Business type *</label>
+      <select name="business_type" class="input-field min-h-[44px]" required>
+        {% for t in business_types %}
+        <option value="{{ t.id }}" {% if t.id == current_business_type %}selected{% endif %}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="text-[11px] text-[var(--text-muted)] mt-1.5">
+        Changing type updates sidebar labels and loads that industry&rsquo;s service catalogue (does not delete your existing enabled services).
+      </p>
     </div>
     <h3 class="font-semibold text-base m-0 pt-2">Your login profile</h3>
     <div>
@@ -30,7 +41,6 @@
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Work email</label>
       <input type="email" name="email" required class="input-field" value="{{ user_email|default('') }}" autocomplete="email">
-      <p class="text-[11px] text-[var(--text-muted)] mt-1.5">Used to sign in with your brand slug + password.</p>
     </div>
   </div>
 
@@ -48,11 +58,21 @@
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Confirm new password</label>
       <input type="password" name="confirm_password" class="input-field" autocomplete="new-password" minlength="6">
     </div>
-    <p class="text-[11px] text-[var(--text-muted)] m-0">Leave password fields empty if you only want to update name or email.</p>
+    <p class="text-[11px] text-[var(--text-muted)] m-0">Leave password fields empty if you only update name, email, or business type.</p>
   </div>
 
-  <div class="lg:col-span-2">
-    <button type="submit" class="btn-primary w-full sm:w-auto min-h-[44px]">Save changes</button>
+  <div class="lg:col-span-2 flex flex-col sm:flex-row gap-3">
+    <button type="submit" class="btn-primary min-h-[44px] px-6">Save changes</button>
   </div>
+</form>
+
+<form method="post" action="/company/settings/reseed-services" class="card p-4 sm:p-6 mt-6 max-w-2xl space-y-3"
+      onsubmit="return confirm('Load starter services for your current business type? Existing services with the same name are skipped.');">
+  <h3 class="font-semibold text-base m-0">Load {{ services_label|default('services') }} catalogue</h3>
+  <p class="text-sm text-[var(--text-secondary)] leading-relaxed m-0">
+    If you signed up and still see printing items, set the correct business type above, save, then run this.
+    It adds starter services for <strong>{{ business_label|default('your type') }}</strong> only (prices are examples — edit them).
+  </p>
+  <button type="submit" class="btn-ghost min-h-[44px] px-5">Load catalogue for this business type</button>
 </form>
 {% endblock %}

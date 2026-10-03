@@ -1297,20 +1297,42 @@ async def company_services_guide(
 async def company_services(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    from app.data.master_catalog import MASTER_CATALOG, CATEGORIES, catalog_key
+    """Catalogue is ALWAYS scoped to company.business_type — never force printing on other businesses."""
+    from app.data.seed_catalog import services_for
+    from app.data.business_templates import get_template
+    from app.data.master_catalog import MASTER_CATALOG, catalog_key as mk_key
     company = await company_ctx(user, db)
+    bt = (getattr(company, "business_type", None) or "printing")
+    tpl = get_template(bt)
+    bt_key = (bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+
+    # Auto-seed if this company has zero services (e.g. signup seed failed)
+    existing_count = (await db.execute(
+        select(func.count()).select_from(Service).where(Service.company_id == company.id)
+    )).scalar() or 0
+    if int(existing_count) == 0:
+        try:
+            from app.services.seed_company import seed_company_from_template
+            await seed_company_from_template(
+                db, company_id=int(company.id), business_type=bt,
+                company_name=getattr(company, "name", "") or "Company",
+            )
+        except Exception as se:
+            print("services_auto_seed", se)
+
     services = list((await db.execute(
         select(Service).where(Service.company_id == company.id).order_by(Service.category, Service.name)
     )).scalars().all())
-    enabled_keys = {s.catalog_key for s in services if s.catalog_key}
+    enabled_keys = {getattr(s, "catalog_key", None) for s in services if getattr(s, "catalog_key", None)}
     enabled_names = {(s.category, s.name) for s in services}
+    cur = getattr(company, "currency", None) or "NGN"
     rows = []
     for s in services:
         rows.append({
             "id": s.id,
             "name": s.name,
             "category": s.category,
-            "price": f"{company.currency} {s.base_price:,.0f} / {s.unit}",
+            "price": f"{cur} {float(s.base_price or 0):,.0f} / {s.unit}",
             "base_price": s.base_price,
             "unit": s.unit,
             "pricing_method": getattr(s, "pricing_method", None) or "piece",
@@ -1318,22 +1340,67 @@ async def company_services(
             "description": s.description or "",
             "min_qty": int(getattr(s, "min_qty", None) or 1),
         })
+
+    # Build catalogue for THIS business type only
+    seed_items = services_for(bt)
     catalog_view = []
-    for item in MASTER_CATALOG:
-        key = catalog_key(item["category"], item["name"])
-        on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
-        catalog_view.append({**item, "key": key, "enabled": on})
+    categories = []
+    if seed_items:
+        for item in seed_items:
+            cat = item.get("category") or "General"
+            name = item.get("name") or "Service"
+            key = f"{cat}::{name}".lower().replace(" ", "_")
+            on = key in enabled_keys or (cat, name) in enabled_names
+            if cat not in categories:
+                categories.append(cat)
+            catalog_view.append({
+                "key": key,
+                "name": name,
+                "category": cat,
+                "unit": item.get("unit") or "piece",
+                "description": item.get("description") or "",
+                "pricing_method": item.get("pricing_method") or "piece",
+                "flow_type": item.get("flow_type") or "generic",
+                "base_price": float(item.get("base_price") or 0),
+                "min_qty": int(item.get("min_qty") or 1),
+                "enabled": on,
+            })
+    elif bt_key in ("printing", "print"):
+        # Full printing PDF catalogue only for print businesses
+        for item in MASTER_CATALOG:
+            key = mk_key(item["category"], item["name"])
+            on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
+            if item["category"] not in categories:
+                categories.append(item["category"])
+            catalog_view.append({**item, "key": key, "enabled": on})
+    else:
+        # custom / unknown — empty master, company only manages their own rows
+        categories = sorted({r["category"] for r in rows if r.get("category")})
+
     q = (request.query_params.get("q") or "").strip().lower()
     cat_filter = (request.query_params.get("cat") or "").strip()
     if q:
-        catalog_view = [c for c in catalog_view if q in c["name"].lower() or q in c["category"].lower()]
+        catalog_view = [c for c in catalog_view if q in c["name"].lower() or q in (c.get("category") or "").lower()]
     if cat_filter:
-        catalog_view = [c for c in catalog_view if c["category"] == cat_filter]
+        catalog_view = [c for c in catalog_view if c.get("category") == cat_filter]
+
+
     return render(request, "company/services.html", {
-        "active": "services", "company_name": company.name, "user_name": user.full_name,
-        "services": rows, "catalog": catalog_view, "categories": CATEGORIES,
-        "currency": company.currency, "q": request.query_params.get("q") or "",
-        "cat": cat_filter, "saved": request.query_params.get("saved"),
+        "business_type": bt_key,
+        "business_label": tpl.get("label") or bt_key,
+        "services_label": tpl.get("services_label") or "Services",
+        "categories": categories,
+
+        "active": "services",
+        "company_name": getattr(company, "name", "") or "",
+        "user_name": getattr(user, "full_name", "") or "",
+        "services": rows,
+        "catalog": catalog_view,
+        "categories": categories,
+        "currency": getattr(company, "currency", None) or "NGN",
+        "q": request.query_params.get("q") or "",
+        "cat": cat_filter,
+        "saved": request.query_params.get("saved"),
     })
 
 
@@ -1374,6 +1441,14 @@ async def company_services_enable(
             Service.catalog_key == catalog_key,
         )
     )).scalars().first()
+    if not existing:
+        existing = (await db.execute(
+            select(Service).where(
+                Service.company_id == user.company_id,
+                Service.name == name.strip(),
+                Service.category == category,
+            )
+        )).scalars().first()
     if existing:
         existing.is_active = True
         existing.base_price = base_price
@@ -2318,14 +2393,30 @@ async def company_wa(request: Request, user: User = Depends(require_company), db
 
 
 @app.get("/company/settings", response_class=HTMLResponse)
-async def company_settings(request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+async def company_settings_page(
+    request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    from app.data.business_templates import list_types_for_ui, get_template
     company = await company_ctx(user, db)
+    raw_bt = getattr(company, "business_type", None) or "printing"
+    tpl = get_template(raw_bt)
+    # normalized key for select
+    norm = (raw_bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+    ids = {x["id"] for x in list_types_for_ui()}
+    aliases = {"payment_exchanger": "exchanger", "payment": "exchanger", "fx": "exchanger", "beauty": "skincare"}
+    norm = aliases.get(norm, norm)
+    if norm not in ids:
+        norm = "printing"
     return render(request, "company/settings.html", {
         "active": "settings",
-        "company_name": company.name,
-        "user_name": user.full_name,
-        "user_email": user.email,
-        "success": None,
+        "company_name": getattr(company, "name", "") or "",
+        "user_name": getattr(user, "full_name", "") or "",
+        "user_email": getattr(user, "email", "") or "",
+        "business_types": list_types_for_ui(),
+        "current_business_type": norm,
+        "business_label": tpl.get("label"),
+        "services_label": tpl.get("services_label"),
+        "success": "Saved." if request.query_params.get("ok") else None,
         "error": None,
     })
 
@@ -2336,18 +2427,19 @@ async def company_settings_save(
     full_name: str = Form(...),
     email: str = Form(...),
     company_display_name: Optional[str] = Form(None),
+    business_type: Optional[str] = Form(None),
     current_password: Optional[str] = Form(None),
     new_password: Optional[str] = Form(None),
     confirm_password: Optional[str] = Form(None),
     user: User = Depends(require_company),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.data.business_templates import list_types_for_ui, get_template
     company = await company_ctx(user, db)
     user.full_name = full_name.strip()
     user.email = email.strip().lower()
-    # Brand name in sidebar + bot context
     new_brand = (company_display_name or "").strip()
-    if new_brand and new_brand != company.name:
+    if new_brand and company is not None and new_brand != getattr(company, "name", None):
         company.name = new_brand[:150]
     err = None
     if new_password:
@@ -2357,20 +2449,69 @@ async def company_settings_save(
             err = "Current password incorrect"
         else:
             user.hashed_password = hash_password(new_password)
+
+    bt_in = (business_type or "").strip()[:40]
+    if not err and bt_in and company is not None:
+        try:
+            from sqlalchemy import text as sa_text
+            await db.execute(
+                sa_text("UPDATE companies SET business_type = :bt WHERE id = :id"),
+                {"bt": bt_in, "id": int(company.id)},
+            )
+            try:
+                company.business_type = bt_in
+            except Exception:
+                pass
+        except Exception as e:
+            print("settings_business_type", e)
+
     if not err:
         await db.commit()
-        await db.refresh(company)
+        try:
+            await db.refresh(company)
+        except Exception:
+            pass
+        return RedirectResponse("/company/settings?ok=1", status_code=303)
+
+    raw_bt = bt_in or getattr(company, "business_type", None) or "printing"
+    tpl = get_template(raw_bt)
+    norm = (raw_bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+    ids = {x["id"] for x in list_types_for_ui()}
+    if norm not in ids:
+        norm = "printing"
     return render(request, "company/settings.html", {
         "active": "settings",
-        "company_name": company.name,
-        "user_name": user.full_name,
-        "user_email": user.email,
-        "success": None if err else "Saved. Sidebar and bot now use your company display name.",
+        "company_name": getattr(company, "name", "") or "",
+        "user_name": getattr(user, "full_name", "") or "",
+        "user_email": getattr(user, "email", "") or "",
+        "business_types": list_types_for_ui(),
+        "current_business_type": norm,
+        "business_label": tpl.get("label"),
+        "services_label": tpl.get("services_label"),
+        "success": None,
         "error": err,
     })
 
 
 # ---------- WhatsApp webhook stubs ----------
+@app.post("/company/settings/reseed-services")
+async def company_reseed_services(
+    request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    company = await company_ctx(user, db)
+    bt = getattr(company, "business_type", None) or "printing"
+    try:
+        from app.services.seed_company import seed_company_from_template
+        await seed_company_from_template(
+            db, company_id=int(company.id), business_type=bt,
+            company_name=getattr(company, "name", "") or "Company",
+        )
+    except Exception as e:
+        print("reseed", e)
+    return RedirectResponse("/company/services?saved=1", status_code=303)
+
+
+
 @app.get("/api/webhook/whatsapp")
 async def wa_verify(request: Request):
     params = request.query_params
