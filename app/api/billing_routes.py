@@ -1182,77 +1182,117 @@ async def trial_verify_code(
             email, error="Incorrect code. Check your email and try again.",
         ))
 
+    # --- Create company + admin with raw SQL, then send user to LOGIN (no auto-session) ---
     try:
         payload = _json.loads(row["payload_json"] or "{}")
     except Exception:
         payload = {}
-    business_name = (payload.get("business_name") or "My Business").strip()
+    business_name = (payload.get("business_name") or "My Business").strip()[:200]
     password = payload.get("password") or ""
-    country = payload.get("country") or "Nigeria"
-    business_type = payload.get("business_type") or "printing"
-    phone = payload.get("phone") or None
+    country = (payload.get("country") or "Nigeria")[:100]
+    business_type = (payload.get("business_type") or "printing")[:40]
+    phone = (payload.get("phone") or "")[:30] or None
 
-    existing = (await db.execute(select(User).where(User.email == email))).scalars().first()
+    existing = (await db.execute(text("SELECT id FROM users WHERE email = :e LIMIT 1"), {"e": email})).first()
     if existing:
         await db.execute(text("UPDATE email_verifications SET used = true WHERE id = :id"), {"id": row["id"]})
         await db.commit()
-        return RedirectResponse("/company/login?verified=1", status_code=303)
+        return RedirectResponse("/company/login?registered=1&email=" + email, status_code=303)
 
-    pricing = await get_pricing(db)
+    from app.data.business_templates import get_template
+    from app.core.security import hash_password as _hp
+    tpl = get_template(business_type)
+    greeting = tpl.get("default_greeting", "Welcome to {name}! How can we help you today?").format(name=business_name)
     slug = _slugify(business_name)
     base_slug = slug
     n = 1
-    while (await db.execute(select(Company).where(Company.slug == slug))).scalars().first():
+    while (await db.execute(text("SELECT 1 FROM companies WHERE slug = :s LIMIT 1"), {"s": slug})).first():
         n += 1
         slug = f"{base_slug}-{n}"
 
-    from app.data.business_templates import get_template
-    tpl = get_template(business_type)
-    greeting = tpl["default_greeting"].format(name=business_name[:200])
-
-    company = Company(
-        name=business_name[:200],
-        slug=slug,
-        country=(country or "Nigeria")[:100],
-        currency="NGN",
-        email=email,
-        phone=(phone or "")[:30] or None,
-        status="active",
-        greeting_message=greeting,
-    )
+    hashed = _hp(password)
+    company_id = None
     try:
-        company.business_type = (business_type or "printing")[:40]
-    except Exception:
-        pass
-    db.add(company)
-    await db.flush()
+        ins = await db.execute(text("""
+            INSERT INTO companies (name, slug, country, currency, phone, email, greeting_message, bot_language, status, business_type)
+            VALUES (:name, :slug, :country, 'NGN', :phone, :email, :greet, 'both', 'active', :bt)
+            RETURNING id
+        """), {
+            "name": business_name, "slug": slug, "country": country or "Nigeria",
+            "phone": phone, "email": email, "greet": greeting, "bt": business_type,
+        })
+        company_id = int(ins.first()[0])
+    except Exception as e1:
+        print("trial_company_insert_bt", type(e1).__name__, e1)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        ins = await db.execute(text("""
+            INSERT INTO companies (name, slug, country, currency, phone, greeting_message, bot_language, status)
+            VALUES (:name, :slug, :country, 'NGN', :phone, :greet, 'both', 'active')
+            RETURNING id
+        """), {
+            "name": business_name, "slug": slug, "country": country or "Nigeria",
+            "phone": phone, "greet": greeting,
+        })
+        company_id = int(ins.first()[0])
+        try:
+            await db.execute(text("UPDATE companies SET business_type = :bt, email = :email WHERE id = :id"),
+                             {"bt": business_type, "email": email, "id": company_id})
+        except Exception:
+            pass
 
-    user = User(
-        email=email,
-        hashed_password=hash_password(password),
-        full_name=business_name[:200],
-        role=UserRole.COMPANY_ADMIN,
-        company_id=company.id,
-        is_active=True,
-    )
-    db.add(user)
+    # role value: store as string that matches DB enum/check
+    role_val = "company_admin"
+    try:
+        await db.execute(text("""
+            INSERT INTO users (email, hashed_password, full_name, role, company_id, is_active)
+            VALUES (:email, :hp, :fn, :role, :cid, true)
+        """), {
+            "email": email, "hp": hashed, "fn": business_name,
+            "role": role_val, "cid": company_id,
+        })
+    except Exception as ue:
+        print("trial_user_insert", type(ue).__name__, ue)
+        # try enum style
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # re-insert company if rolled back — skip if exists
+        existing_c = (await db.execute(text("SELECT id FROM companies WHERE slug = :s"), {"s": slug})).first()
+        if existing_c:
+            company_id = int(existing_c[0])
+        await db.execute(text("""
+            INSERT INTO users (email, hashed_password, full_name, role, company_id, is_active)
+            VALUES (:email, :hp, :fn, 'COMPANY_ADMIN', :cid, true)
+        """), {"email": email, "hp": hashed, "fn": business_name, "cid": company_id})
+
     await db.execute(text("UPDATE email_verifications SET used = true WHERE id = :id"), {"id": row["id"]})
     await db.commit()
-    await db.refresh(company)
-    await db.refresh(user)
 
-    await create_trial_subscription(db, company.id, pricing)
     try:
-        await seed_company_from_template(db, company_id=company.id, business_type=business_type, company_name=business_name)
-    except Exception as _se:
-        print("seed_trial_verify", _se)
+        pricing = await get_pricing(db)
+        await create_trial_subscription(db, company_id, pricing)
+    except Exception as te:
+        print("trial_sub", te)
     try:
-        await write_audit(db, action="trial_signup_verified", detail=email, actor_email=email, company_id=company.id, ip=ip)
+        await seed_company_from_template(db, company_id=company_id, business_type=business_type, company_name=business_name)
+    except Exception as se:
+        print("seed_trial_verify", se)
+    try:
+        await write_audit(db, action="trial_signup_verified", detail=email, actor_email=email, company_id=company_id, ip=ip)
     except Exception:
         pass
 
-    resp = RedirectResponse("/company/onboarding?trial=1", status_code=303)
-    return _set_company_session(resp, user.id)
+    # Always go to login — user signs in with the password they chose
+    from urllib.parse import quote
+    return RedirectResponse(
+        f"/company/login?registered=1&email={quote(email)}",
+        status_code=303,
+    )
+
 
 
 @router.post("/trial/resend-code")

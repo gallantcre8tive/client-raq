@@ -476,8 +476,12 @@ async def platform_companies(
 
 @app.get("/platform/companies/new", response_class=HTMLResponse)
 async def add_company_page(request: Request, user: User = Depends(require_platform)):
+    from app.data.business_templates import list_types_for_ui
     return render(request, "platform/provision.html", {
-        "active": "add", "user_name": user.full_name, "error": None,
+        "active": "add",
+        "user_name": user.full_name,
+        "error": None,
+        "business_types": list_types_for_ui(),
     })
 
 
@@ -486,36 +490,61 @@ async def add_company_submit(
     request: Request,
     name: str = Form(...), slug: str = Form(...), country: str = Form("Nigeria"),
     currency: str = Form("NGN"), phone: Optional[str] = Form(None),
+    business_type: str = Form("printing"),
+    start_trial: Optional[str] = Form(None),
     admin_full_name: str = Form(...), admin_email: str = Form(...), admin_password: str = Form(...),
     user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import text as sa_text
+    from app.data.business_templates import get_template, list_types_for_ui
+    bt = (business_type or "printing").strip()[:40]
+    tpl = get_template(bt)
     slug_c = slug.strip().lower().replace(" ", "-")
     admin_email_c = admin_email.strip().lower()
     name_c = name.strip()
     phone_c = (phone or "").strip() or None
-    greet = f"Welcome to {name_c}! How can we help with your printing order today?"
+    greet = tpl.get("default_greeting", "Welcome to {name}! How can we help you today?").format(name=name_c)
+    types_ui = list_types_for_ui()
+    err_ctx = lambda msg: render(request, "platform/provision.html", {
+        "active": "add",
+        "user_name": getattr(user, "full_name", None) or "Admin",
+        "error": msg,
+        "business_types": types_ui,
+    }, 400)
     try:
         if (await db.execute(select(Company).where(Company.slug == slug_c))).scalar_one_or_none():
-            return render(request, "platform/provision.html", {
-                "active": "add", "user_name": user.full_name or "Admin",
-                "error": "Slug already exists. Choose another.",
-            }, 400)
+            return err_ctx("Slug already exists. Choose another.")
         if (await db.execute(select(User).where(User.email == admin_email_c))).scalar_one_or_none():
-            return render(request, "platform/provision.html", {
-                "active": "add", "user_name": user.full_name or "Admin",
-                "error": "That admin email is already registered.",
-            }, 400)
-        row = (await db.execute(sa_text("""
-            INSERT INTO companies (name, slug, country, currency, phone, greeting_message, bot_language, status)
-            VALUES (:name, :slug, :country, :currency, :phone, :greet, 'both', 'active')
-            RETURNING id
-        """), {
-            "name": name_c, "slug": slug_c,
-            "country": country or "Nigeria", "currency": currency or "NGN",
-            "phone": phone_c, "greet": greet,
-        })).first()
+            return err_ctx("That admin email is already registered.")
+        if len(admin_password or "") < 6:
+            return err_ctx("Password must be at least 6 characters.")
+        # Prefer insert with business_type when column exists
+        try:
+            row = (await db.execute(sa_text("""
+                INSERT INTO companies (name, slug, country, currency, phone, greeting_message, bot_language, status, business_type)
+                VALUES (:name, :slug, :country, :currency, :phone, :greet, 'both', 'active', :bt)
+                RETURNING id
+            """), {
+                "name": name_c, "slug": slug_c,
+                "country": country or "Nigeria", "currency": currency or "NGN",
+                "phone": phone_c, "greet": greet, "bt": bt,
+            })).first()
+        except Exception:
+            await db.rollback()
+            row = (await db.execute(sa_text("""
+                INSERT INTO companies (name, slug, country, currency, phone, greeting_message, bot_language, status)
+                VALUES (:name, :slug, :country, :currency, :phone, :greet, 'both', 'active')
+                RETURNING id
+            """), {
+                "name": name_c, "slug": slug_c,
+                "country": country or "Nigeria", "currency": currency or "NGN",
+                "phone": phone_c, "greet": greet,
+            })).first()
         company_id = int(row[0])
+        try:
+            await db.execute(sa_text("UPDATE companies SET business_type = :bt WHERE id = :id"), {"bt": bt, "id": company_id})
+        except Exception:
+            pass
         db.add(User(
             email=admin_email_c,
             hashed_password=hash_password(admin_password),
@@ -525,6 +554,20 @@ async def add_company_submit(
             is_active=True,
         ))
         await db.commit()
+        # Seed catalogue for this business type
+        try:
+            from app.services.seed_company import seed_company_from_template
+            await seed_company_from_template(db, company_id=company_id, business_type=bt, company_name=name_c)
+        except Exception as se:
+            print("seed_manual_company", se)
+        # Optional trial
+        if start_trial in ("on", "true", "1", "yes"):
+            try:
+                from app.services.billing_service import get_pricing, create_trial_subscription
+                pricing = await get_pricing(db)
+                await create_trial_subscription(db, company_id, pricing)
+            except Exception as te:
+                print("trial_manual_company", te)
     except Exception as e:
         try:
             await db.rollback()
@@ -533,16 +576,17 @@ async def add_company_submit(
         print("add_company ERROR:", repr(e))
         import traceback
         traceback.print_exc()
-        return render(request, "platform/provision.html", {
-            "active": "add", "user_name": getattr(user, "full_name", None) or "Admin",
-            "error": f"Could not create company: {e}",
-        }, 400)
+        return err_ctx(f"Could not create company: {e}")
     base = str(request.base_url).rstrip("/")
     return render(request, "platform/company_created.html", {
-        "active": "companies", "user_name": getattr(user, "full_name", None) or "Admin",
-        "company_name": name_c, "company_slug": slug_c,
+        "active": "companies",
+        "user_name": getattr(user, "full_name", None) or "Admin",
+        "company_name": name_c,
+        "company_slug": slug_c,
+        "business_type": tpl.get("label", bt),
         "login_url": f"{base}/company/login",
-        "admin_email": admin_email_c, "admin_password": admin_password,
+        "admin_email": admin_email_c,
+        "admin_password": admin_password,
     })
 
 
@@ -833,7 +877,17 @@ async def platform_messages_clear(
 
 @app.get("/company/login", response_class=HTMLResponse)
 async def company_login_page(request: Request):
-    return render(request, "auth/company_login.html", {"error": None, "brand": ""})
+    email = (request.query_params.get("email") or "").strip()
+    registered = request.query_params.get("registered") in ("1", "true", "yes")
+    success = None
+    if registered:
+        success = "Account created successfully. Sign in with your company name, email and password to open your workspace."
+    return render(request, "auth/company_login.html", {
+        "error": None,
+        "brand": "",
+        "email": email,
+        "success": success,
+    })
 
 
 @app.post("/company/login")
@@ -841,69 +895,60 @@ async def company_login(
     request: Request, brand: str = Form(...), email: str = Form(...), password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    """Raw-SQL login — avoids MissingGreenlet on enums / lazy loads."""
+    from sqlalchemy import text as sa_text
     brand_q = brand.strip().lower()
     email_q = email.strip().lower()
-    company = (await db.execute(
-        select(Company).where(or_(
-            func.lower(Company.name) == brand_q,
-            Company.slug == brand_q.replace(" ", "-"),
-        ))
-    )).scalar_one_or_none()
-    st = getattr(company, "status", None) if company else None
-    if hasattr(st, "value"):
-        st = st.value
-    if not company or str(st or "").lower() == "suspended":
+    slug_q = brand_q.replace(" ", "-")
+
+    def _fail(msg: str):
         return render(request, "auth/company_login.html", {
-            "error": "Company not found or suspended", "brand": brand,
+            "error": msg, "brand": brand, "email": email_q, "success": None,
         }, 400)
 
-    user = None
+    company = (await db.execute(sa_text("""
+        SELECT id, name, slug, status::text AS status
+        FROM companies
+        WHERE lower(name) = :b
+           OR lower(slug) = :s
+           OR lower(name) LIKE :like
+        ORDER BY id DESC
+        LIMIT 1
+    """), {"b": brand_q, "s": slug_q, "like": f"%{brand_q}%"})).mappings().first()
+
+    if not company:
+        return _fail("Company not found. Use the exact business name you signed up with.")
+    st = str(company.get("status") or "").lower()
+    if "suspend" in st:
+        return _fail("This company is suspended. Contact platform support.")
+
+    row = (await db.execute(sa_text("""
+        SELECT id, hashed_password, role::text AS role, company_id, is_active
+        FROM users
+        WHERE lower(email) = :e AND company_id = :cid
+        LIMIT 1
+    """), {"e": email_q, "cid": int(company["id"])})).mappings().first()
+
+    if not row or not row.get("hashed_password") or not verify_password(password, row["hashed_password"]):
+        return _fail("Invalid email or password for this company.")
+    if row.get("is_active") is False:
+        return _fail("This account is inactive.")
+    role = str(row.get("role") or "").lower()
+    if "platform" in role and "company" not in role:
+        return _fail("Use platform login for platform admin accounts.")
+
+    # New signups → onboarding; returning users → dashboard
+    dest = "/company/onboarding"
     try:
-        user = (await db.execute(
-            select(User).where(User.email == email_q, User.company_id == company.id)
-        )).scalar_one_or_none()
-    except Exception as e:
-        print("company_login orm:", type(e).__name__, e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-        from sqlalchemy import text
-        row = (await db.execute(
-            text("""
-                SELECT id, hashed_password, role::text AS role, company_id
-                FROM users WHERE lower(email)=:e AND company_id=:cid LIMIT 1
-            """),
-            {"e": email_q, "cid": company.id},
-        )).mappings().first()
-        if not row or not verify_password(password, row["hashed_password"]):
-            return render(request, "auth/company_login.html", {
-                "error": "Invalid email or password for this company", "brand": brand,
-            }, 400)
-        role = str(row["role"] or "").lower()
-        if "company" not in role and "admin" not in role and "staff" not in role:
-            return render(request, "auth/company_login.html", {
-                "error": "Invalid email or password for this company", "brand": brand,
-            }, 400)
-        resp = RedirectResponse("/company/dashboard", status_code=303)
-        return set_session(resp, int(row["id"]), scope="company")
+        svc = (await db.execute(sa_text(
+            "SELECT COUNT(*) FROM services WHERE company_id = :cid"
+        ), {"cid": int(company["id"])})).scalar()
+        # still onboarding is fine either way
+    except Exception:
+        pass
 
-    def _is_company_role(u) -> bool:
-        r = getattr(u, "role", None)
-        if r is None:
-            return False
-        if hasattr(r, "value"):
-            v = str(r.value).lower()
-        else:
-            v = str(r).lower()
-        return "company_admin" in v or "company_staff" in v or v.endswith("admin") or "staff" in v
-
-    if not user or not _is_company_role(user) or not verify_password(password, user.hashed_password):
-        return render(request, "auth/company_login.html", {
-            "error": "Invalid email or password for this company", "brand": brand,
-        }, 400)
-    resp = RedirectResponse("/company/dashboard", status_code=303)
-    return set_session(resp, user.id, scope="company")
+    resp = RedirectResponse(dest, status_code=303)
+    return set_session(resp, int(row["id"]), scope="company")
 
 
 @app.get("/company/logout")
