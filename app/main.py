@@ -1297,54 +1297,94 @@ async def company_services_guide(
 async def company_services(
     request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Catalogue is ALWAYS scoped to company.business_type — never force printing on other businesses."""
+    """Raw-SQL only — avoids MissingGreenlet on Service ORM attributes."""
+    from sqlalchemy import text as sa_text
     from app.data.seed_catalog import services_for
     from app.data.business_templates import get_template
-    from app.data.master_catalog import MASTER_CATALOG, catalog_key as mk_key
-    company = await company_ctx(user, db)
-    bt = (getattr(company, "business_type", None) or "printing")
+
+    cid = int(user.company_id)
+    # Company snapshot (no lazy loads)
+    crow = (await db.execute(sa_text("""
+        SELECT id, name, currency, COALESCE(business_type, 'printing') AS business_type
+        FROM companies WHERE id = :id
+    """), {"id": cid})).mappings().first()
+    if not crow:
+        return RedirectResponse("/company/login", status_code=303)
+
+    cname = crow.get("name") or "Company"
+    cur = crow.get("currency") or "NGN"
+    bt = crow.get("business_type") or "printing"
     tpl = get_template(bt)
     bt_key = (bt or "printing").strip().lower().replace(" ", "_").replace("-", "_")
 
-    # Auto-seed if this company has zero services (e.g. signup seed failed)
-    existing_count = (await db.execute(
-        select(func.count()).select_from(Service).where(Service.company_id == company.id)
-    )).scalar() or 0
-    if int(existing_count) == 0:
+    # Count existing services
+    existing_count = int((await db.execute(sa_text(
+        "SELECT COUNT(*) FROM services WHERE company_id = :cid"
+    ), {"cid": cid})).scalar() or 0)
+
+    if existing_count == 0:
         try:
             from app.services.seed_company import seed_company_from_template
             await seed_company_from_template(
-                db, company_id=int(company.id), business_type=bt,
-                company_name=getattr(company, "name", "") or "Company",
+                db, company_id=cid, business_type=bt, company_name=cname,
             )
         except Exception as se:
-            print("services_auto_seed", se)
+            print("services_auto_seed", type(se).__name__, se)
 
-    services = list((await db.execute(
-        select(Service).where(Service.company_id == company.id).order_by(Service.category, Service.name)
-    )).scalars().all())
-    enabled_keys = {getattr(s, "catalog_key", None) for s in services if getattr(s, "catalog_key", None)}
-    enabled_names = {(s.category, s.name) for s in services}
-    cur = getattr(company, "currency", None) or "NGN"
+    # Load enabled services as plain dicts
+    try:
+        srows = (await db.execute(sa_text("""
+            SELECT id, name, category, base_price, unit,
+                   COALESCE(pricing_method, 'piece') AS pricing_method,
+                   COALESCE(is_active, true) AS is_active,
+                   COALESCE(description, '') AS description,
+                   COALESCE(min_qty, 1) AS min_qty,
+                   catalog_key
+            FROM services
+            WHERE company_id = :cid
+            ORDER BY category NULLS LAST, name
+        """), {"cid": cid})).mappings().all()
+    except Exception as e:
+        print("services_list_fallback", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        srows = (await db.execute(sa_text("""
+            SELECT id, name, category, base_price, unit, is_active, description
+            FROM services WHERE company_id = :cid ORDER BY name
+        """), {"cid": cid})).mappings().all()
+
+    enabled_keys = set()
+    enabled_names = set()
     rows = []
-    for s in services:
+    for s in srows:
+        cat = s.get("category") or ""
+        name = s.get("name") or ""
+        ck = s.get("catalog_key")
+        if ck:
+            enabled_keys.add(ck)
+        enabled_names.add((cat, name))
+        price = float(s.get("base_price") or 0)
+        unit = s.get("unit") or "piece"
         rows.append({
-            "id": s.id,
-            "name": s.name,
-            "category": s.category,
-            "price": f"{cur} {float(s.base_price or 0):,.0f} / {s.unit}",
-            "base_price": s.base_price,
-            "unit": s.unit,
-            "pricing_method": getattr(s, "pricing_method", None) or "piece",
-            "active": s.is_active,
-            "description": s.description or "",
-            "min_qty": int(getattr(s, "min_qty", None) or 1),
+            "id": s.get("id"),
+            "name": name,
+            "category": cat,
+            "price": f"{cur} {price:,.0f} / {unit}",
+            "base_price": price,
+            "unit": unit,
+            "pricing_method": s.get("pricing_method") or "piece",
+            "active": bool(s.get("is_active", True)),
+            "description": s.get("description") or "",
+            "min_qty": int(s.get("min_qty") or 1),
         })
 
-    # Build catalogue for THIS business type only
+    # Catalogue for this business type only
     seed_items = services_for(bt)
     catalog_view = []
     categories = []
+
     if seed_items:
         for item in seed_items:
             cat = item.get("category") or "General"
@@ -1366,38 +1406,40 @@ async def company_services(
                 "enabled": on,
             })
     elif bt_key in ("printing", "print"):
-        # Full printing PDF catalogue only for print businesses
-        for item in MASTER_CATALOG:
-            key = mk_key(item["category"], item["name"])
-            on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
-            if item["category"] not in categories:
-                categories.append(item["category"])
-            catalog_view.append({**item, "key": key, "enabled": on})
+        try:
+            from app.data.master_catalog import MASTER_CATALOG, catalog_key as mk_key
+            for item in MASTER_CATALOG:
+                key = mk_key(item["category"], item["name"])
+                on = key in enabled_keys or (item["category"], item["name"]) in enabled_names
+                if item["category"] not in categories:
+                    categories.append(item["category"])
+                catalog_view.append({**item, "key": key, "enabled": on})
+        except Exception as e:
+            print("master_catalog_load", e)
     else:
-        # custom / unknown — empty master, company only manages their own rows
         categories = sorted({r["category"] for r in rows if r.get("category")})
 
     q = (request.query_params.get("q") or "").strip().lower()
     cat_filter = (request.query_params.get("cat") or "").strip()
     if q:
-        catalog_view = [c for c in catalog_view if q in c["name"].lower() or q in (c.get("category") or "").lower()]
+        catalog_view = [
+            c for c in catalog_view
+            if q in (c.get("name") or "").lower() or q in (c.get("category") or "").lower()
+        ]
     if cat_filter:
         catalog_view = [c for c in catalog_view if c.get("category") == cat_filter]
 
-
     return render(request, "company/services.html", {
+        "active": "services",
         "business_type": bt_key,
         "business_label": tpl.get("label") or bt_key,
         "services_label": tpl.get("services_label") or "Services",
-        "categories": categories,
-
-        "active": "services",
-        "company_name": getattr(company, "name", "") or "",
-        "user_name": getattr(user, "full_name", "") or "",
+        "company_name": cname,
+        "user_name": getattr(user, "full_name", None) or getattr(user, "email", "") or "",
         "services": rows,
         "catalog": catalog_view,
         "categories": categories,
-        "currency": getattr(company, "currency", None) or "NGN",
+        "currency": cur,
         "q": request.query_params.get("q") or "",
         "cat": cat_filter,
         "saved": request.query_params.get("saved"),
