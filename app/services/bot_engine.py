@@ -250,12 +250,19 @@ def _detect_customer_lang(text: str, ctx: dict) -> str:
     """Match customer vibe: pidgin markers vs formal English."""
     low = (text or "").lower()
     pidgin_markers = (
-        "wetin", "abeg", "dey", "wan ", "una", "na ", "how far", "o!", "sha",
-        "make i", "i go", "e be", "no wahala", "sharp", "bros", "oga", "pls abeg",
-        "i dey", "you dey", "wetin you", "how much be",
+        "abeg", "wetin", "how far", "no vex", "i wan", "i dey", "una", "naf", "oya",
+        "make i", "e be like", "wahala", "sharp sharp", "i go", "you fit", "wetin be",
+        "how much be", "abeg help", "bros", "ogas", "na so",
+    )
+    yoruba_markers = (
+        "bawo", "pele", "e se", "ese", "mo fe", "mo n", "se o", "nko", "jowo", "e jowo",
+        "kilode", "kilo de", "wa nibi", "omo", "egbon", "iya", "baba", "odu", "naira",
+        "mo need", "se e", "eelo", "elo ni", "meloo", "meelo",
     )
     if any(m in low for m in pidgin_markers):
         return "pidgin"
+    if any(m in low for m in yoruba_markers):
+        return "pidgin"  # respond pidgin + light Yoruba when customer uses Yoruba
     # if company forced pidgin only
     if ctx.get("lang") == "pidgin" and not text:
         return "pidgin"
@@ -284,7 +291,7 @@ async def _grok_staff(
     system = (
         f"You are a real customer-care staff at {company.name}, a printing and branding shop. "
         "Never say you are an AI or a bot. "
-        f"Reply in {'Nigerian Pidgin English (natural, short)' if lang == 'pidgin' else 'clear, friendly professional English'}. "
+        f"Reply in {'natural Nigerian Pidgin (short, friendly). If the customer used Yoruba words, you may add light Yoruba (e.g. e se, jowo, bawo) mixed into the Pidgin — never formal textbook Yoruba essays' if lang == 'pidgin' else 'clear, friendly professional English'}. "
         "Match the customer's tone: if they wrote casually, be warm; if formal, be professional. "
         "Keep replies short (1-4 sentences). "
         f"Services and rates we actually offer: {catalog}. "

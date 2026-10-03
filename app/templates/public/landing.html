@@ -28,17 +28,21 @@
     </div>
     <div class="max-w-6xl mx-auto px-4 text-center">
       <div class="inline-flex items-center gap-2 px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider mb-5 sm:mb-6 border max-w-full text-center leading-snug" style="border-color:color-mix(in srgb,var(--primary) 30%,transparent);color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent)">
-        Enterprise WhatsApp automation for printing and branding companies
+        WhatsApp &amp; Telegram AI for every kind of business
       </div>
       <h1 class="text-[1.75rem] leading-tight sm:text-5xl lg:text-[3.5rem] font-bold tracking-tight sm:leading-[1.08] mb-5 sm:mb-6 max-w-4xl mx-auto px-1">
-        Turn WhatsApp chats into structured,<br class="hidden sm:block">
-        <span style="color:var(--primary)">production-ready</span> print orders.
+        Your customers chat.<br class="hidden sm:block">
+        <span style="color:var(--primary)">Your AI closes the loop.</span>
       </h1>
       <p class="text-base sm:text-lg text-[var(--text-secondary)] max-w-2xl mx-auto mb-10">
-        Client-RaQ equips print shops with automated WhatsApp quote engines, instant payment proof verification, and fully isolated multi-tenant workspaces.
+        Client-RaQ is a multi-tenant assistant for any business on WhatsApp or Telegram — shops, services, exchangers, beauty, logistics, and more. Set your services and prices once; the bot handles enquiries, quotes, and orders in the customer&rsquo;s language.
       </p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
-        <a href="/trial" class="btn-primary px-8">Start free trial</a>
+        {% if pricing and pricing.trial_enabled %}
+        <a href="/trial" class="btn-primary px-8 min-h-[48px] flex items-center justify-center">Start free trial</a>
+        {% else %}
+        <a href="/checkout" class="btn-primary px-8 min-h-[48px] flex items-center justify-center">Subscribe</a>
+        {% endif %}
         <a href="#pricing" class="btn-ghost px-8">View plans</a>
         <a href="/company/login" class="btn-ghost px-8">Unified Company Login</a>
       </div>
@@ -46,12 +50,12 @@
         <div class="card p-5">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Extraction accuracy</div>
           <div class="text-2xl font-bold font-tabular" style="color:var(--primary)">99.4%</div>
-          <div class="text-xs text-[var(--text-secondary)] mt-1">Spec parameters recognized automatically</div>
+          <div class="text-xs text-[var(--text-secondary)] mt-1">Intent and order details understood automatically</div>
         </div>
         <div class="card p-5">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Velocity</div>
           <div class="text-2xl font-bold font-tabular" style="color:var(--status-active)">4.5x</div>
-          <div class="text-xs text-[var(--text-secondary)] mt-1">Quicker quote-to-print conversion cycles</div>
+          <div class="text-xs text-[var(--text-secondary)] mt-1">Faster quote-to-order conversion</div>
         </div>
         <div class="card p-5">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">Multi-currency</div>
@@ -67,7 +71,7 @@
     <div class="max-w-6xl mx-auto px-4">
       <div class="text-center mb-10">
         <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Live orchestration engine</h2>
-        <p class="text-sm text-[var(--text-secondary)]">Chat intent to production ticket in seconds — designed for real print workflows.</p>
+        <p class="text-sm text-[var(--text-secondary)]">From first message to a clear order ticket — built for real business chat, not generic chatbots.</p>
       </div>
       <div class="grid lg:grid-cols-2 gap-4">
         <div class="card p-5 sm:p-6">
@@ -111,12 +115,12 @@
   <section class="py-16 border-t border-[var(--border-subtle)]">
     <div class="max-w-6xl mx-auto px-4">
       <div class="text-center mb-10">
-        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Architecture built for print precision</h2>
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Architecture built for real operations</h2>
         <p class="text-sm text-[var(--text-secondary)] max-w-xl mx-auto">From teardrop yardage to commercial flyer offsets — Client-RaQ removes quoting friction.</p>
       </div>
       <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {% set cards = [
-          ('building', 'Multi-tenant data isolation', 'Row-level tenant segregation ensures print houses never cross-wire orders, staff roles, or client CRM records.'),
+          ('building', 'Multi-tenant data isolation', 'Row-level tenant segregation so each business only sees its own customers, orders, and staff.'),
           ('receipt', 'Domain-specific quoting', 'Tailored price calculators for large format, flex, sublimation, apparel, vinyl, stationery and UV.'),
           ('credit-card', 'Payment proof and bank sync', 'Multi-currency settlement with screenshot verification before production release.'),
           ('messages-square', 'Live operator takeover', 'Supervisors join WhatsApp threads with full history — zero disruption to the bot flow.')
@@ -136,7 +140,7 @@
   <section class="py-16 border-t border-[var(--border-subtle)]">
     <div class="max-w-6xl mx-auto px-4">
       <div class="text-center mb-10">
-        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Built for platform landlords and print tenants</h2>
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Built for the platform owner and every business on it</h2>
         <p class="text-sm text-[var(--text-secondary)]">Clean operational separation between platform management and company fulfillment.</p>
       </div>
       <div class="grid md:grid-cols-2 gap-4">
@@ -153,12 +157,12 @@
         </div>
         <div class="card p-6 sm:p-8">
           <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--status-active)">Company tenant</div>
-          <h3 class="text-lg font-semibold mb-4">Commercial print shop workspace</h3>
+          <h3 class="text-lg font-semibold mb-4">Company workspace</h3>
           <ul class="space-y-3 text-sm text-[var(--text-secondary)]">
             <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Custom services, pricing and currency</li>
             <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Production queue and status updates to customers</li>
             <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Bank accounts for bot payment instructions</li>
-            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Live chats, bot settings, WhatsApp Cloud API</li>
+            <li class="flex gap-2"><span style="color:var(--status-active)">✓</span> Live chats, bot settings, WhatsApp & Telegram channels</li>
           </ul>
           <a href="/company/login" class="btn-ghost mt-6 h-10 text-xs inline-flex">Tenant workspace</a>
         </div>
@@ -268,12 +272,22 @@
   <!-- CTA -->
   <section class="py-16">
     <div class="max-w-3xl mx-auto px-4">
-      <div class="card p-10 sm:p-12 text-center" style="background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 15%,var(--surface-card)),var(--surface-card))">
-        <h2 class="text-2xl font-bold mb-3">Put AI customer service on your WhatsApp and Telegram</h2>
-        <p class="text-sm text-[var(--text-secondary)] mb-6 max-w-md mx-auto">Connect your channel, set your services, and let Client-RaQ handle inquiries, quotes, and orders — for any business type you run.</p>
-        <div class="flex flex-col sm:flex-row gap-3 justify-center">
-          <a href="/company/login" class="btn-primary">Company login</a>
-          <a href="https://wa.me/2349169158961" target="_blank" rel="noopener" class="btn-ghost inline-flex items-center justify-center gap-2" aria-label="WhatsApp support">{{ icon('phone') }} WhatsApp</a>
+      <div class="card p-8 sm:p-12 text-center overflow-hidden" style="background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 15%,var(--surface-card)),var(--surface-card))">
+        <h2 class="text-xl sm:text-2xl font-bold mb-3 leading-snug">AI customer service on WhatsApp and Telegram</h2>
+        <p class="text-sm text-[var(--text-secondary)] mb-8 max-w-md mx-auto leading-relaxed">
+          Connect your number, set services and prices, and let Client-RaQ handle enquiries and orders for the business you run.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center max-w-sm sm:max-w-none mx-auto">
+          {% if pricing and pricing.trial_enabled %}
+          <a href="/trial" class="btn-primary min-h-[48px] px-6 flex items-center justify-center text-sm font-semibold">Start free trial</a>
+          {% else %}
+          <a href="/checkout" class="btn-primary min-h-[48px] px-6 flex items-center justify-center text-sm font-semibold">Subscribe</a>
+          {% endif %}
+          <a href="/company/login" class="btn-ghost min-h-[48px] px-6 flex items-center justify-center text-sm font-semibold">Company login</a>
+          <a href="https://wa.me/2349169158961" target="_blank" rel="noopener"
+             class="btn-ghost min-h-[48px] px-6 flex items-center justify-center text-sm font-semibold">
+            Chat on WhatsApp
+          </a>
         </div>
       </div>
     </div>
@@ -299,7 +313,7 @@
       <div class="font-semibold text-xs uppercase tracking-wider text-[var(--text-muted)] mb-3">Support</div>
       <ul class="space-y-2 text-[var(--text-secondary)]">
         <li><a href="https://wa.me/2349169158961" target="_blank" class="hover:text-[var(--primary)]">WhatsApp support</a></li>
-        <li><a href="/trial" class="hover:text-[var(--primary)]">Free trial</a></li>
+        {% if pricing and pricing.trial_enabled %}<li><a href="/trial" class="hover:text-[var(--primary)]">Free trial</a></li>{% endif %}
         <li><a href="/checkout" class="hover:text-[var(--primary)]">Subscribe</a></li>
       </ul>
     </div>

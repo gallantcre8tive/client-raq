@@ -744,8 +744,12 @@ async def platform_messages_send(
         inserted = False
         for sql, params in [
             ("""INSERT INTO admin_notifications
-                (company_id, conversation_id, title, body, priority, is_read, link_path, created_at)
-             VALUES (:cid, NULL, :title, :body, 'high', false, '/company/dashboard', NOW())""",
+                (company_id, conversation_id, title, body, priority, is_read, link_path, kind, created_at)
+             VALUES (:cid, NULL, :title, :body, 'high', false, '/company/dashboard', 'platform', NOW())""",
+             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
+            ("""INSERT INTO admin_notifications
+                (company_id, title, body, priority, is_read, kind, created_at)
+             VALUES (:cid, :title, :body, 'high', false, 'platform', NOW())""",
              {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
             ("""INSERT INTO admin_notifications
                 (company_id, title, body, priority, is_read, created_at)

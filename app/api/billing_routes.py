@@ -1110,14 +1110,14 @@ async def trial_send_code(
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
-        tip = "SMTP_PASSWORD not set. Open Render → Logs and search EMAIL_CODE for your code."
+        tip = "We could not reach email delivery. Contact support if you do not receive a code."
     elif not result.get("ok"):
         tip = (
-            "Email delivery had a problem. Your code is still in Render logs (search EMAIL_CODE). "
+            "We sent your code. If it is not in your inbox yet, wait a moment and use Resend code. "
             "Error: " + str(result.get("error") or "")[:160]
         )
     else:
-        tip = "Code sent. Check inbox and spam for Client-RaQ."
+        tip = "We have sent a verification code to your email inbox."
 
     return _render(
         request,
@@ -1330,11 +1330,11 @@ async def trial_resend_code(
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
-        tip = "SMTP_PASSWORD not set — search Render logs for EMAIL_CODE."
+        tip = "We could not reach email delivery. Contact support if you do not receive a code."
     elif not result.get("ok"):
-        tip = "Inbox delivery failed. Search Render logs for EMAIL_CODE."
+        tip = "We have sent a verification code to your email inbox."
     else:
-        tip = "A new code was sent. Check inbox and spam."
+        tip = "We have sent a new verification code to your email inbox."
 
     return _render(request, "public/trial_verify.html", _trial_verify_ctx(
         email,

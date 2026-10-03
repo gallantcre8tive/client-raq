@@ -61,4 +61,17 @@
     <button type="submit" class="btn-primary">Save secrets</button>
   </form>
 </div>
+
+<div class="card p-6 mt-6 max-w-3xl space-y-3">
+  <h3 class="font-semibold">Grok / xAI API balance</h3>
+  <p class="text-sm text-[var(--text-secondary)] leading-relaxed">
+    Client-RaQ uses your Grok (xAI) key for company bots. xAI does not allow third-party sites to top up or read your console balance inside this dashboard.
+    Top up and view remaining credits on the official console; then keep the same key in Render (or update it above).
+  </p>
+  <div class="flex flex-col sm:flex-row gap-3">
+    <a href="https://console.x.ai/" target="_blank" rel="noopener" class="btn-primary min-h-[44px] px-5 inline-flex items-center justify-center text-sm">Open xAI console</a>
+    <a href="https://console.x.ai/" target="_blank" rel="noopener" class="btn-ghost min-h-[44px] px-5 inline-flex items-center justify-center text-sm">Top up / view balance</a>
+  </div>
+  <p class="text-xs text-[var(--text-muted)]">When the key is valid on Render as <code class="text-[var(--text-secondary)]">GROK_API_KEY</code> or <code class="text-[var(--text-secondary)]">XAI_API_KEY</code>, bots use it automatically. No second key is required.</p>
+</div>
 {% endblock %}

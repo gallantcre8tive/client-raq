@@ -5,6 +5,13 @@ from typing import Any
 BUSINESS_TYPES: dict[str, dict[str, Any]] = {
     "printing": {
         "label": "Printing & branding",
+        "extra_ai_rules": """PRINTING DETAIL QUESTIONS (ask only when relevant, never all at once):
+- Flex / banner / large format: ask if they need eyelets (metal rings), pole pockets, or plain hem. Confirm size unit (ft vs inches) before quoting.
+- Stickers: ask print-and-cut vs print-only (sheet). For small inch sizes with low quantity, enforce company minimum quantity and explain material waste if below minimum.
+- Frames: offer size list (5x7, 8x10, …) and frame vs frameless vs acrylic when company has those services enabled.
+- Nylon / bags: confirm quantity against minimum order; ask logo one-side or both if relevant.
+- Always calculate with the company's saved prices and units. Confirm finishing options on the order ticket for staff.
+""",
         "summary": "Banners, stickers, frames, nylon, apparel, large format.",
         "dashboard_label": "Print jobs",
         "orders_label": "Print orders",
@@ -326,7 +333,7 @@ def build_system_prompt(company: Any, business_type: str | None = None) -> str:
     lang = getattr(company, "bot_language", None) or "both"
     personality = getattr(company, "bot_personality", None) or "friendly"
 
-    rules = "\n".join(f"- {r}" for r in tpl["domain_rules"])
+    rules = "\n".join(f"- {r}" for r in tpl.get("domain_rules") or [])
     extra = []
     if about:
         extra.append(f"About the business: {about[:800]}")
@@ -338,13 +345,18 @@ def build_system_prompt(company: Any, business_type: str | None = None) -> str:
         extra.append(f"Location: {location[:200]}")
     if custom:
         extra.append(f"Owner instructions (follow these): {custom[:1200]}")
+    extra_ai = (tpl.get("extra_ai_rules") or "").strip()
+    if extra_ai:
+        extra.append(extra_ai[:2000])
 
     lang_rule = {
         "english": "Reply in clear professional English.",
-        "pidgin": "Reply in natural Nigerian Pidgin when the customer uses Pidgin; otherwise simple English.",
-        "both": "Match the customer: Pidgin if they use Pidgin; otherwise clear English. Support other languages when the customer writes in them.",
-        "multi": "Detect the customer's language and reply in the same language.",
-    }.get(str(lang).lower(), "Match the customer's language when possible.")
+        "pidgin": "Reply in natural Nigerian Pidgin. If the customer uses Yoruba, mix light everyday Yoruba into the Pidgin (e se, jowo, bawo) — keep it short.",
+        "both": "Match the customer: Pidgin if they use Pidgin or Yoruba (light Yoruba + Pidgin ok); clear English if they write formal English. Support French/Spanish/Arabic when the customer writes in them.",
+        "multi": "Detect the customer's language (including Yoruba, Pidgin, English, French, etc.) and reply in the same language style.",
+    }.get(str(lang).lower(), "Match the customer's language when possible. Pidgin + light Yoruba is fine when they write that way.")
+
+    extra_block = ("\n".join(extra) + "\n") if extra else ""
 
     return f"""You are Client RaQ, the WhatsApp/Telegram {tpl['agent_role']} for "{name}".
 
@@ -357,7 +369,7 @@ Currency context: {currency}
 DOMAIN RULES:
 {rules}
 
-LANGUAGE: {lang_rule}
+{extra_block}LANGUAGE: {lang_rule}
 
 HARD RULES (ALL BUSINESSES):
 1. NEVER invent services, prices, bank details, or order status. Use tools.

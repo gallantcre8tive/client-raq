@@ -687,3 +687,13 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
   h1, h2 { word-wrap: break-word; overflow-wrap: break-word; }
   .card { margin-left: 0; margin-right: 0; }
 }
+
+
+/* CTA icon clamp — prevent huge SVG on mobile */
+.btn-primary svg, .btn-ghost svg, a.btn-primary svg, a.btn-ghost svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  max-width: 1.25rem;
+  max-height: 1.25rem;
+  flex-shrink: 0;
+}
