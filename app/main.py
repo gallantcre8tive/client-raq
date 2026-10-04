@@ -1438,10 +1438,18 @@ async def company_services(
     enabled_names = set()
     enabled_keys = set()
     try:
-        srows = (await db.execute(sa_text(
-            "SELECT id, name, category, base_price, unit, is_active, description FROM services "
-            "WHERE company_id = :cid ORDER BY name"
-        ), {"cid": cid})).mappings().all()
+        try:
+            srows = (await db.execute(sa_text(
+                "SELECT id, name, category, base_price, unit, is_active, description, "
+                "COALESCE(pricing_method, 'piece') AS pricing_method, COALESCE(min_qty, 1) AS min_qty "
+                "FROM services WHERE company_id = :cid ORDER BY name"
+            ), {"cid": cid})).mappings().all()
+        except Exception:
+            await db.rollback()
+            srows = (await db.execute(sa_text(
+                "SELECT id, name, category, base_price, unit, is_active, description FROM services "
+                "WHERE company_id = :cid ORDER BY name"
+            ), {"cid": cid})).mappings().all()
         for s in srows:
             cat = str(s.get("category") or "")
             name = str(s.get("name") or "")
@@ -1457,10 +1465,10 @@ async def company_services(
                 "price": f"{cur} {price:,.0f} / {unit}",
                 "base_price": price,
                 "unit": unit,
-                "pricing_method": "piece",
+                "pricing_method": str(s.get("pricing_method") or "piece"),
                 "active": bool(s.get("is_active", True)),
                 "description": str(s.get("description") or ""),
-                "min_qty": 1,
+                "min_qty": int(s.get("min_qty") or 1),
             })
     except Exception as e:
         print("services_list", type(e).__name__, e)
