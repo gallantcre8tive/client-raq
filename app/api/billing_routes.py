@@ -752,7 +752,12 @@ async def company_billing_renew(
         plan_code = "monthly"
     want_wa = channel_whatsapp in ("on", "true", "1", "yes")
     want_tg = channel_telegram in ("on", "true", "1", "yes")
-    if plan_code in ("six_month", "yearly"):
+    # Monthly = WhatsApp only. Telegram only on 6-month / yearly.
+    if plan_code == "monthly":
+        want_tg = False
+        if not want_wa:
+            want_wa = True
+    elif plan_code in ("six_month", "yearly"):
         want_wa, want_tg = True, True
     if not want_wa and not want_tg:
         want_wa = True

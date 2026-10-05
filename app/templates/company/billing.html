@@ -167,37 +167,50 @@
       </p>
     </div>
 
-    <form method="post" action="/company/billing/renew" class="space-y-6" x-data="{ plan: 'monthly' }">
+    <form method="post" action="/company/billing/renew" class="space-y-6"
+          x-data="{ plan: 'monthly' }"
+          x-effect="if (plan === 'monthly') { /* telegram locked */ }">
       <div class="grid sm:grid-cols-3 gap-4">
         <label class="plan-card" :class="plan==='monthly' && 'is-selected'">
           <input type="radio" name="plan_code" value="monthly" class="sr-only" x-model="plan" checked>
           <p class="text-xs font-medium text-[var(--text-muted)] m-0">Monthly</p>
           <p class="text-2xl font-bold m-0 mt-2 tracking-tight">₦{{ "{:,.0f}".format(pricing.monthly_ngn) }}</p>
-          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">30 days · WhatsApp</p>
+          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">30 days · WhatsApp only</p>
         </label>
         <label class="plan-card" :class="plan==='six_month' && 'is-selected'">
           <input type="radio" name="plan_code" value="six_month" class="sr-only" x-model="plan">
           <p class="text-xs font-medium text-[var(--text-muted)] m-0">6 months</p>
           <p class="text-2xl font-bold m-0 mt-2 tracking-tight">₦{{ "{:,.0f}".format(pricing.six_month_ngn) }}</p>
-          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">180 days · WA + Telegram</p>
+          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">180 days · WhatsApp + Telegram</p>
         </label>
         <label class="plan-card" :class="plan==='yearly' && 'is-selected'">
           <input type="radio" name="plan_code" value="yearly" class="sr-only" x-model="plan">
           <p class="text-xs font-medium text-[var(--text-muted)] m-0">Yearly</p>
           <p class="text-2xl font-bold m-0 mt-2 tracking-tight">₦{{ "{:,.0f}".format(pricing.yearly_ngn) }}</p>
-          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">365 days · WA + Telegram</p>
+          <p class="text-xs text-[var(--text-muted)] m-0 mt-2 leading-relaxed">365 days · WhatsApp + Telegram</p>
         </label>
       </div>
 
       <div class="flex flex-col gap-3 text-sm pt-1">
         <label class="inline-flex items-center gap-3 cursor-pointer py-1">
           <input type="checkbox" name="channel_whatsapp" value="1" class="rounded" checked>
-          <span>WhatsApp channel</span>
+          <span>WhatsApp channel <span class="text-[var(--text-muted)] text-xs">(included on every plan)</span></span>
         </label>
-        <label class="inline-flex items-center gap-3 cursor-pointer py-1">
-          <input type="checkbox" name="channel_telegram" value="1" class="rounded">
-          <span>Telegram <span class="text-[var(--text-muted)] text-xs">(add-on on monthly)</span></span>
+
+        {# Monthly: locked — upgrade required #}
+        <div x-show="plan === 'monthly'" class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3.5 text-sm leading-relaxed">
+          <p class="m-0 font-medium text-[var(--text-primary)]">Telegram not on Monthly</p>
+          <p class="m-0 mt-1 text-[var(--text-secondary)] text-xs">
+            Upgrade to <strong>6 months</strong> or <strong>Yearly</strong> to unlock the Telegram bot with the same login.
+          </p>
+          </div>
+
+        {# 6m / yearly: Telegram included (checked, can leave on) #}
+        <label x-show="plan !== 'monthly'" x-cloak class="inline-flex items-center gap-3 cursor-pointer py-1">
+          <input type="checkbox" name="channel_telegram" value="1" class="rounded" checked>
+          <span>Telegram channel <span class="text-[var(--text-muted)] text-xs">(included on 6 months &amp; yearly)</span></span>
         </label>
+
         <label class="inline-flex items-center gap-3 cursor-pointer py-1">
           <input type="checkbox" name="include_guide" value="1" class="rounded">
           <span>Config guide — ₦{{ "{:,.0f}".format(pricing.guide_fee_ngn) }}</span>
