@@ -69,7 +69,7 @@
         <div class="relative" @click.outside="notifOpen = false">
           <button
             type="button"
-            @click="notifOpen = !notifOpen"
+            @click="notifOpen = !notifOpen; if (window.pollNotifyNow) window.pollNotifyNow();"
             class="relative shrink-0 w-10 h-10 rounded-xl border border-[var(--border-subtle)] inline-flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--surface-subtle)]"
             aria-label="Notifications"
           >
@@ -269,6 +269,7 @@
       setTimeout(start, 50);
       return;
     }
+    window.pollNotifyNow = pollNotify;
     pollNotify();
     setInterval(pollNotify, 2000);
   }

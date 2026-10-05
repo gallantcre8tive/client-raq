@@ -2852,11 +2852,99 @@ async def company_notifications_clear_api(
 async def company_notifications_api(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    from app.services.company_notify import list_company_notifications
+    """Bell feed — same data source as /debug (unread only)."""
+    from sqlalchemy import text as sa_text
+    from app.services.admin_notify import ensure_notif_table
     cid = getattr(user, "company_id", None)
     if not cid:
         return []
-    return await list_company_notifications(db, int(cid), limit=40)
+    await ensure_notif_table(db)
+    out = []
+    try:
+        rows = (await db.execute(sa_text("""
+            SELECT id, title, body,
+                   COALESCE(priority, 'high') AS priority,
+                   conversation_id,
+                   COALESCE(link_path, '') AS link_path,
+                   COALESCE(kind, 'general') AS kind,
+                   created_at,
+                   COALESCE(is_read, false) AS is_read
+            FROM admin_notifications
+            WHERE company_id = :cid
+              AND COALESCE(is_read, false) = false
+            ORDER BY id DESC
+            LIMIT 40
+        """), {"cid": int(cid)})).mappings().all()
+        for n in rows:
+            title = n.get("title") or "Notification"
+            body = n.get("body") or ""
+            kind = str(n.get("kind") or "general").lower()
+            pri = str(n.get("priority") or "high").lower()
+            if kind in ("platform", "platform_message") or "platform" in title.lower() or "message from" in title.lower():
+                kind = "platform"
+                pri = "high"
+            created = n.get("created_at")
+            time_s = ""
+            if created is not None:
+                try:
+                    time_s = created.strftime("%d %b %Y · %H:%M")
+                except Exception:
+                    time_s = str(created)[:16]
+            conv_id = n.get("conversation_id")
+            link = (n.get("link_path") or "").strip()
+            if not link:
+                link = f"/company/messages?c={conv_id}" if conv_id else "/company/dashboard"
+            out.append({
+                "id": int(n["id"]),
+                "title": title,
+                "body": body,
+                "priority": pri,
+                "kind": kind,
+                "conversation_id": conv_id,
+                "link": link,
+                "created_at": time_s,
+                "time": time_s,
+                "is_read": False,
+            })
+    except Exception as e:
+        print("company_notifications_api", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # Fallback without is_read / extra columns
+        try:
+            rows = (await db.execute(sa_text("""
+                SELECT id, title, body, created_at FROM admin_notifications
+                WHERE company_id = :cid ORDER BY id DESC LIMIT 40
+            """), {"cid": int(cid)})).mappings().all()
+            for n in rows:
+                created = n.get("created_at")
+                time_s = ""
+                if created is not None:
+                    try:
+                        time_s = created.strftime("%d %b %Y · %H:%M")
+                    except Exception:
+                        time_s = str(created)[:16]
+                out.append({
+                    "id": int(n["id"]),
+                    "title": n.get("title") or "Notification",
+                    "body": n.get("body") or "",
+                    "priority": "high",
+                    "kind": "platform",
+                    "conversation_id": None,
+                    "link": "/company/dashboard",
+                    "created_at": time_s,
+                    "time": time_s,
+                    "is_read": False,
+                })
+        except Exception as e2:
+            print("company_notifications_api fallback", e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+    return out
 
 
 @app.get("/company/api/notifications")
@@ -2879,23 +2967,6 @@ async def company_notification_read(
     if cid:
         await mark_notification_read(db, int(cid), int(nid))
     return {"ok": True}
-
-    try:
-        await db.execute(sa_text("""
-            UPDATE admin_notifications
-            SET is_read = true
-            WHERE id = :nid AND company_id = :cid
-        """), {"nid": int(nid), "cid": int(cid)})
-        await db.commit()
-    except Exception as e:
-        print("notif read:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    return {"ok": True}
-
-
 
 
 @app.get("/company/api/notifications/debug")
