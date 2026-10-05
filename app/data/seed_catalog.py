@@ -175,34 +175,59 @@ RETAIL = [
 ]
 
 EXCHANGER = [
-    ("PayPal USD receive", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "PayPal — set email + Friends & Family rule in description"),
-    ("PayPal send / payout", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Pay out to customer PayPal"),
-    ("Chime", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Chime transfer corridor"),
-    ("Revolut", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Revolut corridor"),
-    ("Cash App", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Cash App $cashtag corridor"),
-    ("Zelle", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Zelle corridor"),
-    ("Venmo", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Venmo corridor"),
-    ("Wise / TransferWise", "Wallets", "transaction", "rate_based", "rate_based", 0, 1, "Wise corridor"),
-    ("NGN to USD transfer", "FX corridors", "transaction", "rate_based", "rate_based", 0, 1, "Set your NGN→USD rate in description or price note"),
-    ("USD to NGN payout", "FX corridors", "transaction", "rate_based", "rate_based", 0, 1, "Set your USD→NGN rate"),
-    ("NGN to GBP", "FX corridors", "transaction", "rate_based", "rate_based", 0, 1, "GBP corridor"),
-    ("NGN to EUR", "FX corridors", "transaction", "rate_based", "rate_based", 0, 1, "EUR corridor"),
-    ("NGN to CAD", "FX corridors", "transaction", "rate_based", "rate_based", 0, 1, "CAD corridor"),
-    ("Crypto USDT to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 1, "USDT (TRC20/ERC20) — note network in description"),
-    ("NGN to USDT", "Crypto", "transaction", "rate_based", "rate_based", 0, 1, "Sell NGN for USDT"),
-    ("BTC to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 1, "Bitcoin sell"),
-    ("ETH to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 1, "Ethereum sell"),
-    ("Local bank transfer NGN", "Bank", "transaction", "quote", "piece", 0, 1, "Fill bank name + account in description or Payments"),
-    ("US bank wire / ACH", "Bank", "transaction", "rate_based", "rate_based", 0, 1, "Routing + account details in description"),
-    ("UK bank sort code", "Bank", "transaction", "rate_based", "rate_based", 0, 1, "Sort code + account in description"),
-    ("Cash pickup", "Local", "transaction", "quote", "piece", 0, 1, "Cash collection point"),
+    # PayPal
+    ("PayPal USD receive", "PayPal", "transaction", "rate_based", "rate_based", 0, 10, "Receive USD on PayPal — set email + Friends & Family in method details"),
+    ("PayPal EUR receive", "PayPal", "transaction", "rate_based", "rate_based", 0, 10, "Receive EUR on PayPal"),
+    ("PayPal GBP receive", "PayPal", "transaction", "rate_based", "rate_based", 0, 10, "Receive GBP on PayPal"),
+    ("PayPal balance fund (buy)", "PayPal", "transaction", "rate_based", "rate_based", 0, 20, "Customer pays NGN; you fund their PayPal"),
+    ("PayPal send / payout", "PayPal", "transaction", "rate_based", "rate_based", 0, 10, "Pay out to customer PayPal"),
+    # Cash App / similar
+    ("Cash App", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Cash App $cashtag corridor"),
+    ("Chime", "Wallets", "transaction", "rate_based", "rate_based", 0, 50, "Chime — higher typical minimum"),
+    ("Revolut", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Revolut tag / username"),
+    ("Venmo", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Venmo username"),
+    ("Zelle", "Wallets", "transaction", "rate_based", "rate_based", 0, 50, "Zelle name/email/phone"),
+    ("Wise / TransferWise", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Wise receive details"),
+    ("Payoneer", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Payoneer email / account"),
+    ("Skrill", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Skrill email"),
+    ("Neteller", "Wallets", "transaction", "rate_based", "rate_based", 0, 20, "Neteller account"),
+    # Bank USA
+    ("US bank wire (SWIFT)", "US Bank", "transaction", "rate_based", "rate_based", 0, 100, "US wire — bank name, account, routing, SWIFT"),
+    ("US bank ACH", "US Bank", "transaction", "rate_based", "rate_based", 0, 50, "ACH — bank name, account, routing number"),
+    ("US bank Zelle-linked", "US Bank", "transaction", "rate_based", "rate_based", 0, 50, "Bank account that receives Zelle"),
+    # Bank UK / EU / others
+    ("UK bank (sort code)", "International Bank", "transaction", "rate_based", "rate_based", 0, 50, "UK — account name, number, sort code"),
+    ("EU SEPA / IBAN", "International Bank", "transaction", "rate_based", "rate_based", 0, 50, "IBAN + BIC/SWIFT"),
+    ("Canadian bank", "International Bank", "transaction", "rate_based", "rate_based", 0, 50, "CAD bank details"),
+    ("Local NGN bank transfer", "Local Bank", "transaction", "quote", "piece", 0, 1, "Nigerian bank payout / receive"),
+    # Crypto
+    ("USDT TRC20 to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 20, "USDT on Tron — set wallet address"),
+    ("USDT ERC20 to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 50, "USDT on Ethereum — gas-aware"),
+    ("USDT BEP20 to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 20, "USDT on BNB Chain"),
+    ("NGN to USDT", "Crypto", "transaction", "rate_based", "rate_based", 0, 20, "Customer pays NGN; receive USDT"),
+    ("BTC to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 50, "Bitcoin sell"),
+    ("ETH to NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 50, "Ethereum sell"),
+    ("Buy crypto with NGN", "Crypto", "transaction", "rate_based", "rate_based", 0, 20, "Fund customer wallet — they pay NGN"),
+    # Gift cards
+    ("Amazon gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Amazon GC — bot asks type/value, customer sends code/image"),
+    ("Apple / iTunes gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Apple GC buy/sell"),
+    ("Google Play gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Google Play GC"),
+    ("Steam gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Steam GC"),
+    ("Sephora / retail gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Retail brand GC"),
+    ("Other gift card (custom)", "Gift cards", "transaction", "rate_based", "rate_based", 0, 25, "Bot asks brand, value, region — then code/image"),
+    # FX corridors
+    ("NGN to USD transfer", "FX corridors", "transaction", "rate_based", "rate_based", 0, 20, "Send USD abroad from NGN"),
+    ("USD to NGN payout", "FX corridors", "transaction", "rate_based", "rate_based", 0, 20, "Cash out USD to NGN bank"),
+    ("NGN to GBP", "FX corridors", "transaction", "rate_based", "rate_based", 0, 20, "GBP corridor"),
+    ("NGN to EUR", "FX corridors", "transaction", "rate_based", "rate_based", 0, 20, "EUR corridor"),
+    ("NGN to CAD", "FX corridors", "transaction", "rate_based", "rate_based", 0, 20, "CAD corridor"),
+    # Local cash
+    ("Cash pickup", "Local", "transaction", "quote", "piece", 0, 1, "Customer collects cash"),
     ("Cash delivery", "Local", "transaction", "location_fee", "location_fee", 3000, 1, "Cash delivery fee"),
-    ("Apple / Google / Steam gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 1, "Gift card buy/sell — state brands you accept"),
-    ("Amazon gift card", "Gift cards", "transaction", "rate_based", "rate_based", 0, 1, "Amazon GC corridor"),
+    # Fees
     ("Service fee small", "Fees", "transaction", "piece", "piece", 500, 1, "Small ticket fee"),
     ("Service fee standard", "Fees", "transaction", "piece", "piece", 1500, 1, "Standard processing fee"),
     ("Service fee priority", "Fees", "transaction", "piece", "piece", 3000, 1, "Priority processing"),
-    ("Verification / KYC assist", "Compliance", "job", "piece", "piece", 0, 1, "Optional KYC help"),
 ]
 
 LOGISTICS = [

@@ -73,11 +73,12 @@
           </div>
 
           {% if is_exchanger %}
+          {% set nlow = (s.name or '')|lower %}
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
               <label class="block text-[11px] text-[var(--text-muted)] mb-1">Your rate ({{ currency|default('NGN') }} per 1 foreign unit)</label>
               <input type="number" name="base_price" step="0.01" min="0" value="{{ s.base_price }}" class="input-field min-h-[40px] text-sm" placeholder="e.g. 1200">
-              <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">Example: 1200 means $1 → ₦1,200</p>
+              <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">e.g. 1200 → customer sends $1, receives ₦1,200</p>
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-muted)] mb-1">How rate works</label>
@@ -91,15 +92,111 @@
             <div>
               <label class="block text-[11px] text-[var(--text-muted)] mb-1">Minimum amount (foreign)</label>
               <input type="number" name="min_qty" step="1" min="1" value="{{ s.min_qty|default(1) }}" class="input-field min-h-[40px] text-sm" placeholder="e.g. 10">
-              <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">Bot rejects below this (e.g. min $10 PayPal)</p>
+              <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">Bot rejects below this minimum</p>
             </div>
           </div>
           <input type="hidden" name="unit" value="rate">
-          <div>
-            <label class="block text-[11px] text-[var(--text-muted)] mb-1">Account details &amp; customer instructions</label>
-            <textarea name="description" rows="3" class="input-field text-sm" placeholder="PayPal: you@mail.com — Friends & Family only. Do not add business note.&#10;Or bank: Name / Account / Routing. Bot shows this text to customers.">{{ s.description|default('') }}</textarea>
-            <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">Bot only shows what you write here. Never invent details.</p>
+
+          <div class="rounded-xl border border-[var(--border-subtle)] p-3 space-y-3 bg-[var(--surface-subtle)]/40">
+            <p class="text-xs font-medium text-[var(--text-secondary)] m-0">Pay-in details for this method (bot shows these to customers)</p>
+
+            {% if 'paypal' in nlow %}
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">PayPal email</label>
+              <input type="email" name="paypal_email" class="input-field min-h-[40px] text-sm" placeholder="you@email.com" value="">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="Friends & Family only. Do not add a business note or invoice."></textarea>
+            </div>
+
+            {% elif 'cash app' in nlow or 'cashapp' in nlow %}
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Cash App $cashtag</label>
+              <input type="text" name="cashapp_tag" class="input-field min-h-[40px] text-sm" placeholder="$YourTag">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="Send as personal. Include your name in the note if needed."></textarea>
+            </div>
+
+            {% elif 'chime' in nlow or 'revolut' in nlow or 'venmo' in nlow or 'zelle' in nlow or 'wise' in nlow or 'payoneer' in nlow or 'skrill' in nlow or 'neteller' in nlow %}
+            <div class="grid sm:grid-cols-2 gap-2">
+              {% if 'revolut' in nlow %}
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Revolut tag / username</label><input type="text" name="revolut_tag" class="input-field min-h-[40px] text-sm"></div>
+              {% elif 'venmo' in nlow %}
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Venmo username</label><input type="text" name="venmo_user" class="input-field min-h-[40px] text-sm"></div>
+              {% elif 'zelle' in nlow %}
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Zelle (email / phone / name)</label><input type="text" name="zelle_id" class="input-field min-h-[40px] text-sm"></div>
+              {% else %}
+              <div class="sm:col-span-2"><label class="block text-[11px] text-[var(--text-muted)] mb-1">Account / username / email</label><input type="text" name="paypal_email" class="input-field min-h-[40px] text-sm" placeholder="Login email or account ID"></div>
+              {% endif %}
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="Any rules the customer must follow when sending."></textarea>
+            </div>
+
+            {% elif 'bank' in nlow or 'ach' in nlow or 'wire' in nlow or 'sepa' in nlow or 'iban' in nlow or 'sort code' in nlow or 'ngn' in nlow %}
+            <div class="grid sm:grid-cols-2 gap-2">
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Bank name</label><input type="text" name="bank_name" class="input-field min-h-[40px] text-sm" placeholder="Chase / GTBank / Barclays…"></div>
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Account name</label><input type="text" name="account_name" class="input-field min-h-[40px] text-sm"></div>
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Account number</label><input type="text" name="account_number" class="input-field min-h-[40px] text-sm"></div>
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Routing / ABA (US)</label><input type="text" name="routing_number" class="input-field min-h-[40px] text-sm"></div>
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">Sort code (UK)</label><input type="text" name="sort_code" class="input-field min-h-[40px] text-sm"></div>
+              <div><label class="block text-[11px] text-[var(--text-muted)] mb-1">IBAN</label><input type="text" name="iban" class="input-field min-h-[40px] text-sm"></div>
+              <div class="sm:col-span-2"><label class="block text-[11px] text-[var(--text-muted)] mb-1">SWIFT / BIC</label><input type="text" name="swift_bic" class="input-field min-h-[40px] text-sm"></div>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="e.g. Wire only — use reference CLIENT-XXXX. No ACH if restricted."></textarea>
+            </div>
+
+            {% elif 'usdt' in nlow or 'btc' in nlow or 'eth' in nlow or 'crypto' in nlow %}
+            <div class="grid sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-[var(--text-muted)] mb-1">Network</label>
+                <select name="crypto_network" class="input-field min-h-[40px] text-sm">
+                  <option value="TRC20">USDT TRC20 (Tron)</option>
+                  <option value="ERC20">USDT/ETH ERC20</option>
+                  <option value="BEP20">BEP20 (BSC)</option>
+                  <option value="Bitcoin">Bitcoin</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-[11px] text-[var(--text-muted)] mb-1">Wallet address</label>
+                <input type="text" name="wallet_address" class="input-field min-h-[40px] text-sm font-mono text-xs" placeholder="Paste receiving wallet">
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="Send only on the selected network. Wrong network = loss of funds."></textarea>
+            </div>
+
+            {% elif 'gift' in nlow %}
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Brands you accept</label>
+              <input type="text" name="giftcard_brands" class="input-field min-h-[40px] text-sm" placeholder="Amazon, Apple, Steam, Google Play…">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Customer instructions</label>
+              <textarea name="customer_instructions" rows="2" class="input-field text-sm" placeholder="Bot will ask: card type, face value, region — then request clear photo of code or the code text."></textarea>
+            </div>
+            <p class="text-[10px] text-[var(--text-muted)] m-0">Flow: type → value → customer sends image/code → you confirm → bot asks their payout bank details.</p>
+
+            {% else %}
+            <div>
+              <label class="block text-[11px] text-[var(--text-muted)] mb-1">Account details &amp; instructions</label>
+              <textarea name="description" rows="3" class="input-field text-sm" placeholder="Paste everything the customer needs to pay you correctly.">{{ s.description|default('') }}</textarea>
+            </div>
+            {% endif %}
+
+            {% if s.description %}
+            <p class="text-[10px] text-[var(--text-muted)] m-0">Currently saved: <span class="text-[var(--text-secondary)]">{{ s.description[:180] }}{% if s.description|length > 180 %}…{% endif %}</span></p>
+            {% endif %}
           </div>
+
           <div class="flex flex-wrap items-center gap-2">
             <label class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
               <input type="checkbox" name="is_active" value="1" class="rounded border-[var(--border-subtle)]" {% if s.active %}checked{% endif %}>

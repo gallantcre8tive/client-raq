@@ -1662,6 +1662,7 @@ async def company_services_enable(
 
 @app.post("/company/services/{service_id}/update")
 async def company_services_update(
+    request: Request,
     service_id: int,
     base_price: float = Form(0),
     unit: str = Form("per piece"),
@@ -1669,6 +1670,23 @@ async def company_services_update(
     description: Optional[str] = Form(None),
     is_active: Optional[str] = Form(None),
     min_qty: int = Form(1),
+    # Exchanger structured fields (optional)
+    paypal_email: Optional[str] = Form(None),
+    cashapp_tag: Optional[str] = Form(None),
+    revolut_tag: Optional[str] = Form(None),
+    venmo_user: Optional[str] = Form(None),
+    zelle_id: Optional[str] = Form(None),
+    bank_name: Optional[str] = Form(None),
+    account_name: Optional[str] = Form(None),
+    account_number: Optional[str] = Form(None),
+    routing_number: Optional[str] = Form(None),
+    sort_code: Optional[str] = Form(None),
+    iban: Optional[str] = Form(None),
+    swift_bic: Optional[str] = Form(None),
+    crypto_network: Optional[str] = Form(None),
+    wallet_address: Optional[str] = Form(None),
+    giftcard_brands: Optional[str] = Form(None),
+    customer_instructions: Optional[str] = Form(None),
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
     s = await db.get(Service, service_id)
@@ -1677,13 +1695,55 @@ async def company_services_update(
     s.base_price = base_price
     s.unit = unit
     s.pricing_method = pricing_method
-    if description is not None:
-        s.description = description
     s.is_active = is_active is not None
     try:
         s.min_qty = max(1, int(min_qty or 1))
     except Exception:
         s.min_qty = 1
+
+    # Compose structured account details for exchanger methods
+    lines = []
+    if (paypal_email or "").strip():
+        lines.append(f"PayPal email: {paypal_email.strip()}")
+    if (cashapp_tag or "").strip():
+        tag = cashapp_tag.strip()
+        if not tag.startswith("$"):
+            tag = "$" + tag
+        lines.append(f"Cash App: {tag}")
+    if (revolut_tag or "").strip():
+        lines.append(f"Revolut: {revolut_tag.strip()}")
+    if (venmo_user or "").strip():
+        lines.append(f"Venmo: {venmo_user.strip()}")
+    if (zelle_id or "").strip():
+        lines.append(f"Zelle: {zelle_id.strip()}")
+    if (bank_name or "").strip():
+        lines.append(f"Bank name: {bank_name.strip()}")
+    if (account_name or "").strip():
+        lines.append(f"Account name: {account_name.strip()}")
+    if (account_number or "").strip():
+        lines.append(f"Account number: {account_number.strip()}")
+    if (routing_number or "").strip():
+        lines.append(f"Routing / ABA: {routing_number.strip()}")
+    if (sort_code or "").strip():
+        lines.append(f"Sort code: {sort_code.strip()}")
+    if (iban or "").strip():
+        lines.append(f"IBAN: {iban.strip()}")
+    if (swift_bic or "").strip():
+        lines.append(f"SWIFT/BIC: {swift_bic.strip()}")
+    if (crypto_network or "").strip():
+        lines.append(f"Network: {crypto_network.strip()}")
+    if (wallet_address or "").strip():
+        lines.append(f"Wallet address: {wallet_address.strip()}")
+    if (giftcard_brands or "").strip():
+        lines.append(f"Accepted brands: {giftcard_brands.strip()}")
+    if (customer_instructions or "").strip():
+        lines.append(f"Instructions: {customer_instructions.strip()}")
+
+    if lines:
+        s.description = "\n".join(lines)
+    elif description is not None:
+        s.description = description
+
     await db.commit()
     return RedirectResponse("/company/services?saved=1", status_code=303)
 
@@ -2403,8 +2463,10 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
         flags = json.loads(getattr(company, "bot_flags", None) or "{}")
     except Exception:
         flags = {}
+    bt = getattr(company, "business_type", None) or "printing"
     return render(request, "company/bot_settings.html", {
         "active": "bot", "company_name": company.name, "user_name": user.full_name,
+        "business_type": bt,
         "greeting": company.greeting_message or "", "language": company.bot_language or "both",
         "currency": company.currency,
         "ask_size_help": flags.get("ask_size_help", True),
