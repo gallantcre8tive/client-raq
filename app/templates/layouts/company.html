@@ -77,9 +77,10 @@
           <span x-show="notifications && notifications.length" x-cloak
                 class="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--primary)] text-white text-[10px] font-semibold flex items-center justify-center"
                 x-text="notifications.length"></span>
-            <span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white inline-flex items-center justify-center"
+            <span id="crq-notif-badge" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white inline-flex items-center justify-center"
                   x-show="notifications && notifications.length" x-cloak
-                  x-text="notifications.length > 9 ? '9+' : notifications.length"></span>
+                  x-text="notifications.length > 9 ? '9+' : notifications.length"
+                  style="display:none"></span>
           </button>
           <div x-show="notifOpen" x-cloak @click.outside="notifOpen=false"
                class="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.25rem))] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-50">
@@ -94,7 +95,7 @@
                 <button type="button" class="text-[var(--text-muted)] hover:underline" @click="clearNotifs()">Clear</button>
               </span>
             </div>
-            <div class="max-h-[min(24rem,60vh)] overflow-y-auto">
+            <div id="crq-notif-list" class="max-h-[min(24rem,60vh)] overflow-y-auto">
               <template x-if="!notifications || notifications.length === 0">
                 <div class="px-4 py-10 text-center">
                   <p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p>
@@ -203,11 +204,58 @@
   }
 
   function applyList(list){
+    list = list || [];
     try {
-      if (window.Alpine && Alpine.store('crqBell')) {
-        Alpine.store('crqBell').setItems(list || []);
+      // Primary: root Alpine component (html x-data)
+      var root = document.documentElement;
+      if (root && root._x_dataStack && root._x_dataStack[0]) {
+        root._x_dataStack[0].notifItems = list.slice();
       }
     } catch(e) {}
+    try {
+      if (window.Alpine && Alpine.store('crqBell')) {
+        Alpine.store('crqBell').setItems(list);
+      }
+    } catch(e) {}
+    // Fallback DOM badge if Alpine fails
+    try {
+      var badge = document.getElementById('crq-notif-badge');
+      if (badge) {
+        if (list.length) {
+          badge.textContent = list.length > 9 ? '9+' : String(list.length);
+          badge.style.display = 'inline-flex';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+      var listEl = document.getElementById('crq-notif-list');
+      if (listEl) {
+        if (!list.length) {
+          listEl.innerHTML = '<div class="px-4 py-10 text-center"><p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p></div>';
+        } else {
+          listEl.innerHTML = list.map(function(n){
+            var kind = n.kind || 'general';
+            var label = kind==='platform'||kind==='platform_message' ? 'Platform' : (kind==='payment_proof' ? 'Payment' : (kind==='new_order' ? 'Order' : (kind==='needs_human' ? 'Needs you' : (kind==='billing' ? 'Billing' : 'New')));
+            var time = n.time || n.created_at || '';
+            var href = n.link || '/company/dashboard';
+            return '<a href="'+href+'" data-nid="'+n.id+'" class="crq-notif-item block px-4 py-3.5 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]">'
+              + '<div class="flex items-start justify-between gap-2"><div class="font-medium">'+escapeHtml(n.title||'Notification')+'</div>'
+              + '<span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded shrink-0" style="background:#dbeafe;color:#1e40af">'+label+'</span></div>'
+              + '<div class="text-xs text-[var(--text-secondary)] mt-1">'+escapeHtml(n.body||'')+'</div>'
+              + '<div class="text-[10px] text-[var(--text-muted)] mt-1.5">'+escapeHtml(time)+'</div></a>';
+          }).join('');
+          listEl.querySelectorAll('.crq-notif-item').forEach(function(a){
+            a.addEventListener('click', function(){
+              var id = a.getAttribute('data-nid');
+              if (id && window.markNotifRead) window.markNotifRead(id);
+            });
+          });
+        }
+      }
+    } catch(e) { console.warn('crq notif dom', e); }
+  }
+  function escapeHtml(s){
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   window.markAllRead = async function(){
@@ -265,10 +313,6 @@
 
   // Wait for Alpine store, then poll
   function start(){
-    if (!(window.Alpine && Alpine.store && Alpine.store('crqBell'))) {
-      setTimeout(start, 50);
-      return;
-    }
     window.pollNotifyNow = pollNotify;
     pollNotify();
     setInterval(pollNotify, 2000);

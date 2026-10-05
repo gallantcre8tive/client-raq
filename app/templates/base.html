@@ -5,7 +5,8 @@
     sidebarOpen: false,
     logoutOpen: false,
     notifOpen: false,
-    get notifications() { return ($store.crqBell && $store.crqBell.items) ? $store.crqBell.items : []; }
+    notifItems: [],
+    get notifications() { return this.notifItems || []; }
   }"
   x-init="
     $watch('dark', v => {
