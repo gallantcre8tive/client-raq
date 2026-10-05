@@ -661,17 +661,29 @@ async def company_billing(
     except Exception as _e:
         print("billing iso", type(_e).__name__, _e)
     company_name = "Company"
+    business_type = "printing"
     try:
-        from sqlalchemy import text as sa_text
-        row = (await db.execute(sa_text("SELECT name FROM companies WHERE id = :id"), {"id": user.company_id})).first()
+        row = (await db.execute(text(
+            "SELECT name, business_type FROM companies WHERE id = :id"
+        ), {"id": user.company_id})).mappings().first()
         if row:
-            company_name = row[0]
+            company_name = row.get("name") or company_name
+            business_type = (row.get("business_type") or "printing").strip() or "printing"
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        request.state.business_type = business_type
+        request.state.company_business_type = business_type
     except Exception:
         pass
     return _render(request, "company/billing.html", {
         "active": "billing",
         "user_name": user.full_name,
         "company_name": company_name,
+        "business_type": business_type,
         "sub": sub,
         "live": live,
         "pricing": pricing,
@@ -679,6 +691,7 @@ async def company_billing(
         "trial_ends_iso": trial_ends_iso,
         "paid_ends_iso": paid_ends_iso,
     })
+
 
 
 @router.get("/company/guides", response_class=HTMLResponse)
