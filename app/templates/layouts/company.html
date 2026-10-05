@@ -66,59 +66,37 @@
       </h1>
 
       <div class="flex flex-row flex-nowrap items-center gap-1.5 shrink-0 ml-auto">
-        <div class="relative" @click.outside="notifOpen = false">
+                <div class="relative" id="crq-notif-wrap">
           <button
             type="button"
-            @click="notifOpen = !notifOpen; if (window.pollNotifyNow) window.pollNotifyNow();"
+            id="crq-notif-btn"
             class="relative shrink-0 w-10 h-10 rounded-xl border border-[var(--border-subtle)] inline-flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--surface-subtle)]"
             aria-label="Notifications"
           >
             {{ icon('bell', 'w-[18px] h-[18px]') }}
-          <span x-show="notifications && notifications.length" x-cloak
-                class="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--primary)] text-white text-[10px] font-semibold flex items-center justify-center"
-                x-text="notifications.length"></span>
-            <span id="crq-notif-badge" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white inline-flex items-center justify-center"
-                  x-show="notifications && notifications.length" x-cloak
-                  x-text="notifications.length > 9 ? '9+' : notifications.length"
+            <span id="crq-notif-badge"
+                  class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--primary)] text-[10px] font-bold text-white items-center justify-center"
                   style="display:none"></span>
           </button>
-          <div x-show="notifOpen" x-cloak @click.outside="notifOpen=false"
-               class="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.25rem))] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-50">
+          <div id="crq-notif-panel"
+               class="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.25rem))] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-50"
+               style="display:none">
             <div class="px-4 py-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
               <div>
                 <p class="font-semibold text-sm m-0">Notifications</p>
-                <p class="text-[11px] text-[var(--text-muted)] m-0 mt-0.5"
-                   x-text="(notifications && notifications.length) ? (notifications.length + ' unread') : 'All caught up'"></p>
+                <p id="crq-notif-sub" class="text-[11px] text-[var(--text-muted)] m-0 mt-0.5">Loading…</p>
               </div>
               <span class="flex gap-2 text-[11px] shrink-0">
-                <button type="button" class="text-[var(--primary)] font-medium hover:underline" @click="markAllRead()">Mark all read</button>
-                <button type="button" class="text-[var(--text-muted)] hover:underline" @click="clearNotifs()">Clear</button>
+                <button type="button" id="crq-notif-readall" class="text-[var(--primary)] font-medium hover:underline">Mark all read</button>
+                <button type="button" id="crq-notif-clear" class="text-[var(--text-muted)] hover:underline">Clear</button>
               </span>
             </div>
             <div id="crq-notif-list" class="max-h-[min(24rem,60vh)] overflow-y-auto">
-              <template x-if="!notifications || notifications.length === 0">
-                <div class="px-4 py-10 text-center">
-                  <p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p>
-                  <p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">Platform messages, orders and handoffs appear here.</p>
-                </div>
-              </template>
-              <template x-for="n in (notifications || [])" :key="n.id">
-                <a :href="n.link || (n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard')"
-                   class="block px-4 py-3.5 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)] transition-colors"
-                   :class="(n.priority === 'high' || n.priority === 'urgent' || n.kind === 'platform') ? 'bg-[color-mix(in_srgb,var(--primary)_6%,transparent)]' : ''"
-                   @click="markNotifRead(n.id)">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="font-medium leading-snug" x-text="n.title"></div>
-                    <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded shrink-0"
-                          :style="n.kind==='platform' || n.kind==='platform_message' ? 'background:#dbeafe;color:#1e40af' : (n.kind==='payment_proof' || n.priority==='urgent' ? 'background:#fee2e2;color:#991b1b' : 'background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--primary)')"
-                          x-text="n.kind==='platform'||n.kind==='platform_message' ? 'Platform' : (n.kind==='payment_proof' ? 'Payment' : (n.kind==='new_order' ? 'Order' : (n.kind==='needs_human' ? 'Needs you' : (n.kind==='billing' ? 'Billing' : 'New'))))"></span>
-                  </div>
-                  <div class="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed line-clamp-3" x-text="n.body || ''"></div>
-                  <div class="text-[10px] text-[var(--text-muted)] mt-1.5" x-text="n.time || n.created_at || ''"></div>
-                </a>
-              </template>
+              <div class="px-4 py-10 text-center text-sm text-[var(--text-muted)]">Loading…</div>
             </div>
           </div>
+        </div>
+
         </div>
         <a href="/company/settings" class="shrink-0 inline-flex flex-row items-center gap-2 rounded-xl hover:bg-[var(--surface-subtle)] p-0.5 sm:pr-2 no-underline text-[var(--text-primary)]" title="Settings">
           <span class="w-9 h-9 rounded-full inline-flex items-center justify-center text-xs font-semibold shrink-0" style="background:color-mix(in srgb,var(--primary) 22%,transparent);color:var(--primary)">C</span>
@@ -176,10 +154,25 @@
 {% endblock %}
 
 <script>
-(function(){
-  let lastSeenMaxId = 0;
-  let primed = false;
 
+(function(){
+  var lastSeenMaxId = 0;
+  var primed = false;
+  var panelOpen = false;
+  var items = [];
+
+  function escapeHtml(s){
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function kindLabel(kind){
+    kind = (kind||'').toLowerCase();
+    if (kind==='platform'||kind==='platform_message') return 'Platform';
+    if (kind==='payment_proof') return 'Payment';
+    if (kind==='new_order') return 'Order';
+    if (kind==='needs_human') return 'Needs you';
+    if (kind==='billing') return 'Billing';
+    return 'New';
+  }
   function playLoudAlert(){
     try {
       if (window.crqPlayNotify) window.crqPlayNotify();
@@ -203,129 +196,112 @@
     } catch(e) {}
   }
 
-  function applyList(list){
-    list = list || [];
-    try {
-      // Primary: root Alpine component (html x-data)
-      var root = document.documentElement;
-      if (root && root._x_dataStack && root._x_dataStack[0]) {
-        root._x_dataStack[0].notifItems = list.slice();
+  function renderList(list){
+    items = list || [];
+    var badge = document.getElementById('crq-notif-badge');
+    var sub = document.getElementById('crq-notif-sub');
+    var listEl = document.getElementById('crq-notif-list');
+    if (badge) {
+      if (items.length) {
+        badge.textContent = items.length > 9 ? '9+' : String(items.length);
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
       }
-    } catch(e) {}
-    try {
-      if (window.Alpine && Alpine.store('crqBell')) {
-        Alpine.store('crqBell').setItems(list);
-      }
-    } catch(e) {}
-    // Fallback DOM badge if Alpine fails
-    try {
-      var badge = document.getElementById('crq-notif-badge');
-      if (badge) {
-        if (list.length) {
-          badge.textContent = list.length > 9 ? '9+' : String(list.length);
-          badge.style.display = 'inline-flex';
-        } else {
-          badge.style.display = 'none';
-        }
-      }
-      var listEl = document.getElementById('crq-notif-list');
-      if (listEl) {
-        if (!list.length) {
-          listEl.innerHTML = '<div class="px-4 py-10 text-center"><p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p></div>';
-        } else {
-          listEl.innerHTML = list.map(function(n){
-            var kind = n.kind || 'general';
-            var label = kind==='platform'||kind==='platform_message' ? 'Platform' : (kind==='payment_proof' ? 'Payment' : (kind==='new_order' ? 'Order' : (kind==='needs_human' ? 'Needs you' : (kind==='billing' ? 'Billing' : 'New')));
-            var time = n.time || n.created_at || '';
-            var href = n.link || '/company/dashboard';
-            return '<a href="'+href+'" data-nid="'+n.id+'" class="crq-notif-item block px-4 py-3.5 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]">'
-              + '<div class="flex items-start justify-between gap-2"><div class="font-medium">'+escapeHtml(n.title||'Notification')+'</div>'
-              + '<span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded shrink-0" style="background:#dbeafe;color:#1e40af">'+label+'</span></div>'
-              + '<div class="text-xs text-[var(--text-secondary)] mt-1">'+escapeHtml(n.body||'')+'</div>'
-              + '<div class="text-[10px] text-[var(--text-muted)] mt-1.5">'+escapeHtml(time)+'</div></a>';
-          }).join('');
-          listEl.querySelectorAll('.crq-notif-item').forEach(function(a){
-            a.addEventListener('click', function(){
-              var id = a.getAttribute('data-nid');
-              if (id && window.markNotifRead) window.markNotifRead(id);
-            });
-          });
-        }
-      }
-    } catch(e) { console.warn('crq notif dom', e); }
-  }
-  function escapeHtml(s){
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    if (sub) sub.textContent = items.length ? (items.length + ' unread') : 'All caught up';
+    if (!listEl) return;
+    if (!items.length) {
+      listEl.innerHTML = '<div class="px-4 py-10 text-center"><p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p><p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">Platform messages, orders and handoffs appear here.</p></div>';
+      return;
+    }
+    listEl.innerHTML = items.map(function(n){
+      var href = n.link || '/company/dashboard';
+      var time = n.time || n.created_at || '';
+      return '<a href="'+escapeHtml(href)+'" data-nid="'+n.id+'" class="crq-notif-item block px-4 py-3.5 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]">'
+        + '<div class="flex items-start justify-between gap-2"><div class="font-medium leading-snug">'+escapeHtml(n.title||'Notification')+'</div>'
+        + '<span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded shrink-0" style="background:#dbeafe;color:#1e40af">'+kindLabel(n.kind)+'</span></div>'
+        + '<div class="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed">'+escapeHtml(n.body||'')+'</div>'
+        + '<div class="text-[10px] text-[var(--text-muted)] mt-1.5">'+escapeHtml(time)+'</div></a>';
+    }).join('');
+    listEl.querySelectorAll('.crq-notif-item').forEach(function(a){
+      a.addEventListener('click', function(){
+        var id = a.getAttribute('data-nid');
+        if (id) markRead(id);
+      });
+    });
   }
 
-  window.markAllRead = async function(){
-    try {
-      await fetch('/company/api/notifications/read-all', { method: 'POST', credentials: 'same-origin' });
-    } catch(e) {}
-    try {
-      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').setItems([]);
-    } catch(e) {}
-  };
-  window.clearNotifs = async function(){
-    var ok = await crqConfirm('Clear all notifications?',{danger:true,okText:'Clear'}); if (!ok) return;
-    try {
-      await fetch('/company/api/notifications/clear', { method: 'POST', credentials: 'same-origin' });
-    } catch(e) {}
-    try {
-      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').setItems([]);
-    } catch(e) {}
-  };
-  window.markNotifRead = async function(id){
-    try {
-      await fetch('/company/api/notifications/' + id + '/read', { method: 'POST', credentials: 'same-origin' });
-    } catch(e) {}
-    try {
-      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').remove(id);
-    } catch(e) {}
-  };
+  async function markRead(id){
+    try { await fetch('/company/api/notifications/' + id + '/read', { method: 'POST', credentials: 'same-origin' }); } catch(e) {}
+    items = items.filter(function(n){ return String(n.id) !== String(id); });
+    renderList(items);
+  }
+  window.markNotifRead = markRead;
+
+  async function markAllRead(){
+    try { await fetch('/company/api/notifications/read-all', { method: 'POST', credentials: 'same-origin' }); } catch(e) {}
+    renderList([]);
+  }
+  async function clearAll(){
+    var ok = true;
+    if (window.crqConfirm) ok = await window.crqConfirm('Clear all notifications?', {danger:true, okText:'Clear'});
+    else ok = window.confirm('Clear all notifications?');
+    if (!ok) return;
+    try { await fetch('/company/api/notifications/clear', { method: 'POST', credentials: 'same-origin' }); } catch(e) {}
+    renderList([]);
+  }
 
   async function pollNotify(){
     try {
       var r = await fetch('/company/api/notifications', { credentials: 'same-origin', cache: 'no-store' });
-      if (!r.ok) {
-        r = await fetch('/api/company/notifications', { credentials: 'same-origin', cache: 'no-store' });
-      }
+      if (!r.ok) r = await fetch('/api/company/notifications', { credentials: 'same-origin', cache: 'no-store' });
       if (!r.ok) { console.warn('crq notif http', r.status); return; }
       var data = await r.json();
       var list = Array.isArray(data) ? data : (data.items || []);
-      applyList(list);
-
+      renderList(list);
       var maxId = list.reduce(function(m, n){ return Math.max(m, n.id || 0); }, 0);
-      if (!primed) {
-        primed = true;
-        lastSeenMaxId = maxId;
-        return;
-      }
-      var freshHigh = list.filter(function(n){
-        return (n.id > lastSeenMaxId) && (n.priority === 'high' || n.kind === 'platform');
-      });
-      if (freshHigh.length) playLoudAlert();
+      if (!primed) { primed = true; lastSeenMaxId = maxId; return; }
+      var fresh = list.filter(function(n){ return (n.id > lastSeenMaxId); });
+      if (fresh.length) playLoudAlert();
       if (maxId > lastSeenMaxId) lastSeenMaxId = maxId;
     } catch(e) {
       console.warn('crq notify poll', e);
     }
   }
+  window.pollNotifyNow = pollNotify;
 
-  // Wait for Alpine store, then poll
-  function start(){
-    window.pollNotifyNow = pollNotify;
+  function togglePanel(){
+    var panel = document.getElementById('crq-notif-panel');
+    if (!panel) return;
+    panelOpen = !panelOpen;
+    panel.style.display = panelOpen ? 'block' : 'none';
+    if (panelOpen) pollNotify();
+  }
+
+  function init(){
+    var btn = document.getElementById('crq-notif-btn');
+    if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); togglePanel(); });
+    var ra = document.getElementById('crq-notif-readall');
+    if (ra) ra.addEventListener('click', function(e){ e.preventDefault(); markAllRead(); });
+    var cl = document.getElementById('crq-notif-clear');
+    if (cl) cl.addEventListener('click', function(e){ e.preventDefault(); clearAll(); });
+    document.addEventListener('click', function(e){
+      var wrap = document.getElementById('crq-notif-wrap');
+      if (panelOpen && wrap && !wrap.contains(e.target)) {
+        panelOpen = false;
+        var panel = document.getElementById('crq-notif-panel');
+        if (panel) panel.style.display = 'none';
+      }
+    });
     pollNotify();
     setInterval(pollNotify, 2000);
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
-  } else {
-    start();
-  }
-  document.addEventListener('visibilitychange', function(){
-    if (!document.hidden) pollNotify();
-  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) pollNotify(); });
 })();
+
 </script>
 
 
