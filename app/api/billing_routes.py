@@ -963,6 +963,52 @@ async def platform_payments_page(
     })
 
 
+
+@router.post("/platform/payments/clear")
+async def platform_payments_clear(
+    user: User = Depends(require_platform),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import text as sa_text
+    try:
+        await db.execute(sa_text("DELETE FROM payments"))
+        await db.commit()
+    except Exception as e:
+        print("clear payments", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return RedirectResponse("/platform/payments?cleared=1", status_code=303)
+
+
+@router.post("/platform/payments/{payment_id}/remind")
+async def platform_payment_remind(
+    payment_id: int,
+    user: User = Depends(require_platform),
+    db: AsyncSession = Depends(get_db),
+):
+    """Notify company admin bell about a pending payment."""
+    from app.services.admin_notify import notify_company
+    pay = await db.get(Payment, payment_id)
+    if not pay or not pay.company_id:
+        return RedirectResponse("/platform/payments", status_code=303)
+    amount = (pay.amount_kobo or 0) / 100
+    body = (
+        f"You have a pending subscription payment (₦{amount:,.0f}, plan: {pay.plan_code or '—'}). "
+        f"Reference: {pay.reference}. Please open Billing and complete payment with Paystack so your bot stays active."
+    )
+    await notify_company(
+        db,
+        company_id=int(pay.company_id),
+        title="Complete your pending payment",
+        body=body,
+        priority="high",
+        kind="billing",
+        link_path="/company/billing",
+    )
+    return RedirectResponse("/platform/payments?reminded=1", status_code=303)
+
 @router.post("/platform/companies/{company_id}/subscription")
 async def platform_company_subscription_action(
     company_id: int,

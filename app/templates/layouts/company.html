@@ -200,6 +200,23 @@
     } catch(e) {}
   }
 
+  window.markAllRead = async function(){
+    try {
+      await fetch('/company/api/notifications/read-all', { method: 'POST', credentials: 'same-origin' });
+    } catch(e) {}
+    try {
+      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').setItems([]);
+    } catch(e) {}
+  };
+  window.clearNotifs = async function(){
+    if (!confirm('Clear all notifications?')) return;
+    try {
+      await fetch('/company/api/notifications/clear', { method: 'POST', credentials: 'same-origin' });
+    } catch(e) {}
+    try {
+      if (window.Alpine && Alpine.store('crqBell')) Alpine.store('crqBell').setItems([]);
+    } catch(e) {}
+  };
   window.markNotifRead = async function(id){
     try {
       await fetch('/company/api/notifications/' + id + '/read', { method: 'POST', credentials: 'same-origin' });
@@ -240,7 +257,7 @@
       return;
     }
     pollNotify();
-    setInterval(pollNotify, 4000);
+    setInterval(pollNotify, 2500);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);

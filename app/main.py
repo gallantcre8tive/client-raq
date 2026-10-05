@@ -696,90 +696,44 @@ async def platform_messages_send(
     company_id: str = Form(...), message: str = Form(...),
     user: User = Depends(require_platform), db: AsyncSession = Depends(get_db),
 ):
-    """History + company notification. Uses multiple insert strategies so the bell always gets it."""
+    """Push a platform note into every target company's notification bell."""
     from sqlalchemy import text as sa_text
+    from app.services.admin_notify import notify_platform_message, ensure_notif_table
 
     text_msg = (message or "").strip()
     if not text_msg:
         return RedirectResponse("/platform/messages", status_code=303)
 
     targets = []
-    if str(company_id) == "all":
+    if str(company_id).strip().lower() == "all":
         targets = list((await db.execute(select(Company))).scalars().all())
     else:
         try:
             cid = int(company_id)
         except ValueError:
-            return RedirectResponse("/platform/messages", status_code=303)
+            return RedirectResponse("/platform/messages?error=1", status_code=303)
         c = await db.get(Company, cid)
         if c:
             targets = [c]
 
     if not targets:
-        return RedirectResponse("/platform/messages", status_code=303)
+        return RedirectResponse("/platform/messages?error=1", status_code=303)
 
     sender = getattr(user, "full_name", None) or getattr(user, "email", None) or "Platform Admin"
+    await ensure_notif_table(db)
 
-    # Ensure notification table exists
-    try:
-        await db.execute(sa_text("""
-            CREATE TABLE IF NOT EXISTS admin_notifications (
-                id SERIAL PRIMARY KEY,
-                company_id INTEGER,
-                conversation_id INTEGER,
-                title VARCHAR(200),
-                body TEXT,
-                priority VARCHAR(20) DEFAULT 'high',
-                is_read BOOLEAN DEFAULT false,
-                link_path VARCHAR(300),
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """))
-        await db.commit()
-    except Exception as e:
-        print("ensure notif table:", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-
+    ok_count = 0
     for c in targets:
         cid = int(c.id)
         cname = str(c.name or "")
-        # Insert notification — try several column sets
-        inserted = False
-        for sql, params in [
-            ("""INSERT INTO admin_notifications
-                (company_id, conversation_id, title, body, priority, is_read, link_path, kind, created_at)
-             VALUES (:cid, NULL, :title, :body, 'high', false, '/company/dashboard', 'platform', NOW())""",
-             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
-            ("""INSERT INTO admin_notifications
-                (company_id, title, body, priority, is_read, kind, created_at)
-             VALUES (:cid, :title, :body, 'high', false, 'platform', NOW())""",
-             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
-            ("""INSERT INTO admin_notifications
-                (company_id, title, body, priority, is_read, created_at)
-             VALUES (:cid, :title, :body, 'high', false, NOW())""",
-             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
-            ("""INSERT INTO admin_notifications (company_id, title, body)
-             VALUES (:cid, :title, :body)""",
-             {"cid": cid, "title": "Message from Client-RaQ Platform", "body": text_msg[:2000]}),
-        ]:
-            if inserted:
-                break
-            try:
-                await db.execute(sa_text(sql), params)
-                await db.commit()
-                inserted = True
-                print("notif_inserted company_id=", cid)
-            except Exception as e:
-                print("notif_insert try fail:", type(e).__name__, e)
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
-
-        # History log
+        try:
+            await notify_platform_message(
+                db, company_id=cid, body=text_msg[:2000], sent_by=str(sender)[:80],
+            )
+            ok_count += 1
+        except Exception as e:
+            print("notify_platform_message", e)
+        # History
         try:
             await db.execute(sa_text("""
                 CREATE TABLE IF NOT EXISTS platform_messages (
@@ -794,7 +748,7 @@ async def platform_messages_send(
             await db.execute(sa_text("""
                 INSERT INTO platform_messages (company_id, company_name, body, sent_by, created_at)
                 VALUES (:cid, :cname, :body, :sender, NOW())
-            """), {"cid": cid, "cname": cname, "body": text_msg[:4000], "sender": str(sender)[:200]})
+            """), {"cid": cid, "cname": cname[:200], "body": text_msg[:4000], "sender": str(sender)[:200]})
             await db.commit()
         except Exception as e:
             print("platform_msg hist:", e)
@@ -803,7 +757,10 @@ async def platform_messages_send(
             except Exception:
                 pass
 
-    return RedirectResponse("/platform/messages?sent=1", status_code=303)
+    print("platform_messages_send targets=", len(targets), "ok=", ok_count)
+    return RedirectResponse(f"/platform/messages?sent=1&n={ok_count}", status_code=303)
+
+
 
 
 
@@ -2826,10 +2783,18 @@ async def company_notifications_api_alias(user: User = Depends(require_company),
 async def company_notifications_read_all(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import text as sa_text
+    from app.services.company_notify import mark_all_read
     cid = getattr(user, "company_id", None)
-    if not cid:
-        return {"ok": False}
+    if cid:
+        await mark_all_read(db, int(cid))
+    return {"ok": True}
+
+@app.post("/api/company/notifications/read-all")
+async def company_notifications_read_all_api(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    return await company_notifications_read_all(user=user, db=db)
+
     try:
         await db.execute(sa_text(
             "UPDATE admin_notifications SET is_read = true WHERE company_id = :cid AND COALESCE(is_read, false) = false"
@@ -2848,11 +2813,18 @@ async def company_notifications_read_all(
 async def company_notifications_clear(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Remove all notifications for this company (does not affect WhatsApp)."""
-    from sqlalchemy import text as sa_text
+    from app.services.company_notify import clear_notifications
     cid = getattr(user, "company_id", None)
-    if not cid:
-        return {"ok": False}
+    if cid:
+        await clear_notifications(db, int(cid))
+    return {"ok": True}
+
+@app.post("/api/company/notifications/clear")
+async def company_notifications_clear_api(
+    user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
+):
+    return await company_notifications_clear(user=user, db=db)
+
     try:
         await db.execute(sa_text("DELETE FROM admin_notifications WHERE company_id = :cid"), {"cid": int(cid)})
         await db.commit()
@@ -2870,105 +2842,16 @@ async def company_notifications_clear(
 async def company_notifications_api(
     user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    """Unread + recent platform notes for this company admin bell."""
-    from sqlalchemy import text as sa_text
-
+    from app.services.company_notify import list_company_notifications
     cid = getattr(user, "company_id", None)
     if not cid:
         return []
-    cid = int(cid)
-    out = []
-    seen = set()
+    return await list_company_notifications(db, int(cid), limit=40)
 
-    # 1) admin_notifications
-    try:
-        result = await db.execute(sa_text("""
-            SELECT id, title, body, COALESCE(priority, 'high') AS priority,
-                   conversation_id, created_at
-            FROM admin_notifications
-            WHERE company_id = :cid
-              AND COALESCE(is_read, false) = false
-            ORDER BY id DESC
-            LIMIT 40
-        """), {"cid": cid})
-        for n in result.mappings().all():
-            nid = int(n["id"])
-            seen.add(("n", nid))
-            title = n.get("title") or "Notification"
-            body = n.get("body") or ""
-            pri = str(n.get("priority") or "high").lower()
-            if "platform" in title.lower():
-                pri = "high"
-            created = n.get("created_at")
-            time_s = ""
-            if created is not None:
-                try:
-                    time_s = created.strftime("%d %b %Y %H:%M")
-                except Exception:
-                    time_s = str(created)[:16]
-            conv_id = n.get("conversation_id")
-            out.append({
-                "id": nid,
-                "title": title,
-                "body": body,
-                "priority": pri,
-                "kind": "platform" if "platform" in title.lower() else "order",
-                "conversation_id": conv_id,
-                "link": f"/company/messages?c={conv_id}" if conv_id else "/company/dashboard",
-                "created_at": time_s,
-                "time": time_s,
-            })
-    except Exception as e:
-        print("notifications_api primary:", type(e).__name__, e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
 
-    # 2) Always merge recent platform_messages for this company (last 15)
-    try:
-        result = await db.execute(sa_text("""
-            SELECT id, body, created_at, company_name
-            FROM platform_messages
-            WHERE company_id = :cid
-            ORDER BY id DESC
-            LIMIT 15
-        """), {"cid": cid})
-        for mrow in result.mappings().all():
-            mid = int(mrow["id"])
-            if ("pm", mid) in seen:
-                continue
-            # Avoid duplicates of same body already in out
-            body = mrow.get("body") or ""
-            if any((x.get("body") or "") == body for x in out):
-                continue
-            created = mrow.get("created_at")
-            time_s = ""
-            if created is not None:
-                try:
-                    time_s = created.strftime("%d %b %Y %H:%M")
-                except Exception:
-                    time_s = str(created)[:16]
-            out.append({
-                "id": 900000 + mid,
-                "title": "Message from Client-RaQ Platform",
-                "body": body,
-                "priority": "high",
-                "kind": "platform",
-                "conversation_id": None,
-                "link": "/company/dashboard",
-                "created_at": time_s,
-                "time": time_s,
-            })
-    except Exception as e:
-        print("notifications_api platform_messages:", type(e).__name__, e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-
-    out.sort(key=lambda x: x.get("id") or 0, reverse=True)
-    return out[:40]
+@app.get("/company/api/notifications")
+async def company_notifications_api_alias2(user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    return await company_notifications_api(user=user, db=db)
 
 
 
@@ -2981,10 +2864,12 @@ async def company_notification_read_alias(nid: int, user: User = Depends(require
 async def company_notification_read(
     nid: int, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import text as sa_text
+    from app.services.company_notify import mark_notification_read
     cid = getattr(user, "company_id", None)
-    if not cid:
-        return {"ok": False}
+    if cid:
+        await mark_notification_read(db, int(cid), int(nid))
+    return {"ok": True}
+
     try:
         await db.execute(sa_text("""
             UPDATE admin_notifications

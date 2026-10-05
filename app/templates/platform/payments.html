@@ -3,6 +3,20 @@
 {% block page_title %}Platform payments{% endblock %}
 {% set active = 'payments' %}
 {% block content %}
+{% if request.query_params.get('cleared') %}
+<div class="mb-4 p-3 rounded-xl text-sm border border-emerald-500/30 bg-emerald-500/10">Payment history cleared.</div>
+{% endif %}
+{% if request.query_params.get('reminded') %}
+<div class="mb-4 p-3 rounded-xl text-sm border border-emerald-500/30 bg-emerald-500/10">Reminder sent to company notification bell.</div>
+{% endif %}
+
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+  <p class="text-sm text-[var(--text-secondary)] m-0">Paystack subscription payments from companies.</p>
+  <form method="post" action="/platform/payments/clear" onsubmit="return confirm('Clear ALL platform payment records? This cannot be undone.');">
+    <button type="submit" class="btn-ghost text-sm text-red-600 min-h-[40px] px-4">Clear history</button>
+  </form>
+</div>
+
 <div class="card overflow-x-auto">
   <table class="w-full text-sm text-left">
     <thead class="text-xs text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
@@ -15,6 +29,7 @@
         <th class="p-3">Amount</th>
         <th class="p-3">Status</th>
         <th class="p-3">When</th>
+        <th class="p-3">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -23,14 +38,31 @@
         <td class="p-3">{{ p.id }}</td>
         <td class="p-3">{{ p.company_id or '—' }}</td>
         <td class="p-3">{{ p.email }}</td>
-        <td class="p-3 font-mono text-xs">{{ p.reference }}</td>
+        <td class="p-3 font-mono text-xs break-all max-w-[12rem]">{{ p.reference }}</td>
         <td class="p-3">{{ p.plan_code }}</td>
         <td class="p-3">₦{{ "%.0f"|format((p.amount_kobo or 0) / 100) }}</td>
-        <td class="p-3">{{ p.status }}</td>
-        <td class="p-3 text-[var(--text-muted)]">{{ p.paid_at or p.created_at }}</td>
+        <td class="p-3">
+          {% if p.status == 'success' %}
+          <span class="status-pill status-active">success</span>
+          {% elif p.status == 'pending' %}
+          <span class="status-pill status-pending">pending</span>
+          {% else %}
+          {{ p.status }}
+          {% endif %}
+        </td>
+        <td class="p-3 text-[var(--text-muted)] text-xs">{{ p.paid_at or p.created_at }}</td>
+        <td class="p-3">
+          {% if p.status == 'pending' and p.company_id %}
+          <form method="post" action="/platform/payments/{{ p.id }}/remind" class="inline">
+            <button type="submit" class="text-xs text-[var(--primary)] font-medium hover:underline">Remind company</button>
+          </form>
+          {% else %}
+          <span class="text-[var(--text-muted)] text-xs">—</span>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="p-6 text-[var(--text-muted)]">No payments recorded yet.</td></tr>
+      <tr><td colspan="9" class="p-6 text-[var(--text-muted)]">No payments recorded yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
