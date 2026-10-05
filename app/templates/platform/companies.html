@@ -46,35 +46,45 @@
 </div>
 
 <div class="card p-6 mt-6 max-w-3xl">
-  <h3 class="font-semibold mb-2">Subscription actions</h3>
+  <h3 class="font-semibold mb-2">Subscription & trial actions</h3>
   <p class="text-sm text-[var(--text-secondary)] mb-4">Use company ID from the table. Suspend freezes the bot; mark paid grants a plan period without Paystack.</p>
-  <form method="post" action="" id="subActionForm" x-data="{ plan: 'yearly', days: 30 }" x-init="$watch('plan', v => { days = ({monthly:30, six_month:180, yearly:365})[v] || 30 })" class="grid sm:grid-cols-2 gap-3 text-sm" onsubmit="this.action='/platform/companies/'+this.company_id.value+'/subscription'">
+  <form method="post" action="" id="subActionForm"
+        x-data="{ plan: 'monthly', days: 48, action: 'set_trial_hours' }"
+        x-init="$watch('action', v => {
+          if (v === 'activate' || v === 'mark_paid') days = ({monthly:30, six_month:180, yearly:365})[plan] || 30;
+          if (v === 'set_trial_hours') days = 48;
+          if (v === 'add_trial_hours') days = 12;
+        })"
+        class="grid sm:grid-cols-2 gap-3 text-sm"
+        onsubmit="this.action='/platform/companies/'+this.company_id.value+'/subscription'">
     <div>
       <label class="block text-xs mb-1">Company ID</label>
       <input name="company_id" required class="input-field" placeholder="e.g. 3">
     </div>
     <div>
       <label class="block text-xs mb-1">Action</label>
-      <select name="action" class="input-field">
-        <option value="suspend">Suspend</option>
-        <option value="activate">Activate / set days</option>
-        <option value="extend_trial">Extend trial (days→hours*24)</option>
+      <select name="action" class="input-field" x-model="action">
+        <option value="set_trial_hours">Set trial hours from now (e.g. 48)</option>
+        <option value="add_trial_hours">Add trial hours (extend)</option>
+        <option value="suspend">Suspend company</option>
+        <option value="activate">Activate paid days</option>
         <option value="mark_paid">Mark paid (manual)</option>
       </select>
     </div>
     <div>
-      <label class="block text-xs mb-1">Days (activate / trial days)</label>
-      <input type="number" name="days" class="input-field" x-model.number="days">
+      <label class="block text-xs mb-1">Hours or days</label>
+      <input type="number" name="days" class="input-field" x-model.number="days" min="0">
+      <p class="text-[10px] text-[var(--text-muted)] mt-1 m-0">Trial actions use <strong>hours</strong>. Activate / mark paid use <strong>days</strong>.</p>
     </div>
     <div>
-      <label class="block text-xs mb-1">Plan code (mark_paid / activate)</label>
+      <label class="block text-xs mb-1">Plan (activate / mark paid)</label>
       <select name="plan_code" class="input-field" x-model="plan">
         <option value="monthly">monthly</option>
         <option value="six_month">six_month</option>
         <option value="yearly">yearly</option>
       </select>
     </div>
-    <button type="submit" class="btn-primary sm:col-span-2">Apply</button>
+    <button type="submit" class="btn-primary sm:col-span-2 min-h-[44px]">Apply</button>
   </form>
 </div>
 

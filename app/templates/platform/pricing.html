@@ -34,10 +34,13 @@
       <input type="number" name="trial_hours" value="{{ pricing.trial_hours }}" class="input-field" required>
     </div>
   </div>
-  <label class="flex items-center gap-2 text-sm">
-    <input type="checkbox" name="trial_enabled" {% if pricing.trial_enabled %}checked{% endif %} class="rounded">
-    Free trial enabled
-  </label>
+  <div class="flex items-start gap-3 p-3 rounded-xl border border-[var(--border-subtle)]">
+    <input type="checkbox" name="trial_enabled" id="trial_enabled" {% if pricing.trial_enabled %}checked{% endif %} class="rounded mt-1">
+    <div>
+      <label for="trial_enabled" class="text-sm font-medium">Free trial on public site</label>
+      <p class="text-[11px] text-[var(--text-muted)] mt-0.5 leading-relaxed">When OFF: public signup cannot start a free trial — they must pay with Paystack before full dashboard access. You can still grant trial hours per company under Companies. When ON: new users get the trial hours set above.</p>
+    </div>
+  </div>
   <div>
     <label class="block text-xs font-medium mb-1.5">Support WhatsApp</label>
     <input type="text" name="support_whatsapp" value="{{ pricing.support_whatsapp|default('') }}" class="input-field">

@@ -3,76 +3,246 @@
 {% block page_title %}Billing{% endblock %}
 {% set active = 'billing' %}
 {% block content %}
-<div class="space-y-6 max-w-2xl">
+<style>
+  .bill-hero {
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, rgba(37,99,235,.08), rgba(14,165,233,.06));
+    border: 1px solid var(--border-subtle);
+  }
+  html.dark .bill-hero, [data-theme="dark"] .bill-hero {
+    background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(14,165,233,.12));
+  }
+  .bill-timer {
+    font-variant-numeric: tabular-nums;
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .bill-timer span {
+    display: inline-block;
+    min-width: 2.25rem;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.25rem;
+    margin: 0 0.15rem;
+  }
+  .plan-card {
+    border: 1.5px solid var(--border-subtle);
+    border-radius: 1rem;
+    padding: 1rem 1.1rem;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .plan-card:hover { border-color: var(--primary); }
+  .plan-card.is-selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+    background: rgba(37,99,235,.04);
+  }
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+  }
+  .status-chip.live { background: #dcfce7; color: #166534; }
+  .status-chip.trial { background: #dbeafe; color: #1e40af; }
+  .status-chip.paused { background: #fee2e2; color: #991b1b; }
+  html.dark .status-chip.live, [data-theme="dark"] .status-chip.live { background: #14532d; color: #bbf7d0; }
+  html.dark .status-chip.trial, [data-theme="dark"] .status-chip.trial { background: #1e3a8a; color: #bfdbfe; }
+  html.dark .status-chip.paused, [data-theme="dark"] .status-chip.paused { background: #7f1d1d; color: #fecaca; }
+</style>
+
+<div class="space-y-6 max-w-3xl mx-auto">
   {% if request.query_params.get('renewed') %}
-  <div class="p-3 rounded-lg border border-[var(--primary)]/30 text-sm">Subscription updated. Your bot stays active for the new period.</div>
+  <div class="p-3 rounded-xl text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200">Subscription updated. Your bot stays active for the new period.</div>
   {% endif %}
   {% if request.query_params.get('error') %}
-  <div class="p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">Payment could not be completed. Try again or contact support.</div>
+  <div class="p-3 rounded-xl text-sm border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-200">Payment could not be completed. Try again or contact support.</div>
   {% endif %}
 
-  <div class="card p-6">
-    <h3 class="font-semibold mb-2">Subscription status</h3>
-    {% if sub %}
-    <dl class="text-sm space-y-2">
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Status</dt><dd class="font-medium">{{ sub.status }}{% if live %} · live{% else %} · paused{% endif %}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Plan</dt><dd>{{ sub.plan_code or '—' }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">WhatsApp</dt><dd>{{ 'Included' if sub.channel_whatsapp else 'Not included' }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Telegram</dt><dd>{{ 'Included' if sub.channel_telegram else 'Not included' }}</dd></div>
-      {% if sub.trial_ends_at %}<div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Trial ends</dt><dd>{{ sub.trial_ends_at }}</dd></div>{% endif %}
-      {% if sub.subscription_ends_at %}<div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Paid until</dt><dd>{{ sub.subscription_ends_at }}</dd></div>{% endif %}
-    </dl>
+  {# —— Live trial / subscription hero —— #}
+  <div class="bill-hero">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+      <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] m-0 mb-1">Current access</p>
+        {% if live and sub and sub.status == 'trial' %}
+        <span class="status-chip trial">Free trial · active</span>
+        {% elif live %}
+        <span class="status-chip live">Paid · active</span>
+        {% else %}
+        <span class="status-chip paused">Paused · subscribe to continue</span>
+        {% endif %}
+      </div>
+      {% if sub and sub.plan_code %}
+      <p class="text-sm text-[var(--text-secondary)] m-0">Plan: <strong class="text-[var(--text-primary)]">{{ sub.plan_code|replace('_',' ')|title }}</strong></p>
+      {% endif %}
+    </div>
+
+    {% if sub and sub.status == 'trial' and sub.trial_ends_at %}
+    <p class="text-xs text-[var(--text-muted)] m-0 mb-2">Trial ends in</p>
+    <div class="bill-timer" id="trial-countdown" data-end="{{ trial_ends_iso|default(sub.trial_ends_at) }}">
+      <span id="t-h">--</span><span class="text-base font-medium text-[var(--text-muted)] mx-0.5">:</span>
+      <span id="t-m">--</span><span class="text-base font-medium text-[var(--text-muted)] mx-0.5">:</span>
+      <span id="t-s">--</span>
+    </div>
+    <p class="text-xs text-[var(--text-muted)] mt-2 m-0" id="trial-label">hours · minutes · seconds</p>
+    {% elif sub and sub.subscription_ends_at and live %}
+    <p class="text-xs text-[var(--text-muted)] m-0 mb-2">Paid access ends in</p>
+    <div class="bill-timer" id="paid-countdown" data-end="{{ paid_ends_iso|default(sub.subscription_ends_at) }}">
+      <span id="p-d">--</span><span class="text-sm font-medium text-[var(--text-muted)] mx-1">days</span>
+      <span id="p-h">--</span><span class="text-base font-medium text-[var(--text-muted)] mx-0.5">:</span>
+      <span id="p-m">--</span><span class="text-base font-medium text-[var(--text-muted)] mx-0.5">:</span>
+      <span id="p-s">--</span>
+    </div>
     {% else %}
-    <p class="text-sm text-[var(--text-muted)]">No subscription yet. Choose a plan below.</p>
+    <p class="text-sm text-[var(--text-secondary)] m-0 mt-1">No active trial or paid period. Choose a plan below to unlock the bot and dashboard.</p>
     {% endif %}
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-[var(--border-subtle)]">
+      <div>
+        <p class="text-[11px] text-[var(--text-muted)] m-0">WhatsApp</p>
+        <p class="text-sm font-semibold m-0 mt-0.5">{% if sub and sub.channel_whatsapp %}Included{% else %}—{% endif %}</p>
+      </div>
+      <div>
+        <p class="text-[11px] text-[var(--text-muted)] m-0">Telegram</p>
+        <p class="text-sm font-semibold m-0 mt-0.5">{% if sub and sub.channel_telegram %}Included{% else %}—{% endif %}</p>
+      </div>
+      <div>
+        <p class="text-[11px] text-[var(--text-muted)] m-0">Messages (trial)</p>
+        <p class="text-sm font-semibold m-0 mt-0.5">{{ trial_messages_used|default(0) }}/{{ trial_messages_limit|default(50) }}</p>
+      </div>
+      <div>
+        <p class="text-[11px] text-[var(--text-muted)] m-0">Status</p>
+        <p class="text-sm font-semibold m-0 mt-0.5 capitalize">{{ sub.status if sub else 'none' }}</p>
+      </div>
+    </div>
   </div>
 
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">{{ 'Renew or change plan' if live else 'Subscribe to reactivate' }}</h3>
-    <p class="text-sm text-[var(--text-secondary)]">After Paystack confirms payment, your subscription period starts counting (30 / 180 / 365 days). Used trials can subscribe anytime — same login.</p>
-    <form method="post" action="/company/billing/renew" class="space-y-4">
-      <div>
-        <label class="block text-xs font-medium mb-1.5">Plan</label>
-        <select name="plan_code" class="input-field">
-          <option value="monthly">Monthly — ₦{{ "{:,.0f}".format(pricing.monthly_ngn) }}</option>
-          <option value="six_month">6 months — ₦{{ "{:,.0f}".format(pricing.six_month_ngn) }} (WhatsApp + Telegram)</option>
-          <option value="yearly">Yearly — ₦{{ "{:,.0f}".format(pricing.yearly_ngn) }} (WhatsApp + Telegram)</option>
-        </select>
+  {# —— Plans —— #}
+  <div class="card p-5 sm:p-6 space-y-5">
+    <div>
+      <h3 class="font-semibold text-base m-0">{{ 'Renew or change plan' if live else 'Subscribe to activate' }}</h3>
+      <p class="text-sm text-[var(--text-secondary)] mt-1.5 mb-0 leading-relaxed">
+        Paystack confirms payment, then your period starts (30 / 180 / 365 days). Same login after trial ends.
+      </p>
+    </div>
+
+    <form method="post" action="/company/billing/renew" class="space-y-5" x-data="{ plan: 'monthly', wa: true, tg: false, guide: false }">
+      <div class="grid sm:grid-cols-3 gap-3">
+        <label class="plan-card" :class="plan==='monthly' && 'is-selected'">
+          <input type="radio" name="plan_code" value="monthly" class="sr-only" x-model="plan" checked>
+          <p class="text-xs font-medium text-[var(--text-muted)] m-0">Monthly</p>
+          <p class="text-xl font-bold m-0 mt-1">₦{{ "{:,.0f}".format(pricing.monthly_ngn) }}</p>
+          <p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">30 days · WhatsApp</p>
+        </label>
+        <label class="plan-card" :class="plan==='six_month' && 'is-selected'">
+          <input type="radio" name="plan_code" value="six_month" class="sr-only" x-model="plan">
+          <p class="text-xs font-medium text-[var(--text-muted)] m-0">6 months</p>
+          <p class="text-xl font-bold m-0 mt-1">₦{{ "{:,.0f}".format(pricing.six_month_ngn) }}</p>
+          <p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">180 days · WA + Telegram</p>
+        </label>
+        <label class="plan-card" :class="plan==='yearly' && 'is-selected'">
+          <input type="radio" name="plan_code" value="yearly" class="sr-only" x-model="plan">
+          <p class="text-xs font-medium text-[var(--text-muted)] m-0">Yearly</p>
+          <p class="text-xl font-bold m-0 mt-1">₦{{ "{:,.0f}".format(pricing.yearly_ngn) }}</p>
+          <p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">365 days · WA + Telegram</p>
+        </label>
       </div>
-      <div class="space-y-2 text-sm">
-        <label class="flex items-center gap-2"><input type="checkbox" name="channel_whatsapp" checked class="rounded"> WhatsApp</label>
-        <label class="flex items-center gap-2"><input type="checkbox" name="channel_telegram" class="rounded"> Telegram (add-on on monthly)</label>
-        <label class="flex items-center gap-2"><input type="checkbox" name="include_guide" class="rounded"> Configuration guide — ₦{{ "{:,.0f}".format(pricing.guide_fee_ngn) }}</label>
+
+      <div class="flex flex-col sm:flex-row sm:flex-wrap gap-3 text-sm">
+        <label class="inline-flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="channel_whatsapp" value="1" class="rounded" checked x-model="wa">
+          WhatsApp channel
+        </label>
+        <label class="inline-flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="channel_telegram" value="1" class="rounded" x-model="tg">
+          Telegram <span class="text-[var(--text-muted)] text-xs">(add-on on monthly)</span>
+        </label>
+        <label class="inline-flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="include_guide" value="1" class="rounded" x-model="guide">
+          Config guide — ₦{{ "{:,.0f}".format(pricing.guide_fee_ngn) }}
+        </label>
       </div>
-      <button type="submit" class="btn-primary w-full sm:w-auto">Pay with Paystack</button>
+
+      <button type="submit" class="btn-primary min-h-[48px] w-full sm:w-auto px-8 text-sm font-semibold">
+        Continue to Paystack
+      </button>
     </form>
   </div>
 
-  <p class="text-sm flex flex-wrap gap-3">
-    <a href="/company/billing/history" class="text-[var(--primary)] underline">Payment history</a>
-    <a href="/company/guides" class="text-[var(--primary)] underline">Setup guides</a>
-    <a href="/checkout" class="text-[var(--text-muted)] underline">Public checkout</a>
-  </p>
+  <div class="flex flex-wrap gap-4 text-sm">
+    <a href="/company/billing/history" class="text-[var(--primary)] font-medium no-underline hover:underline">Payment history</a>
+    <a href="/company/guides" class="text-[var(--primary)] font-medium no-underline hover:underline">Setup guides</a>
+  </div>
 </div>
 
 <script>
-(function(){
-  const el = document.getElementById('trial-countdown');
-  if (!el) return;
-  const end = el.getAttribute('data-end');
-  if (!end) return;
-  function tick(){
-    const ms = new Date(end).getTime() - Date.now();
-    if (isNaN(ms)) return;
-    if (ms <= 0) { el.textContent = 'Trial ended — subscribe to continue'; return; }
-    const h = Math.floor(ms/3600000);
-    const m = Math.floor((ms%3600000)/60000);
-    const s = Math.floor((ms%60000)/1000);
-    el.textContent = h + 'h ' + m + 'm ' + s + 's left on free trial';
+(function () {
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function bindTimer(rootId, mode) {
+    var root = document.getElementById(rootId);
+    if (!root) return;
+    var endRaw = root.getAttribute('data-end');
+    if (!endRaw) return;
+    var end = new Date(endRaw).getTime();
+    if (isNaN(end)) {
+      // try parse without timezone quirks
+      end = new Date(String(endRaw).replace(' ', 'T')).getTime();
+    }
+    if (isNaN(end)) return;
+
+    function tick() {
+      var ms = end - Date.now();
+      if (ms <= 0) {
+        if (mode === 'trial') {
+          root.innerHTML = '<span style="font-size:1rem;font-weight:600">Trial ended — subscribe to continue</span>';
+          var lab = document.getElementById('trial-label');
+          if (lab) lab.textContent = '';
+        } else {
+          root.innerHTML = '<span style="font-size:1rem;font-weight:600">Period ended</span>';
+        }
+        return;
+      }
+      if (mode === 'trial') {
+        var h = Math.floor(ms / 3600000);
+        var m = Math.floor((ms % 3600000) / 60000);
+        var s = Math.floor((ms % 60000) / 1000);
+        var eh = document.getElementById('t-h');
+        var em = document.getElementById('t-m');
+        var es = document.getElementById('t-s');
+        if (eh) eh.textContent = pad(h);
+        if (em) em.textContent = pad(m);
+        if (es) es.textContent = pad(s);
+      } else {
+        var d = Math.floor(ms / 86400000);
+        var h2 = Math.floor((ms % 86400000) / 3600000);
+        var m2 = Math.floor((ms % 3600000) / 60000);
+        var s2 = Math.floor((ms % 60000) / 1000);
+        var ed = document.getElementById('p-d');
+        var ph = document.getElementById('p-h');
+        var pm = document.getElementById('p-m');
+        var ps = document.getElementById('p-s');
+        if (ed) ed.textContent = d;
+        if (ph) ph.textContent = pad(h2);
+        if (pm) pm.textContent = pad(m2);
+        if (ps) ps.textContent = pad(s2);
+      }
+    }
+    tick();
+    setInterval(tick, 1000);
   }
-  tick();
-  setInterval(tick, 1000);
+
+  bindTimer('trial-countdown', 'trial');
+  bindTimer('paid-countdown', 'paid');
 })();
 </script>
-
 {% endblock %}

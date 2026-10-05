@@ -645,14 +645,39 @@ async def company_billing(
     pricing = await get_pricing(db)
     sub = await get_company_subscription(db, user.company_id)
     live = subscription_is_live(sub)
+    trial_ends_iso = ""
+    paid_ends_iso = ""
+    try:
+        if sub and getattr(sub, "trial_ends_at", None):
+            te = sub.trial_ends_at
+            if getattr(te, "tzinfo", None) is None:
+                te = te.replace(tzinfo=timezone.utc)
+            trial_ends_iso = te.isoformat()
+        if sub and getattr(sub, "subscription_ends_at", None):
+            pe = sub.subscription_ends_at
+            if getattr(pe, "tzinfo", None) is None:
+                pe = pe.replace(tzinfo=timezone.utc)
+            paid_ends_iso = pe.isoformat()
+    except Exception as _e:
+        print("billing iso", type(_e).__name__, _e)
+    company_name = "Company"
+    try:
+        from sqlalchemy import text as sa_text
+        row = (await db.execute(sa_text("SELECT name FROM companies WHERE id = :id"), {"id": user.company_id})).first()
+        if row:
+            company_name = row[0]
+    except Exception:
+        pass
     return _render(request, "company/billing.html", {
         "active": "billing",
         "user_name": user.full_name,
-        "company_name": getattr(user, "full_name", "Company"),
+        "company_name": company_name,
         "sub": sub,
         "live": live,
         "pricing": pricing,
         "paystack_ready": paystack_configured(),
+        "trial_ends_iso": trial_ends_iso,
+        "paid_ends_iso": paid_ends_iso,
     })
 
 
@@ -951,20 +976,29 @@ async def platform_company_subscription_action(
             sub.subscription_ends_at = now + timedelta(days=int(days or 30))
             sub.guide_unlocked = True
         await db.commit()
-    elif action == "extend_trial":
-        hours = int(days or 2) * 24
+    elif action in ("extend_trial", "set_trial_hours", "add_trial_hours"):
+        # days field is reused as HOURS for trial controls when action is set/add
+        hours = int(days or 0)
+        if action == "extend_trial":
+            # legacy: days → hours * 24
+            hours = int(days or 2) * 24
+        if hours < 0:
+            hours = 0
         if not sub:
             sub = Subscription(company_id=company_id, status="trial", channel_whatsapp=True,
-                               trial_ends_at=now + timedelta(hours=hours), guide_unlocked=True)
+                               trial_ends_at=now + timedelta(hours=max(hours, 1)), guide_unlocked=True)
             db.add(sub)
         else:
             sub.status = "trial"
-            base = sub.trial_ends_at or now
-            if base.tzinfo is None:
-                base = base.replace(tzinfo=timezone.utc)
-            if base < now:
-                base = now
-            sub.trial_ends_at = base + timedelta(hours=hours)
+            if action == "set_trial_hours":
+                sub.trial_ends_at = now + timedelta(hours=max(hours, 0))
+            else:
+                base = sub.trial_ends_at or now
+                if getattr(base, "tzinfo", None) is None:
+                    base = base.replace(tzinfo=timezone.utc)
+                if base < now:
+                    base = now
+                sub.trial_ends_at = base + timedelta(hours=hours)
         await db.commit()
     elif action == "mark_paid":
         await activate_paid_subscription(
