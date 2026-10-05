@@ -970,16 +970,21 @@ async def platform_payments_clear(
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import text as sa_text
-    try:
-        await db.execute(sa_text("DELETE FROM payments"))
-        await db.commit()
-    except Exception as e:
-        print("clear payments", e)
+    cleared = False
+    for table in ("platform_payments", "payments"):
         try:
-            await db.rollback()
-        except Exception:
-            pass
-    return RedirectResponse("/platform/payments?cleared=1", status_code=303)
+            await db.execute(sa_text(f"DELETE FROM {table}"))
+            await db.commit()
+            cleared = True
+            print("cleared table", table)
+            break
+        except Exception as e:
+            print("clear payments", table, type(e).__name__, e)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+    return RedirectResponse("/platform/payments?cleared=1" if cleared else "/platform/payments?error=clear", status_code=303)
 
 
 @router.post("/platform/payments/{payment_id}/remind")

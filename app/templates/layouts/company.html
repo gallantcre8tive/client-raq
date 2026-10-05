@@ -81,29 +81,39 @@
                   x-show="notifications && notifications.length" x-cloak
                   x-text="notifications.length > 9 ? '9+' : notifications.length"></span>
           </button>
-          <div x-show="notifOpen" x-cloak class="absolute right-0 mt-2 w-72 max-w-[calc(100vw-24px)] rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xl overflow-hidden z-50">
-            <div class="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
-            <span class="font-semibold text-sm">Notifications</span>
-            <span class="flex gap-2 text-[11px]">
-              <button type="button" class="text-[var(--primary)] hover:underline" @click="markAllRead()">Mark all read</button>
-              <button type="button" class="text-[var(--text-muted)] hover:underline" @click="clearNotifs()">Clear</button>
-            </span>
-          </div>
-            <div class="max-h-64 overflow-y-auto">
+          <div x-show="notifOpen" x-cloak @click.outside="notifOpen=false"
+               class="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.25rem))] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-50">
+            <div class="px-4 py-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
+              <div>
+                <p class="font-semibold text-sm m-0">Notifications</p>
+                <p class="text-[11px] text-[var(--text-muted)] m-0 mt-0.5"
+                   x-text="(notifications && notifications.length) ? (notifications.length + ' unread') : 'All caught up'"></p>
+              </div>
+              <span class="flex gap-2 text-[11px] shrink-0">
+                <button type="button" class="text-[var(--primary)] font-medium hover:underline" @click="markAllRead()">Mark all read</button>
+                <button type="button" class="text-[var(--text-muted)] hover:underline" @click="clearNotifs()">Clear</button>
+              </span>
+            </div>
+            <div class="max-h-[min(24rem,60vh)] overflow-y-auto">
               <template x-if="!notifications || notifications.length === 0">
-                <div class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">No new notifications</div>
+                <div class="px-4 py-10 text-center">
+                  <p class="text-sm text-[var(--text-muted)] m-0">No new notifications</p>
+                  <p class="text-[11px] text-[var(--text-muted)] m-0 mt-1">Platform messages, orders and handoffs appear here.</p>
+                </div>
               </template>
               <template x-for="n in (notifications || [])" :key="n.id">
                 <a :href="n.link || (n.conversation_id ? ('/company/messages?c=' + n.conversation_id) : '/company/dashboard')"
-                   class="block px-4 py-3 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]"
-                   :class="n.priority === 'high' ? 'bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]' : ''"
+                   class="block px-4 py-3.5 border-b border-[var(--border-subtle)] text-sm no-underline text-[var(--text-primary)] hover:bg-[var(--surface-subtle)] transition-colors"
+                   :class="(n.priority === 'high' || n.priority === 'urgent' || n.kind === 'platform') ? 'bg-[color-mix(in_srgb,var(--primary)_6%,transparent)]' : ''"
                    @click="markNotifRead(n.id)">
-                  <div class="flex items-center gap-2">
-                    <div class="font-medium" x-text="n.title"></div>
-                    <span x-show="n.priority === 'high'" class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded" style="background:color-mix(in srgb,var(--primary) 20%,transparent);color:var(--primary)">New</span>
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="font-medium leading-snug" x-text="n.title"></div>
+                    <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded shrink-0"
+                          :style="n.kind==='platform' || n.kind==='platform_message' ? 'background:#dbeafe;color:#1e40af' : (n.kind==='payment_proof' || n.priority==='urgent' ? 'background:#fee2e2;color:#991b1b' : 'background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--primary)')"
+                          x-text="n.kind==='platform'||n.kind==='platform_message' ? 'Platform' : (n.kind==='payment_proof' ? 'Payment' : (n.kind==='new_order' ? 'Order' : (n.kind==='needs_human' ? 'Needs you' : (n.kind==='billing' ? 'Billing' : 'New'))))"></span>
                   </div>
-                  <div class="text-xs text-[var(--text-secondary)] mt-0.5 line-clamp-2" x-text="n.body || ''"></div>
-                  <div class="text-[10px] text-[var(--text-muted)] mt-1" x-text="n.time || ''"></div>
+                  <div class="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed line-clamp-3" x-text="n.body || ''"></div>
+                  <div class="text-[10px] text-[var(--text-muted)] mt-1.5" x-text="n.time || n.created_at || ''"></div>
                 </a>
               </template>
             </div>
@@ -209,7 +219,7 @@
     } catch(e) {}
   };
   window.clearNotifs = async function(){
-    if (!confirm('Clear all notifications?')) return;
+    var ok = await crqConfirm('Clear all notifications?',{danger:true,okText:'Clear'}); if (!ok) return;
     try {
       await fetch('/company/api/notifications/clear', { method: 'POST', credentials: 'same-origin' });
     } catch(e) {}
@@ -229,7 +239,10 @@
   async function pollNotify(){
     try {
       var r = await fetch('/company/api/notifications', { credentials: 'same-origin', cache: 'no-store' });
-      if (!r.ok) return;
+      if (!r.ok) {
+        r = await fetch('/api/company/notifications', { credentials: 'same-origin', cache: 'no-store' });
+      }
+      if (!r.ok) { console.warn('crq notif http', r.status); return; }
       var data = await r.json();
       var list = Array.isArray(data) ? data : (data.items || []);
       applyList(list);
@@ -257,7 +270,7 @@
       return;
     }
     pollNotify();
-    setInterval(pollNotify, 2500);
+    setInterval(pollNotify, 2000);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);

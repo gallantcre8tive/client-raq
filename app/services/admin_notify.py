@@ -1,4 +1,4 @@
-"""Persistent company admin notifications — raw SQL only (no ORM enum issues)."""
+"""Persistent company admin notifications — raw SQL, multi-fallback inserts."""
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,27 +6,46 @@ from sqlalchemy import text
 
 
 async def ensure_notif_table(db: AsyncSession) -> None:
-    await db.execute(text("""
-        CREATE TABLE IF NOT EXISTS admin_notifications (
-            id SERIAL PRIMARY KEY,
-            company_id INTEGER,
-            conversation_id INTEGER,
-            title VARCHAR(200),
-            body TEXT,
-            priority VARCHAR(20) DEFAULT 'high',
-            is_read BOOLEAN DEFAULT false,
-            link_path VARCHAR(300),
-            kind VARCHAR(40) DEFAULT 'general',
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    """))
     try:
-        await db.execute(text(
-            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS kind VARCHAR(40) DEFAULT 'general'"
-        ))
-    except Exception:
-        pass
-    await db.commit()
+        await db.execute(text("""
+            CREATE TABLE IF NOT EXISTS admin_notifications (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER,
+                conversation_id INTEGER,
+                title VARCHAR(200),
+                body TEXT,
+                priority VARCHAR(20) DEFAULT 'high',
+                is_read BOOLEAN DEFAULT false,
+                link_path VARCHAR(300),
+                kind VARCHAR(40) DEFAULT 'general',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        for col_sql in (
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'high'",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS body TEXT",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS title VARCHAR(200)",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS conversation_id INTEGER",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS company_id INTEGER",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS link_path VARCHAR(300)",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS kind VARCHAR(40) DEFAULT 'general'",
+            "ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+        ):
+            try:
+                await db.execute(text(col_sql))
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+        await db.commit()
+    except Exception as e:
+        print("ensure_notif_table", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 async def notify_company(
@@ -41,83 +60,70 @@ async def notify_company(
     kind: str = "general",
 ) -> int | None:
     if not company_id:
+        print("admin_notify skip: no company_id")
         return None
-    try:
-        await ensure_notif_table(db)
-    except Exception as e:
-        print("ensure_notif_table", e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-    try:
-        row = (await db.execute(text("""
-            INSERT INTO admin_notifications
+    await ensure_notif_table(db)
+    cid = int(company_id)
+    title_s = (title or "Notification")[:200]
+    body_s = (body or "")[:4000]
+    pri = (priority or "high")[:20]
+    kind_s = (kind or "general")[:40]
+    link = (link_path or "/company/dashboard")[:300]
+    convid = int(conversation_id) if conversation_id else None
+
+    attempts = [
+        (
+            """INSERT INTO admin_notifications
                 (company_id, conversation_id, title, body, priority, is_read, link_path, kind, created_at)
-            VALUES
-                (:cid, :convid, :title, :body, :pri, false, :link, :kind, NOW())
-            RETURNING id
-        """), {
-            "cid": int(company_id),
-            "convid": int(conversation_id) if conversation_id else None,
-            "title": (title or "Notification")[:200],
-            "body": (body or "")[:4000],
-            "pri": (priority or "high")[:20],
-            "link": (link_path or "/company/dashboard")[:300],
-            "kind": (kind or "general")[:40],
-        })).first()
-        await db.commit()
-        nid = int(row[0]) if row else None
-        print("admin_notify_ok", "company_id=", company_id, "id=", nid, "title=", (title or "")[:40], "kind=", kind)
-        return nid
-    except Exception as e:
-        print("admin_notify_FAIL", type(e).__name__, e)
+             VALUES (:cid, :convid, :title, :body, :pri, false, :link, :kind, NOW())
+             RETURNING id""",
+            {"cid": cid, "convid": convid, "title": title_s, "body": body_s, "pri": pri, "link": link, "kind": kind_s},
+        ),
+        (
+            """INSERT INTO admin_notifications
+                (company_id, title, body, priority, is_read, kind, created_at)
+             VALUES (:cid, :title, :body, :pri, false, :kind, NOW())
+             RETURNING id""",
+            {"cid": cid, "title": title_s, "body": body_s, "pri": pri, "kind": kind_s},
+        ),
+        (
+            """INSERT INTO admin_notifications
+                (company_id, title, body, is_read, created_at)
+             VALUES (:cid, :title, :body, false, NOW())
+             RETURNING id""",
+            {"cid": cid, "title": title_s, "body": body_s},
+        ),
+        (
+            """INSERT INTO admin_notifications (company_id, title, body)
+             VALUES (:cid, :title, :body)
+             RETURNING id""",
+            {"cid": cid, "title": title_s, "body": body_s},
+        ),
+    ]
+    for sql, params in attempts:
         try:
-            await db.rollback()
-        except Exception:
-            pass
-        try:
-            await db.execute(text("""
-                INSERT INTO admin_notifications (company_id, title, body, priority, is_read, created_at)
-                VALUES (:cid, :title, :body, 'high', false, NOW())
-            """), {"cid": int(company_id), "title": (title or "Notification")[:200], "body": (body or "")[:4000]})
+            row = (await db.execute(text(sql), params)).first()
             await db.commit()
-            print("admin_notify_minimal_ok", company_id)
-        except Exception as e2:
-            print("admin_notify_minimal_FAIL", type(e2).__name__, e2)
+            nid = int(row[0]) if row else None
+            print("admin_notify_ok company_id=", cid, "id=", nid, "title=", title_s[:40], "kind=", kind_s)
+            return nid
+        except Exception as e:
+            print("admin_notify_try", type(e).__name__, e)
             try:
                 await db.rollback()
             except Exception:
                 pass
-        return None
-
-
-async def notify_new_customer(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    customer_label: str,
-    conversation_id: int | None = None,
-) -> None:
-    await notify_company(
-        db,
-        company_id=company_id,
-        title="New customer",
-        body=f"A new customer started chatting: {customer_label}",
-        priority="normal",
-        conversation_id=conversation_id,
-        link_path=f"/company/messages?c={conversation_id}" if conversation_id else "/company/messages",
-        kind="new_customer",
-    )
+    print("admin_notify_FAIL all attempts company_id=", cid)
+    return None
 
 
 async def notify_new_order(
     db: AsyncSession,
     *,
     company_id: int,
-    order_id: int | None,
-    service_name: str,
-    total: float | None,
+    order_id: int | None = None,
+    service_name: str = "",
+    total: float | None = None,
     currency: str = "NGN",
     customer_label: str = "",
     conversation_id: int | None = None,
@@ -171,8 +177,8 @@ async def notify_platform_message(
     company_id: int,
     body: str,
     sent_by: str = "Platform",
-) -> None:
-    await notify_company(
+) -> int | None:
+    return await notify_company(
         db,
         company_id=company_id,
         title=f"Message from {sent_by}",

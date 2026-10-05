@@ -246,7 +246,7 @@
           </div>
           <div class="flex flex-wrap gap-2 pt-1">
             <button type="submit" class="btn-primary min-h-[40px] text-sm px-4">Save method</button>
-            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="return confirm('Remove {{ s.name }}?')">Remove</button>
+            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="event.preventDefault();var btn=this;crqConfirm('Remove {{ s.name }}?').then(function(ok){if(ok){btn.form.requestSubmit?btn.form.requestSubmit(btn):btn.form.submit();}});return false;">Remove</button>
           </div>
 
           {% elif is_printing %}
@@ -293,7 +293,7 @@
             <button type="submit" class="btn-primary min-h-[40px] text-sm px-4">Save price</button>
             <a href="/company/services/{{ s.id }}/variants" class="btn-ghost min-h-[40px] text-sm inline-flex items-center no-underline">Sizes / options</a>
             <a href="/company/services/{{ s.id }}/images" class="btn-ghost min-h-[40px] text-sm inline-flex items-center no-underline">Example images</a>
-            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="return confirm('Remove {{ s.name }}?')">Remove</button>
+            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="event.preventDefault();var btn=this;crqConfirm('Remove {{ s.name }}?').then(function(ok){if(ok){btn.form.requestSubmit?btn.form.requestSubmit(btn):btn.form.submit();}});return false;">Remove</button>
           </div>
 
           {% else %}
@@ -349,7 +349,7 @@
           </div>
           <div class="flex flex-wrap gap-2 pt-1">
             <button type="submit" class="btn-primary min-h-[40px] text-sm px-4">Save</button>
-            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="return confirm('Remove {{ s.name }}?')">Remove</button>
+            <button type="submit" formaction="/company/services/{{ s.id }}/remove" formmethod="post" class="btn-ghost min-h-[40px] text-sm text-[var(--status-suspended)]" onclick="event.preventDefault();var btn=this;crqConfirm('Remove {{ s.name }}?').then(function(ok){if(ok){btn.form.requestSubmit?btn.form.requestSubmit(btn):btn.form.submit();}});return false;">Remove</button>
           </div>
           {% endif %}
         </form>

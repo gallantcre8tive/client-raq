@@ -30,7 +30,7 @@
 </form>
 <div class="card overflow-hidden">
   <div class="px-5 py-3 border-b border-[var(--border-subtle)] font-semibold text-sm">Recent notes
-      <form method="post" action="/platform/messages/clear" class="inline float-right" onsubmit="return confirm('Clear all platform message history?');">
+      <form method="post" action="/platform/messages/clear" class="inline float-right" onsubmit="event.preventDefault();var f=this;crqConfirm('Clear all platform message history?',{danger:true,okText:'Clear'}).then(function(ok){if(ok)f.submit();});return false;">
         <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-red-500">Clear history</button>
       </form></div>
   {% if notes|default([]) %}

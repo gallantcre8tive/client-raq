@@ -67,7 +67,7 @@
 </form>
 
 <form method="post" action="/company/settings/reseed-services" class="card p-4 sm:p-6 mt-6 max-w-2xl space-y-3"
-      onsubmit="return confirm('Load starter services for your current business type? Existing services with the same name are skipped.');">
+      onsubmit=\"event.preventDefault();var f=this;crqConfirm('Load starter services for your current business type? Existing services with the same name are skipped.').then(function(ok){if(ok)f.submit();});return false;\">
   <h3 class="font-semibold text-base m-0">Load {{ services_label|default('services') }} catalogue</h3>
   <p class="text-sm text-[var(--text-secondary)] leading-relaxed m-0">
     If you signed up and still see printing items, set the correct business type above, save, then run this.

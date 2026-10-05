@@ -77,5 +77,40 @@
 </head>
 <body class="h-full bg-[var(--surface-base)] text-[var(--text-primary)] font-sans antialiased">
   {% block body %}{% endblock %}
+
+<script>
+(function(){
+  if (window.crqConfirm) return;
+  window.crqConfirm = function(message, opts){
+    opts = opts || {};
+    return new Promise(function(resolve){
+      var existing = document.getElementById('crq-confirm-modal');
+      if (existing) existing.remove();
+      var overlay = document.createElement('div');
+      overlay.id = 'crq-confirm-modal';
+      overlay.setAttribute('role', 'dialog');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(15,23,42,.45);';
+      var panel = document.createElement('div');
+      panel.style.cssText = 'width:min(24rem,100%);background:var(--surface-card,#fff);color:var(--text-primary,#0f172a);border:1px solid var(--border-subtle,#e5e7eb);border-radius:1rem;padding:1.25rem 1.25rem 1rem;box-shadow:0 25px 50px rgba(0,0,0,.18);';
+      panel.innerHTML = '<p style="margin:0 0 1.25rem;font-size:.95rem;line-height:1.5;font-weight:500;"></p>' +
+        '<div style="display:flex;gap:.75rem;justify-content:flex-end;flex-wrap:wrap;">' +
+        '<button type="button" data-act="cancel" style="min-height:44px;padding:.5rem 1rem;border-radius:.75rem;border:1px solid var(--border-subtle,#e5e7eb);background:transparent;cursor:pointer;font-size:.875rem;">Cancel</button>' +
+        '<button type="button" data-act="ok" style="min-height:44px;padding:.5rem 1.1rem;border-radius:.75rem;border:none;background:var(--primary,#2563eb);color:#fff;cursor:pointer;font-size:.875rem;font-weight:600;">OK</button>' +
+        '</div>';
+      panel.querySelector('p').textContent = message || 'Are you sure?';
+      if (opts.okText) panel.querySelector('[data-act=ok]').textContent = opts.okText;
+      if (opts.cancelText) panel.querySelector('[data-act=cancel]').textContent = opts.cancelText;
+      if (opts.danger) panel.querySelector('[data-act=ok]').style.background = '#dc2626';
+      function close(v){ overlay.remove(); resolve(v); }
+      panel.querySelector('[data-act=cancel]').onclick = function(){ close(false); };
+      panel.querySelector('[data-act=ok]').onclick = function(){ close(true); };
+      overlay.onclick = function(e){ if (e.target === overlay) close(false); };
+      overlay.appendChild(panel);
+      document.body.appendChild(overlay);
+    });
+  };
+})();
+</script>
+
 </body>
 </html>

@@ -727,10 +727,20 @@ async def platform_messages_send(
         cid = int(c.id)
         cname = str(c.name or "")
         try:
-            await notify_platform_message(
-                db, company_id=cid, body=text_msg[:2000], sent_by=str(sender)[:80],
+            from app.services.admin_notify import notify_company as _nc
+            nid = await _nc(
+                db,
+                company_id=cid,
+                title=f"Message from {str(sender)[:60]}",
+                body=text_msg[:2000],
+                priority="high",
+                kind="platform_message",
+                link_path="/company/dashboard",
             )
-            ok_count += 1
+            if nid:
+                ok_count += 1
+            else:
+                print("platform_send notify returned None for", cid)
         except Exception as e:
             print("notify_platform_message", e)
         # History
@@ -2885,6 +2895,52 @@ async def company_notification_read(
             pass
     return {"ok": True}
 
+
+
+
+@app.get("/company/api/notifications/debug")
+async def company_notifications_debug(user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    """Diagnostics: company_id + unread count + last rows."""
+    from sqlalchemy import text as sa_text
+    from app.services.admin_notify import ensure_notif_table
+    cid = getattr(user, "company_id", None)
+    await ensure_notif_table(db)
+    rows = []
+    try:
+        result = await db.execute(sa_text("""
+            SELECT id, title, left(body, 80) AS body, is_read, kind, created_at
+            FROM admin_notifications WHERE company_id = :cid ORDER BY id DESC LIMIT 10
+        """), {"cid": int(cid) if cid else 0})
+        for r in result.mappings().all():
+            rows.append(dict(r))
+    except Exception as e:
+        rows = [{"error": str(e)}]
+    return {
+        "user_id": getattr(user, "id", None),
+        "company_id": cid,
+        "email": getattr(user, "email", None),
+        "rows": rows,
+        "count": len(rows),
+    }
+
+
+@app.post("/company/api/notifications/test")
+async def company_notifications_test(user: User = Depends(require_company), db: AsyncSession = Depends(get_db)):
+    """Force a test notification into this company's bell."""
+    from app.services.admin_notify import notify_company
+    cid = getattr(user, "company_id", None)
+    if not cid:
+        return {"ok": False, "error": "no company_id on user"}
+    nid = await notify_company(
+        db,
+        company_id=int(cid),
+        title="Test notification",
+        body="If you see this in the bell, notifications are working.",
+        priority="high",
+        kind="test",
+        link_path="/company/dashboard",
+    )
+    return {"ok": nid is not None, "id": nid, "company_id": int(cid)}
 
 
 @app.get("/company/revenue/statement", response_class=HTMLResponse)

@@ -12,7 +12,7 @@
 
 <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
   <p class="text-sm text-[var(--text-secondary)] m-0">Paystack subscription payments from companies.</p>
-  <form method="post" action="/platform/payments/clear" onsubmit="return confirm('Clear ALL platform payment records? This cannot be undone.');">
+  <form method="post" action="/platform/payments/clear" onsubmit="event.preventDefault();var f=this;crqConfirm('Clear ALL platform payment records? This cannot be undone.',{danger:true,okText:'Clear history'}).then(function(ok){if(ok)f.submit();});return false;">
     <button type="submit" class="btn-ghost text-sm text-red-600 min-h-[40px] px-4">Clear history</button>
   </form>
 </div>
