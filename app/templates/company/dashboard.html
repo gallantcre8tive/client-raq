@@ -6,21 +6,21 @@
 {# FIX_V2 #}
 
 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-  <p class="text-sm text-[var(--text-secondary)] m-0">Confirmed payment revenue (updates when you mark orders paid).</p>
+  <p class="text-sm text-[var(--text-secondary)] m-0">Confirmed payment revenue (auto-updates about every 45 seconds when you mark orders paid).</p>
   <a href="/company/revenue/pdf" class="btn-ghost min-h-[40px] text-sm px-4 inline-flex items-center justify-center">Download statement</a>
 </div>
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Revenue today</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_daily|default(0)|int }}</div>
+    <div id="crq-rev-daily" class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_daily|default(0)|int }}</div>
   </div>
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This week</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_weekly|default(0)|int }}</div>
+    <div id="crq-rev-weekly" class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_weekly|default(0)|int }}</div>
   </div>
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">This month</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_monthly|default(0)|int }}</div>
+    <div id="crq-rev-monthly" class="text-[28px] font-semibold font-tabular">{{ currency|default('NGN') }} {{ revenue_monthly|default(0)|int }}</div>
   </div>
 </div>
 
@@ -32,12 +32,12 @@
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Orders</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ orders_count|default(0) }}</div>
+    <div class="text-[28px] font-semibold font-tabular"><span id="crq-orders-count">{{ orders_count|default(0) }}</span></div>
     <div class="text-xs text-[var(--text-secondary)] mt-1">All time · starts at zero</div>
   </div>
   <div class="card p-5">
     <div class="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">Pending payment</div>
-    <div class="text-[28px] font-semibold font-tabular">{{ pending_count|default(0) }}</div>
+    <div class="text-[28px] font-semibold font-tabular"><span id="crq-pending-count">{{ pending_count|default(0) }}</span></div>
     <div class="text-xs text-[var(--text-secondary)] mt-1">Awaiting confirmation</div>
   </div>
   <div class="card p-5">
@@ -87,4 +87,43 @@
     </table>
   </div>
 </div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  function fmt(cur, n) {
+    try {
+      var x = Math.round(Number(n) || 0);
+      return (cur || "NGN") + " " + x.toLocaleString("en-NG");
+    } catch (e) {
+      return (cur || "NGN") + " " + (n || 0);
+    }
+  }
+  async function refreshStats() {
+    try {
+      var r = await fetch("/company/api/dashboard-stats", { credentials: "same-origin", cache: "no-store" });
+      if (!r.ok) return;
+      var d = await r.json();
+      var cur = d.currency || "NGN";
+      var el;
+      el = document.getElementById("crq-rev-daily");
+      if (el) el.textContent = fmt(cur, d.revenue_daily);
+      el = document.getElementById("crq-rev-weekly");
+      if (el) el.textContent = fmt(cur, d.revenue_weekly);
+      el = document.getElementById("crq-rev-monthly");
+      if (el) el.textContent = fmt(cur, d.revenue_monthly);
+      el = document.getElementById("crq-orders-count");
+      if (el) el.textContent = String(d.orders_count != null ? d.orders_count : el.textContent);
+      el = document.getElementById("crq-pending-count");
+      if (el) el.textContent = String(d.pending_count != null ? d.pending_count : el.textContent);
+      el = document.getElementById("crq-active-chats");
+      if (el) el.textContent = String(d.active_chats != null ? d.active_chats : el.textContent);
+    } catch (e) { /* silent */ }
+  }
+  setInterval(refreshStats, 45000);
+  // first refresh after 8s so initial paint stays fast
+  setTimeout(refreshStats, 8000);
+})();
+</script>
 {% endblock %}

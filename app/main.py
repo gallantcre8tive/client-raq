@@ -5,7 +5,7 @@ load_dotenv()
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from fastapi import BackgroundTasks, FastAPI, Request, Form, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -3053,6 +3053,87 @@ async def company_notifications_test(user: User = Depends(require_company), db: 
         link_path="/company/dashboard",
     )
     return {"ok": nid is not None, "id": nid, "company_id": int(cid)}
+
+
+
+@app.get("/company/api/dashboard-stats")
+async def company_dashboard_stats_api(
+    request: Request,
+    user: User = Depends(require_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lightweight JSON for dashboard auto-refresh (revenue + counts)."""
+    from sqlalchemy import text as sa_text
+    cid = int(getattr(user, "company_id", 0) or 0)
+    currency = "NGN"
+    try:
+        crow = (await db.execute(sa_text(
+            "SELECT currency FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+        if crow and crow.get("currency"):
+            currency = crow["currency"]
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    rev = {"daily": 0.0, "weekly": 0.0, "monthly": 0.0}
+    try:
+        rev = await revenue_stats(db, cid)
+    except Exception as e:
+        print("dashboard_stats_rev", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    orders_count = 0
+    pending_count = 0
+    active_chats = 0
+    try:
+        orders_count = int((await db.execute(sa_text(
+            "SELECT COUNT(*) FROM orders WHERE company_id = :cid"
+        ), {"cid": cid})).scalar() or 0)
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        pending_count = int((await db.execute(sa_text("""
+            SELECT COUNT(*) FROM orders WHERE company_id = :cid
+              AND lower(status::text) IN (
+                'pending','payment_submitted','await_payment','await_proof','under_review'
+              )
+        """), {"cid": cid})).scalar() or 0)
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    try:
+        active_chats = int((await db.execute(sa_text("""
+            SELECT COUNT(*) FROM conversations WHERE company_id = :cid
+              AND COALESCE(status, 'open') NOT IN ('closed', 'archived')
+        """), {"cid": cid})).scalar() or 0)
+    except Exception:
+        try:
+            active_chats = int((await db.execute(sa_text(
+                "SELECT COUNT(*) FROM conversations WHERE company_id = :cid"
+            ), {"cid": cid})).scalar() or 0)
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+    return JSONResponse({
+        "currency": currency,
+        "revenue_daily": float(rev.get("daily") or 0),
+        "revenue_weekly": float(rev.get("weekly") or 0),
+        "revenue_monthly": float(rev.get("monthly") or 0),
+        "orders_count": orders_count,
+        "pending_count": pending_count,
+        "active_chats": active_chats,
+    })
 
 
 @app.get("/company/revenue/statement", response_class=HTMLResponse)
