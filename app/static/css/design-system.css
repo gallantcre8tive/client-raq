@@ -697,3 +697,40 @@ textarea.input-field { height: auto; min-height: 96px; padding: 10px 12px; resiz
   max-height: 1.25rem;
   flex-shrink: 0;
 }
+
+
+/* crq-content-fix — prevent blank main area */
+.app-shell {
+  display: flex !important;
+  flex-direction: row !important;
+  width: 100% !important;
+  min-height: 100dvh !important;
+}
+.app-main {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  background: var(--surface-canvas) !important;
+}
+.app-page {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  color: var(--text-primary) !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+@media (max-width: 1023px) {
+  .app-shell { display: block !important; }
+  .app-main { width: 100% !important; }
+}

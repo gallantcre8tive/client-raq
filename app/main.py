@@ -1874,11 +1874,23 @@ async def company_orders(
             except Exception:
                 pass
 
+    bt = None
+    try:
+        from sqlalchemy import text as _st
+        rbt = (await db.execute(_st("SELECT business_type FROM companies WHERE id = :id"), {"id": cid})).first()
+        if rbt:
+            bt = rbt[0]
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     return render(request, "company/orders.html", {
         "active": "orders",
         "company_name": company_name,
         "user_name": user_name,
         "orders": rows,
+        "business_type": bt or "printing",
     })
 
 
