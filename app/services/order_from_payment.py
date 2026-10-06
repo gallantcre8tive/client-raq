@@ -279,17 +279,28 @@ async def create_or_update_payment_order(
 
     if order_id:
         ctx["order_id"] = order_id
-    
+
     try:
+        ai_summary = str(ctx.get("payment_ai_summary") or "") or None
+        ai_amount = None
+        try:
+            if ctx.get("payment_ai_amount") is not None:
+                ai_amount = float(ctx.get("payment_ai_amount"))
+        except Exception:
+            ai_amount = None
+        notify_amount = float(total) if total else None
+        if notify_amount is None and ai_amount is not None:
+            notify_amount = ai_amount
         await notify_payment_proof(
             db,
             company_id=int(company_id),
             order_id=int(order_id) if order_id else None,
-            amount=float(total) if total is not None else None,
+            amount=notify_amount,
             currency=str(cur or "NGN"),
             customer_label=str(from_wa or ""),
             conversation_id=int(conversation_id) if conversation_id else None,
             attachment_path=(f"/company/attachments/{att_id}" if att_id else None),
+            ai_summary=ai_summary,
         )
         await notify_new_order(
             db,

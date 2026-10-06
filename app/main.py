@@ -1952,6 +1952,34 @@ async def company_order_detail(
 
     st = str(order_row.get("status") or "pending").lower().replace("orderstatus.", "")
     proof = order_row.get("payment_proof") or ""
+    payment_ai = None
+    try:
+        # Load AI analysis from latest payment_proof attachment for this order/conversation
+        att_row = (await db.execute(sa_text("""
+            SELECT notes, storage_path, id FROM attachments
+            WHERE company_id = :cid
+              AND (order_id = :oid OR conversation_id = :convid)
+              AND kind = 'payment_proof'
+            ORDER BY id DESC LIMIT 1
+        """), {
+            "cid": cid,
+            "oid": order_id,
+            "convid": order_row.get("conversation_id") or 0,
+        })).mappings().first()
+        if att_row and att_row.get("notes"):
+            import json
+            try:
+                payment_ai = json.loads(att_row["notes"])
+            except Exception:
+                payment_ai = {"summary": att_row["notes"][:500]}
+        if att_row and not proof:
+            proof = f"/company/attachments/{att_row['id']}"
+    except Exception as _ae:
+        print("order_ai_notes", _ae)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     return render(request, "company/order_detail.html", {
         "active": "orders",
         "company_name": company_name,
@@ -1965,6 +1993,7 @@ async def company_order_detail(
         "details": order_row.get("details") or "",
         "fulfillment": order_row.get("fulfillment") or "",
         "conversation_id": order_row.get("conversation_id"),
+        "payment_ai": payment_ai,
     })
 
 

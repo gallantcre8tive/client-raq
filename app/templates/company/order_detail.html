@@ -24,6 +24,20 @@
       <a href="{{ payment_proof }}{% if '?' not in payment_proof %}?download=1{% else %}&download=1{% endif %}" class="text-xs text-[var(--primary)] underline mt-2 inline-block" download>Download screenshot</a>
     </div>
     {% endif %}
+    {% if payment_ai %}
+    <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 text-xs space-y-1">
+      <div class="font-semibold text-sm mb-1">AI analysis (not verification)</div>
+      {% if payment_ai.platform %}<div>Platform: {{ payment_ai.platform }}</div>{% endif %}
+      {% if payment_ai.amount %}<div>Amount shown: {{ payment_ai.currency or '' }} {{ payment_ai.amount }}</div>{% endif %}
+      {% if payment_ai.status_shown %}<div>Status shown: {{ payment_ai.status_shown }}</div>{% endif %}
+      {% if payment_ai.recipient %}<div>Recipient: {{ payment_ai.recipient }}</div>{% endif %}
+      {% if payment_ai.reference %}<div>Reference: {{ payment_ai.reference }}</div>{% endif %}
+      {% if payment_ai.transaction_date %}<div>Date: {{ payment_ai.transaction_date }}</div>{% endif %}
+      {% if payment_ai.confidence %}<div>Confidence: {{ payment_ai.confidence }}</div>{% endif %}
+      {% if payment_ai.summary %}<div class="text-[var(--text-secondary)]">{{ payment_ai.summary }}</div>{% endif %}
+      <div class="text-[var(--text-muted)] mt-1">You must still verify or reject this payment manually.</div>
+    </div>
+    {% endif %}
     {% if conversation_id %}
     <a href="/company/messages?c={{ conversation_id }}" class="text-sm text-[var(--primary)] underline">Open conversation</a>
     {% endif %}

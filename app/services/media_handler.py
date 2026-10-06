@@ -115,14 +115,75 @@ async def transcribe_audio(content: bytes, mime: str | None = None) -> str | Non
 
 
 async def describe_image_optional(content: bytes, mime: str | None, prompt: str) -> str | None:
-    """Best-effort image note via Grok if key present. Fail soft."""
+    """Best-effort free-text image note. Prefer structured vision_service when possible."""
+    try:
+        from app.services.vision_service import analyze_business_image
+        data = await analyze_business_image(content, mime or "image/jpeg", customer_caption=prompt)
+        if data.get("description") or data.get("customer_facing_hint"):
+            return (data.get("customer_facing_hint") or data.get("description") or "")[:500]
+    except Exception:
+        pass
     from app.services.grok_client import grok_vision
     try:
         return await grok_vision(
-            "You help a print shop review customer images.",
+            "You help a multi-business WhatsApp shop review customer images. Be concise.",
             prompt,
             content,
             mime or "image/jpeg",
         )
     except Exception:
         return None
+
+
+async def analyze_media_structured(
+    content: bytes,
+    mime: str | None,
+    *,
+    kind: str = "image",
+    business_type: str | None = None,
+    company_name: str | None = None,
+    conversation_summary: str | None = None,
+    customer_caption: str | None = None,
+    awaiting: str | None = None,
+    expected_amount: float | None = None,
+    expected_currency: str | None = None,
+) -> dict:
+    """Structured multimodal analysis for payment proofs and general images."""
+    from app.services.vision_service import (
+        analyze_payment_receipt,
+        analyze_business_image,
+        analysis_to_attachment_notes,
+    )
+    mime = mime or "image/jpeg"
+    if kind == "payment_proof" or awaiting == "payment_proof":
+        data = await analyze_payment_receipt(
+            content,
+            mime,
+            expected_amount=expected_amount,
+            expected_currency=expected_currency,
+            company_name=company_name,
+        )
+    else:
+        data = await analyze_business_image(
+            content,
+            mime,
+            business_type=business_type,
+            company_name=company_name,
+            conversation_summary=conversation_summary,
+            customer_caption=customer_caption,
+            awaiting=awaiting,
+        )
+        # If general analysis thinks it's a receipt, re-run payment extractor
+        if data.get("detected_type") == "payment_receipt" or data.get("recommended_action") == "human_verification":
+            pay = await analyze_payment_receipt(
+                content,
+                mime,
+                expected_amount=expected_amount,
+                expected_currency=expected_currency,
+                company_name=company_name,
+            )
+            if pay.get("is_payment_receipt") or pay.get("amount") is not None:
+                data = pay
+                data["detected_type"] = "payment_receipt"
+    data["_notes_json"] = analysis_to_attachment_notes(data)
+    return data

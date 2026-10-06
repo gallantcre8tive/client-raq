@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     XAI_API_KEY: str = ""  # alias — either GROK_API_KEY or XAI_API_KEY works
     GROK_BASE_URL: str = "https://api.x.ai/v1"
     GROK_MODEL: str = "grok-4-fast-non-reasoning"
+    GROK_VISION_MODEL: str = "grok-2-vision-1212"
     XAI_MODEL: str = ""
     SESSION_COOKIE: str = "crq_session"
     SESSION_COOKIE_PLATFORM: str = "crq_platform_session"

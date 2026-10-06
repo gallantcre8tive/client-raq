@@ -152,17 +152,20 @@ async def notify_payment_proof(
     customer_label: str = "",
     conversation_id: int | None = None,
     attachment_path: str | None = None,
+    ai_summary: str | None = None,
 ) -> None:
     amt = f"{currency} {amount:,.0f}" if amount is not None else "see screenshot"
     body = f"Payment screenshot received ({amt})"
     if customer_label:
         body += f" from {customer_label}"
-    body += ". Open to confirm or reject."
+    body += ". Admin must verify — AI analysis is not proof of receipt."
+    if ai_summary:
+        body += "\n" + str(ai_summary)[:1200]
     link = attachment_path or (f"/company/orders/{order_id}" if order_id else "/company/orders")
     await notify_company(
         db,
         company_id=company_id,
-        title="Payment to confirm",
+        title="Payment proof — verify",
         body=body,
         priority="urgent",
         conversation_id=conversation_id,

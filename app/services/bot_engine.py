@@ -824,17 +824,97 @@ async def handle_inbound(
                             attachment_note = "Customer sent a voice note (transcription unavailable). Ask them to type if unclear."
                 elif att.kind == "payment_proof":
                     blob = await _dl(media_id, link.access_token)
-                    vision = ""
+                    analysis = {}
                     if blob:
                         content, mime = blob
-                        vision = (await describe_image_optional(
-                            content, mime,
-                            "Does this look like a bank transfer or payment receipt? Reply in one short sentence.",
-                        )) or ""
-                    attachment_note = f"Customer sent a payment screenshot. {vision} Confirm you received it and that staff will verify. Do NOT invent payment confirmation. Do NOT mention internal IDs.".strip()
+                        try:
+                            from app.services.media_handler import analyze_media_structured
+                            from app.services.vision_service import customer_hint_from_analysis, analysis_to_admin_body
+                            expected = None
+                            try:
+                                expected = float(ctx.get("locked_total") or ctx.get("total") or 0) or None
+                            except Exception:
+                                expected = None
+                            analysis = await analyze_media_structured(
+                                content, mime,
+                                kind="payment_proof",
+                                business_type=str(getattr(company, "business_type", None) or ""),
+                                company_name=str(getattr(company, "name", None) or ""),
+                                customer_caption=text or "",
+                                awaiting="payment_proof",
+                                expected_amount=expected,
+                                expected_currency=str(getattr(company, "currency", None) or "NGN"),
+                            )
+                            if analysis.get("_notes_json"):
+                                att.notes = analysis["_notes_json"]
+                            attachment_note = customer_hint_from_analysis(analysis, is_payment=True)
+                            # Enrich admin notification body in context for order_from_payment
+                            ctx["payment_ai_summary"] = analysis_to_admin_body(
+                                analysis,
+                                customer_label=from_wa,
+                                order_hint=f"Quoted total context: {expected or '—'} {getattr(company, 'currency', 'NGN')}",
+                            )
+                            ctx["payment_ai_amount"] = analysis.get("amount")
+                            ctx["payment_ai_platform"] = analysis.get("platform")
+                        except Exception as _ve:
+                            print("payment_vision", type(_ve).__name__, _ve)
+                            vision = (await describe_image_optional(
+                                content, mime,
+                                "Does this look like a bank transfer or payment receipt? One short sentence.",
+                            )) or ""
+                            attachment_note = f"Customer sent a payment screenshot. {vision} Staff will verify. Do NOT confirm payment. Do NOT invent amounts.".strip()
+                    else:
+                        attachment_note = "Customer sent a payment screenshot. Staff will verify. Do NOT confirm payment received."
                     conv.state = "await_payment"
                 elif att.kind in ("design", "image", "document", "reference_image"):
-                    attachment_note = f"Customer sent a {att.kind} file. Acknowledge and continue the order. Do NOT mention internal IDs."
+                    blob = await _dl(media_id, link.access_token)
+                    analysis = {}
+                    if blob and att.kind != "document":
+                        content, mime = blob
+                        try:
+                            from app.services.media_handler import analyze_media_structured
+                            from app.services.vision_service import customer_hint_from_analysis
+                            # short conversation context
+                            summary = ""
+                            try:
+                                recent_bits = []
+                                for m in (recent or [])[-6:]:
+                                    role = m.get("role") or m.get("direction") or ""
+                                    body = (m.get("body") or m.get("text") or "")[:120]
+                                    if body:
+                                        recent_bits.append(f"{role}: {body}")
+                                summary = "\n".join(recent_bits)
+                            except Exception:
+                                summary = ""
+                            analysis = await analyze_media_structured(
+                                content, mime,
+                                kind=att.kind,
+                                business_type=str(getattr(company, "business_type", None) or ""),
+                                company_name=str(getattr(company, "name", None) or ""),
+                                conversation_summary=summary,
+                                customer_caption=text or "",
+                                awaiting=str(ctx.get("awaiting_file") or ""),
+                            )
+                            if analysis.get("_notes_json"):
+                                att.notes = analysis["_notes_json"]
+                            # If vision detects payment even outside await_payment, reclassify
+                            if analysis.get("detected_type") == "payment_receipt" or analysis.get("is_payment_receipt"):
+                                att.kind = "payment_proof"
+                                ctx["payment_proof"] = str(att.id)
+                                attachment_note = customer_hint_from_analysis(analysis, is_payment=True)
+                                conv.state = "await_payment"
+                            else:
+                                attachment_note = customer_hint_from_analysis(
+                                    analysis,
+                                    business_type=str(getattr(company, "business_type", None) or ""),
+                                )
+                            if float(analysis.get("confidence") or 1) < 0.55:
+                                ctx["needs_human_vision"] = True
+                        except Exception as _ve:
+                            print("image_vision", type(_ve).__name__, _ve)
+                            attachment_note = f"Customer sent a {att.kind} file. Acknowledge and continue. Do NOT invent details."
+                    else:
+                        attachment_note = f"Customer sent a {att.kind} file. Acknowledge and continue the conversation. Do NOT invent details or prices."
                 _save_ctx(conv, ctx)
                 await db.flush()
         except Exception as e:
@@ -842,6 +922,21 @@ async def handle_inbound(
 
 
 
+
+    # Low-confidence vision → flag for human (does not stop bot reply)
+    try:
+        if ctx.get("needs_human_vision"):
+            from app.services.admin_notify import notify_human_needed
+            await notify_human_needed(
+                db,
+                company_id=int(company.id),
+                reason="Customer sent an image the AI could not confidently understand. Please review.",
+                conversation_id=int(conv.id) if conv else None,
+                customer_label=str(from_wa or ""),
+            )
+            ctx.pop("needs_human_vision", None)
+    except Exception as _hv:
+        print("vision_human_notify", _hv)
 
     # ── SAFETY NET: payment media always creates order + notify (even if earlier path missed) ──
     try:
