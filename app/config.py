@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
     APP_BASE_URL: str = "https://clientraq.com"
+    CRON_SECRET: str = ""  # protect /internal/cron/* endpoints
     # Email (signup verification) — leave empty to log codes in Render logs
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

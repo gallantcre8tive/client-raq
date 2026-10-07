@@ -726,12 +726,14 @@ async def company_onboarding(
     sub = await get_company_subscription(db, user.company_id)
     return _render(request, "company/onboarding.html", {
         "active": "onboarding",
-        "user_name": user.full_name,
+        "user_name": getattr(user, "full_name", None) or "Admin",
+        "company_name": getattr(company, "name", None) if company else "Company",
         "company": company,
-        "template": tpl,
+        "template": tpl or {"label": "Business", "summary": ""},
         "business_types": list_types_for_ui(),
         "sub": sub,
         "live": subscription_is_live(sub),
+        "business_type": bt,
     })
 
 
@@ -877,19 +879,61 @@ async def company_telegram_page(
     user: User = Depends(require_company),
     db: AsyncSession = Depends(get_db),
 ):
-    company = (await db.execute(select(Company).where(Company.id == user.company_id))).scalars().first()
-    ok, msg = await assert_channel_allowed(db, user.company_id, "telegram")
-    snap = await access_snapshot(db, user.company_id)
+    from sqlalchemy import text as sa_text
+    cid = int(getattr(user, "company_id", 0) or 0)
+    # Ensure columns exist
+    for stmt in (
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(200)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT false",
+    ):
+        try:
+            await db.execute(sa_text(stmt))
+            await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+    row = None
+    try:
+        row = (await db.execute(sa_text(
+            "SELECT id, name, slug, COALESCE(telegram_enabled, false) AS telegram_enabled, "
+            "telegram_bot_token FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+    except Exception as e:
+        print("telegram_page_load", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        row = (await db.execute(sa_text(
+            "SELECT id, name, slug FROM companies WHERE id = :id"
+        ), {"id": cid})).mappings().first()
+    ok, msg = await assert_channel_allowed(db, cid, "telegram")
+    snap = await access_snapshot(db, cid)
     base = (getattr(settings, "APP_BASE_URL", None) or "https://clientraq.com").rstrip("/")
-    webhook_url = f"{base}/webhook/telegram/{company.slug}" if company else ""
+    slug = (row.get("slug") if row else None) or "company"
+    token = (row.get("telegram_bot_token") if row else None) or ""
+    enabled = bool(row.get("telegram_enabled")) if row else False
+    webhook_url = f"{base}/webhook/telegram/{slug}"
+    register_webhook_url = ""
+    if token.strip():
+        from urllib.parse import quote
+        register_webhook_url = (
+            f"https://api.telegram.org/bot{token.strip()}/setWebhook?url={quote(webhook_url, safe='')}"
+        )
     return _render(request, "company/telegram.html", {
         "active": "telegram",
-        "user_name": user.full_name,
-        "company": company,
+        "user_name": getattr(user, "full_name", None) or "Admin",
+        "company_name": (row.get("name") if row else None) or "Company",
+        "company": None,  # do not force ORM object into templates
+        "telegram_bot_token": token,
+        "telegram_enabled": enabled,
         "allowed": ok,
         "allow_msg": msg,
         "snap": snap,
         "webhook_url": webhook_url,
+        "register_webhook_url": register_webhook_url,
         "saved": request.query_params.get("saved"),
         "error": request.query_params.get("error"),
     })
@@ -902,17 +946,33 @@ async def company_telegram_save(
     telegram_bot_token: str = Form(""),
     telegram_enabled: Optional[str] = Form(None),
 ):
-    ok, msg = await assert_channel_allowed(db, user.company_id, "telegram")
+    from sqlalchemy import text as sa_text
+    import httpx
+    cid = int(getattr(user, "company_id", 0) or 0)
+    ok, msg = await assert_channel_allowed(db, cid, "telegram")
     if not ok:
         return RedirectResponse("/company/telegram?error=not_allowed", status_code=303)
     token = (telegram_bot_token or "").strip()
-    enabled = telegram_enabled in ("on", "true", "1", "yes")
-    stored = encrypt_secret(token) if token else None
+    enabled = bool(telegram_enabled)
+    for stmt in (
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(200)",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT false",
+    ):
+        try:
+            await db.execute(sa_text(stmt))
+            await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
     try:
-        await db.execute(
-            text("UPDATE companies SET telegram_bot_token = :t, telegram_enabled = :e WHERE id = :id"),
-            {"t": stored, "e": enabled and bool(token), "id": user.company_id},
-        )
+        await db.execute(sa_text("""
+            UPDATE companies
+            SET telegram_bot_token = :tok,
+                telegram_enabled = :en
+            WHERE id = :id
+        """), {"tok": token or None, "en": enabled, "id": cid})
         await db.commit()
     except Exception as e:
         print("telegram_save", e)
@@ -921,6 +981,21 @@ async def company_telegram_save(
         except Exception:
             pass
         return RedirectResponse("/company/telegram?error=save", status_code=303)
+    # Auto-register webhook when token + enabled
+    if token and enabled:
+        try:
+            base = (getattr(settings, "APP_BASE_URL", None) or "https://clientraq.com").rstrip("/")
+            slug = (await db.execute(sa_text("SELECT slug FROM companies WHERE id = :id"), {"id": cid})).scalar()
+            if slug:
+                wh = f"{base}/webhook/telegram/{slug}"
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    r = await client.post(
+                        f"https://api.telegram.org/bot{token}/setWebhook",
+                        json={"url": wh, "drop_pending_updates": False},
+                    )
+                    print("telegram_setWebhook", r.status_code, (r.text or "")[:200])
+        except Exception as e:
+            print("telegram_setWebhook_fail", e)
     return RedirectResponse("/company/telegram?saved=1", status_code=303)
 
 
@@ -1210,6 +1285,11 @@ async def trial_send_code(
             "step": "form",
         })
 
+    try:
+        from app.services.email_service import send_signup_started_email
+        send_signup_started_email(email)
+    except Exception as _w0:
+        print("welcome_before_code", _w0)
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):
@@ -1386,6 +1466,12 @@ async def trial_verify_code(
         print("seed_trial_verify", se)
     try:
         await write_audit(db, action="trial_signup_verified", detail=email, actor_email=email, company_id=company_id, ip=ip)
+
+        try:
+            from app.services.email_service import send_welcome_email
+            send_welcome_email(email, company_name=business_name, name=business_name)
+        except Exception as _we:
+            print("welcome_email", _we)
     except Exception:
         pass
 
@@ -1430,6 +1516,11 @@ async def trial_resend_code(
     """), {"code": code, "id": row["id"]})
     await db.commit()
 
+    try:
+        from app.services.email_service import send_signup_started_email
+        send_signup_started_email(email)
+    except Exception as _w0:
+        print("welcome_before_code", _w0)
     result = send_verification_code(email, code, purpose="trial")
     tip = None
     if result.get("dev_fallback"):

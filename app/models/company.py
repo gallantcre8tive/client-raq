@@ -39,6 +39,7 @@ class Company(Base):
     subscription_plan: Mapped[str | None] = mapped_column(String(40), nullable=True)
     whatsapp_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    telegram_bot_token: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     users = relationship("User", back_populates="company", cascade="all, delete-orphan")
     payment_details = relationship("PaymentDetail", back_populates="company", cascade="all, delete-orphan")

@@ -5,37 +5,57 @@
 {% block content %}
 <div class="space-y-6 max-w-2xl">
   {% if saved %}
-  <div class="p-3 rounded-lg border border-[var(--primary)]/30 text-sm">Telegram settings saved.</div>
+  <div class="p-3 rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/10 text-sm">Telegram settings saved. Bot is ready when enabled and your plan includes Telegram.</div>
   {% endif %}
   {% if error %}
-  <div class="p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm">
-    {% if error == 'not_allowed' %}Your plan does not include Telegram. Upgrade under Billing.{% else %}Could not save. Try again.{% endif %}
+  <div class="p-3 rounded-xl border border-red-500/40 bg-red-500/10 text-sm">
+    {% if error == 'not_allowed' %}Your plan does not include Telegram. Upgrade under Billing (6-month or yearly, or add Telegram channel).
+    {% elif error == 'save' %}Could not save. Check the token and try again.
+    {% else %}{{ error }}{% endif %}
   </div>
   {% endif %}
+
   {% if not allowed %}
   <div class="card p-6 border border-amber-500/30">
     <h3 class="font-semibold mb-2">Telegram not on this plan</h3>
-    <p class="text-sm text-[var(--text-secondary)] mb-4">{{ allow_msg }}</p>
-    <a href="/company/billing" class="btn-primary inline-block">Open billing</a>
+    <p class="text-sm text-[var(--text-secondary)] mb-4">{{ allow_msg|default('Upgrade under Billing to unlock Telegram.') }}</p>
+    <a href="/company/billing" class="btn-primary inline-flex items-center min-h-[44px] px-4">Open billing</a>
   </div>
   {% else %}
-  <div class="card p-6 space-y-4">
-    <p class="text-sm text-[var(--text-secondary)]">Create a bot with @BotFather, then paste the token. Set webhook to the URL below.</p>
+  <div class="card p-5 sm:p-6 space-y-5">
+    <div>
+      <h3 class="font-semibold text-base m-0">Connect Telegram</h3>
+      <p class="text-sm text-[var(--text-secondary)] mt-1.5 mb-0">Same AI engine as WhatsApp. Customers message your bot; you manage chats and orders in Client RaQ.</p>
+    </div>
+    <ol class="text-sm text-[var(--text-secondary)] space-y-2 list-decimal pl-5 m-0">
+      <li>Open Telegram and chat with <strong class="text-[var(--text-primary)]">@BotFather</strong></li>
+      <li>Send <code class="text-[var(--primary)]">/newbot</code> (or use an existing bot) and copy the <strong class="text-[var(--text-primary)]">HTTP API token</strong></li>
+      <li>Paste the token below, enable Telegram, and save</li>
+      <li>Set webhook (BotFather cannot set custom URL — use the button or open the link once)</li>
+    </ol>
     <form method="post" action="/company/telegram" class="space-y-4">
       <div>
         <label class="block text-xs font-medium mb-1.5">Bot token</label>
-        <input type="password" name="telegram_bot_token" class="input-field" value="{{ company.telegram_bot_token|default('') }}" placeholder="123456:ABC..." autocomplete="off">
+        <input type="text" name="telegram_bot_token" class="input-field min-h-[44px] font-mono text-sm" value="{{ telegram_bot_token|default('') }}" placeholder="123456789:AAH..." autocomplete="off" spellcheck="false">
       </div>
-      <label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="telegram_enabled" class="rounded" {% if company.telegram_enabled %}checked{% endif %}>
+      <label class="flex items-center gap-3 text-sm min-h-[44px]">
+        <input type="checkbox" name="telegram_enabled" value="on" class="rounded w-4 h-4" {% if telegram_enabled %}checked{% endif %}>
         Enable Telegram for this company
       </label>
       <div>
-        <label class="block text-xs font-medium mb-1.5">Webhook URL (set in BotFather / setWebhook)</label>
-        <code class="block text-xs p-3 rounded-xl break-all" style="background:var(--surface-canvas);color:var(--primary)">{{ webhook_url }}</code>
+        <label class="block text-xs font-medium mb-1.5">Webhook URL</label>
+        <code class="block text-xs p-3 rounded-xl break-all leading-relaxed" style="background:var(--surface-canvas);color:var(--primary)">{{ webhook_url|default('—') }}</code>
+        <p class="text-[11px] text-[var(--text-muted)] mt-1.5 mb-0">After saving, open the “Register webhook” link once so Telegram delivers messages to Client RaQ.</p>
       </div>
-      <button type="submit" class="btn-primary">Save Telegram</button>
+      {% if register_webhook_url %}
+      <a href="{{ register_webhook_url }}" target="_blank" rel="noopener" class="btn-ghost inline-flex items-center min-h-[44px] px-4 text-sm">Register webhook with Telegram</a>
+      {% endif %}
+      <button type="submit" class="btn-primary w-full sm:w-auto min-h-[44px] px-6">Save Telegram</button>
     </form>
+  </div>
+  <div class="card p-5 text-sm text-[var(--text-secondary)] space-y-2">
+    <p class="font-medium text-[var(--text-primary)] m-0">How it works</p>
+    <p class="m-0">Messages to your Telegram bot use the same business rules, prices, and payment flow as WhatsApp. Chats appear under Messages. Subscription must include Telegram and stay active.</p>
   </div>
   {% endif %}
 </div>

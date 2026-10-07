@@ -164,3 +164,156 @@ def send_verification_code(email: str, code: str, purpose: str = "signup") -> di
   </div>
 </body></html>"""
     return send_email(to=email, subject=subject, html=html, text=text)
+
+
+def _brand_wrap(title: str, body_html: str) -> str:
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;padding:0;background:#0B1220;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0B1220;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" style="max-width:560px;background:#121a2b;border-radius:16px;border:1px solid #1e2a3f;overflow:hidden;">
+        <tr><td style="padding:28px 28px 12px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">Client RaQ</div>
+          <div style="font-size:13px;color:#00AEFF;margin-top:4px;">WhatsApp AI for businesses</div>
+        </td></tr>
+        <tr><td style="padding:8px 28px 28px;color:#e8eef7;font-size:15px;line-height:1.55;">
+          {body_html}
+        </td></tr>
+        <tr><td style="padding:16px 28px 28px;border-top:1px solid #1e2a3f;color:#8b9bb4;font-size:12px;line-height:1.5;">
+          Need help? Reply to this email or message support on WhatsApp.<br>
+          <a href="https://clientraq.com" style="color:#00AEFF;text-decoration:none;">clientraq.com</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def send_signup_started_email(email: str) -> dict:
+    """Right after signup form — before verification code."""
+    subject = "Welcome to Client RaQ — verify your email"
+    text = (
+        "Welcome to Client RaQ.\n\n"
+        "Thanks for signing up. We are sending a verification code to this email next.\n"
+        "Enter that code to finish creating your account, then you can log in and set up your AI assistant.\n\n"
+        "— Client RaQ\nhttps://clientraq.com"
+    )
+    body = """
+      <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#fff;">Welcome to Client RaQ</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Thanks for signing up. A <strong style="color:#fff;">verification code</strong> is on its way to this inbox.
+      </p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Enter the code to finish setup, then log in to connect WhatsApp and configure your assistant.
+      </p>
+    """
+    return send_email(to=email, subject=subject, html=_brand_wrap(subject, body), text=text)
+
+
+def send_welcome_email(email: str, *, company_name: str | None = None, name: str | None = None) -> dict:
+    """Sent after successful signup (verification completed / account ready)."""
+    who = (name or company_name or "").strip() or "there"
+    biz = (company_name or "").strip()
+    subject = "Welcome to Client RaQ"
+    text = (
+        f"Hi {who},\n\n"
+        "Welcome to Client RaQ.\n\n"
+        "Your account is ready. You can log in, set up your services, connect WhatsApp, "
+        "and let the AI handle customer requests, quotes, and payment proofs — while you stay in control.\n\n"
+        + (f"Business: {biz}\n\n" if biz else "")
+        + "Log in: https://clientraq.com/company/login\n\n"
+        "If you did not create this account, you can ignore this email.\n\n"
+        "— Client RaQ"
+    )
+    body = f"""
+      <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#fff;">Welcome, {who}</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">Your Client RaQ account is ready.</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Log in to set up your services and prices, connect WhatsApp, and start handling customer
+        requests, quotes, and payment proofs — while you stay in control of confirmations.
+      </p>
+      {"<p style='margin:0 0 14px;color:#c5d0e0;'><strong style='color:#fff;'>Business:</strong> " + biz + "</p>" if biz else ""}
+      <p style="margin:24px 0;">
+        <a href="https://clientraq.com/company/login"
+           style="display:inline-block;background:#00AEFF;color:#0B1220;font-weight:700;text-decoration:none;
+                  padding:12px 22px;border-radius:999px;">Log in to Client RaQ</a>
+      </p>
+      <p style="margin:0;color:#8b9bb4;font-size:13px;">If you did not create this account, you can ignore this email.</p>
+    """
+    return send_email(to=email, subject=subject, html=_brand_wrap(subject, body), text=text)
+
+
+def send_subscription_expiring_email(
+    email: str,
+    *,
+    company_name: str,
+    days_left: int,
+    plan_label: str,
+    ends_on: str,
+) -> dict:
+    """Reminder before paid plan or trial ends (e.g. 3 days)."""
+    subject = f"Your Client RaQ plan ends in {days_left} day{'s' if days_left != 1 else ''}"
+    text = (
+        f"Hi {company_name},\n\n"
+        f"Your Client RaQ {plan_label} ends on {ends_on} ({days_left} day(s) left).\n\n"
+        "When it ends, your WhatsApp assistant will pause for customers until you renew.\n\n"
+        "Renew now so you don’t miss orders:\n"
+        "https://clientraq.com/company/billing\n\n"
+        "— Client RaQ"
+    )
+    body = f"""
+      <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#fff;">Subscription ending soon</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">Hi <strong style="color:#fff;">{company_name}</strong>,</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Your <strong style="color:#fff;">{plan_label}</strong> ends on
+        <strong style="color:#fff;">{ends_on}</strong>
+        (<span style="color:#00AEFF;">{days_left} day{'s' if days_left != 1 else ''} left</span>).
+      </p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        After that date, your WhatsApp assistant will pause for customers until you renew.
+        Existing data stays safe — you only need an active plan for the bot to reply.
+      </p>
+      <p style="margin:24px 0;">
+        <a href="https://clientraq.com/company/billing"
+           style="display:inline-block;background:#00AEFF;color:#0B1220;font-weight:700;text-decoration:none;
+                  padding:12px 22px;border-radius:999px;">Renew subscription</a>
+      </p>
+    """
+    return send_email(to=email, subject=subject, html=_brand_wrap(subject, body), text=text)
+
+
+def send_subscription_expired_email(
+    email: str,
+    *,
+    company_name: str,
+    plan_label: str = "subscription",
+) -> dict:
+    """Sent once when plan/trial has fully ended."""
+    subject = "Your Client RaQ assistant is paused"
+    text = (
+        f"Hi {company_name},\n\n"
+        f"Your Client RaQ {plan_label} has ended.\n\n"
+        "Your WhatsApp assistant is paused for customers until you renew.\n"
+        "Your chats, orders, and settings are still saved.\n\n"
+        "Renew here: https://clientraq.com/company/billing\n\n"
+        "— Client RaQ"
+    )
+    body = f"""
+      <p style="margin:0 0 16px;font-size:18px;font-weight:600;color:#fff;">Assistant paused</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">Hi <strong style="color:#fff;">{company_name}</strong>,</p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Your Client RaQ <strong style="color:#fff;">{plan_label}</strong> has ended.
+        The WhatsApp assistant will not reply to customers until you renew.
+      </p>
+      <p style="margin:0 0 14px;color:#c5d0e0;">
+        Your chats, orders, services, and settings remain saved. Renew anytime to go live again.
+      </p>
+      <p style="margin:24px 0;">
+        <a href="https://clientraq.com/company/billing"
+           style="display:inline-block;background:#00AEFF;color:#0B1220;font-weight:700;text-decoration:none;
+                  padding:12px 22px;border-radius:999px;">Renew now</a>
+      </p>
+    """
+    return send_email(to=email, subject=subject, html=_brand_wrap(subject, body), text=text)

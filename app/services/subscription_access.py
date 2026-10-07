@@ -54,7 +54,7 @@ async def access_snapshot(db: AsyncSession, company_id: int) -> dict[str, Any]:
 async def assert_channel_allowed(db: AsyncSession, company_id: int, channel: str) -> tuple[bool, str]:
     snap = await access_snapshot(db, company_id)
     if not snap["live"]:
-        return False, "Subscription or trial is not active. Subscribe under Billing to continue."
+        return False, "Your Client-RaQ subscription or trial is not active. Open Billing on clientraq.com to renew."
     if channel == "whatsapp" and not snap["channel_whatsapp"]:
         return False, "WhatsApp is not included in your plan. Upgrade under Billing."
     if channel == "telegram" and not snap["channel_telegram"]:
@@ -67,7 +67,7 @@ async def assert_bot_may_reply(db: AsyncSession, company_id: int) -> tuple[bool,
     if snap["status"] == "suspended":
         return False, "This assistant is suspended."
     if not snap["live"]:
-        return False, "This business assistant is temporarily paused. Please try again later."
+        return False, "This business assistant is paused because the subscription ended. Please ask the business to renew on Client-RaQ, or try again later."
     if snap["status"] == "trial":
         if snap["message_count_trial"] >= snap["trial_message_limit"]:
             return False, "This free trial has reached its message limit. Please subscribe on Client-RaQ to continue."

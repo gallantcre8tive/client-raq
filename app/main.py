@@ -1145,6 +1145,13 @@ async def company_dashboard(
                     pass
             try:
                 rev = await revenue_stats(db, cid)
+                try:
+                    # lightweight: run expiry emails opportunistically (idempotent)
+                    from app.services.subscription_emails import process_subscription_emails
+                    await process_subscription_emails(db)
+                except Exception as _opp:
+                    print("opportunistic_sub_emails", _opp)
+
                 ctx["revenue_daily"] = float(rev.get("daily") or 0)
                 ctx["revenue_weekly"] = float(rev.get("weekly") or 0)
                 ctx["revenue_monthly"] = float(rev.get("monthly") or 0)
@@ -3135,6 +3142,22 @@ async def company_dashboard_stats_api(
         "active_chats": active_chats,
     })
 
+
+
+@app.api_route("/internal/cron/subscription-emails", methods=["GET", "POST"])
+async def cron_subscription_emails(request: Request, db: AsyncSession = Depends(get_db)):
+    """Send 3-day / 1-day expiry warnings and expired notices.
+    Protect with CRON_SECRET env (query ?key= or header X-Cron-Key).
+    Schedule daily on Render Cron Job → this URL.
+    """
+    from app.config import get_settings
+    secret = (getattr(get_settings(), "CRON_SECRET", None) or "").strip()
+    key = request.query_params.get("key") or request.headers.get("X-Cron-Key") or ""
+    if secret and key != secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from app.services.subscription_emails import process_subscription_emails
+    stats = await process_subscription_emails(db)
+    return JSONResponse({"ok": True, **stats})
 
 @app.get("/company/revenue/statement", response_class=HTMLResponse)
 async def company_revenue_statement_page(

@@ -79,19 +79,19 @@
                   style="display:none"></span>
           </button>
           <div id="crq-notif-panel"
-               class="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.25rem))] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-50"
-               style="display:none">
-            <div class="px-4 py-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2">
-              <div>
+               class="crq-notif-panel fixed inset-x-3 top-[3.75rem] sm:absolute sm:inset-x-auto sm:right-0 sm:left-auto sm:top-full sm:mt-2 sm:w-[22rem] w-auto max-w-[100vw] rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden z-[60]"
+               style="display:none; max-height: min(70vh, 32rem);">
+            <div class="px-4 py-3.5 border-b border-[var(--border-subtle)] flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
                 <p class="font-semibold text-sm m-0">Notifications</p>
-                <p id="crq-notif-sub" class="text-[11px] text-[var(--text-muted)] m-0 mt-0.5">Loading…</p>
+                <p id="crq-notif-sub" class="text-[11px] text-[var(--text-muted)] m-0 mt-0.5 truncate">Loading…</p>
               </div>
-              <span class="flex gap-2 text-[11px] shrink-0">
-                <button type="button" id="crq-notif-readall" class="text-[var(--primary)] font-medium hover:underline">Mark all read</button>
-                <button type="button" id="crq-notif-clear" class="text-[var(--text-muted)] hover:underline">Clear</button>
+              <span class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] shrink-0 justify-end">
+                <button type="button" id="crq-notif-readall" class="text-[var(--primary)] font-medium hover:underline min-h-[32px]">Mark all read</button>
+                <button type="button" id="crq-notif-clear" class="text-[var(--text-muted)] hover:underline min-h-[32px]">Clear</button>
               </span>
             </div>
-            <div id="crq-notif-list" class="max-h-[min(24rem,60vh)] overflow-y-auto">
+            <div id="crq-notif-list" class="overflow-y-auto overscroll-contain" style="max-height: min(55vh, 24rem); -webkit-overflow-scrolling: touch;">
               <div class="px-4 py-10 text-center text-sm text-[var(--text-muted)]">Loading…</div>
             </div>
           </div>
