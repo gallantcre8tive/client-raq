@@ -597,19 +597,11 @@ async def handle_inbound(
         # count duplicates (same wamid already stored before this insert would need check first)
         pass
 
+    # Live takeover is UI-only. Bot ALWAYS continues to reply unless admin
+    # explicitly paused via bot settings. Customer must never see typing forever.
     if getattr(conv, "is_live_takeover", False):
-        # Still acknowledge so customer never sees silence
-        try:
-            ack = "A team member is handling this chat. They will reply here shortly."
-            db.add(Message(conversation_id=conv.id, direction="outbound", body=ack))
-            await db.commit()
-            await send_text(link.phone_number_id, link.access_token, from_wa, ack)
-        except Exception:
-            try:
-                await db.commit()
-            except Exception:
-                pass
-        return
+        print("bot_trace live_takeover_flag_ignored_keep_replying conv=%s" % getattr(conv, "id", None))
+
 
     ctx = _ctx(conv)
     low = text.lower()
@@ -629,7 +621,7 @@ async def handle_inbound(
             pass
 
     # Menu / greetings open service list (do not treat as qty)
-    if text and not interactive_id and text.lower().strip() in ("menu", "services", "start", "hi", "hello", "hey", "good morning", "good evening"):
+    if text and not interactive_id and text.lower().strip() in ("menu", "services", "start", "hi", "hello", "hey", "good morning", "good evening", "haffa", "how far", "howfar", "sup", "yo", "morning", "evening", "afternon", "afternoon"):
         for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
             ctx.pop(k, None)
         _save_ctx(conv, ctx)
@@ -1014,7 +1006,7 @@ async def handle_inbound(
                         recent=recent,
                         attachment_note=attachment_note,
                     ),
-                    timeout=25.0,
+                    timeout=18.0,
                 )
             except _aio.TimeoutError:
                 print("bot_trace agent_timeout")
@@ -1029,19 +1021,30 @@ async def handle_inbound(
             ))
             _save_ctx(conv, ctx)
             if needs_human:
-                conv.is_live_takeover = True
+                # Notify admin but KEEP bot replying (do not freeze chat)
                 try:
-                    from app.models.conversation import AdminNotification
-                    db.add(AdminNotification(
-                        company_id=company.id,
-                        conversation_id=conv.id,
-                        title="Customer needs your attention",
-                        body=(text or attachment_note or "Customer message needs a human reply")[:500],
-                        priority="high",
-                    ))
-                    await db.flush()
+                    from app.services.admin_notify import notify_human_needed
+                    await notify_human_needed(
+                        db,
+                        company_id=int(company.id),
+                        reason=(text or attachment_note or "Customer needs attention")[:300],
+                        conversation_id=int(conv.id),
+                        customer_label=from_wa,
+                    )
                 except Exception as ne:
                     print("needs_human_notify", ne)
+                    try:
+                        from app.models.conversation import AdminNotification
+                        db.add(AdminNotification(
+                            company_id=company.id,
+                            conversation_id=conv.id,
+                            title="Customer needs your attention",
+                            body=(text or attachment_note or "Customer message needs a human reply")[:500],
+                            priority="high",
+                        ))
+                        await db.flush()
+                    except Exception as ne2:
+                        print("needs_human_notify2", ne2)
             if not reply:
                 # Grok returned empty — never leave customer silent
                 reply = (
@@ -1134,18 +1137,25 @@ async def handle_inbound(
                 return
         except Exception as e:
             print("agent_path", type(e).__name__, e)
-            log.exception("agent_path failed") if False else None
-            # Always send a safe reply so customer is never left on typing forever
             try:
-                fb = (
-                    f"Thanks for messaging *{company.name}*. "
-                    "We got your message about printing. "
-                    "Please share the size and quantity (e.g. 5x2 ft or 100 pcs) "
-                    "and we will quote you right away."
-                )
+                low = (text or "").lower()
+                pidgin = any(w in low.split() for w in ("abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah"))
+                if pidgin:
+                    fb = (
+                        f"Sorry for the delay — *{company.name}* still dey here.\n"
+                        "Abeg tell me wetin you need (sticker, banner, nylon, frame…), "
+                        "size and quantity. I go reply sharp."
+                    )
+                else:
+                    fb = (
+                        f"Sorry for the delay — *{company.name}* is here.\n"
+                        "Tell me what you need (sticker, banner, nylon, frame…), "
+                        "size and quantity, and I will quote you right away."
+                    )
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=fb))
                 await db.commit()
-                await send_text(link.phone_number_id, link.access_token, from_wa, fb)
+                ok = await send_text(link.phone_number_id, link.access_token, from_wa, fb)
+                print("bot_trace agent_fallback_send ok=%s" % ok)
                 return
             except Exception as e2:
                 print("agent_fallback_send", type(e2).__name__, e2)

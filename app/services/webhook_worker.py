@@ -110,3 +110,24 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
             await db.rollback()
         except Exception:
             pass
+        # Last-resort: still try to text the customer so typing is never silent
+        try:
+            from app.services.whatsapp_send import send_text
+            from app.models.company import CompanyWhatsAppNumber
+            from sqlalchemy import select
+            link = (await db.execute(
+                select(CompanyWhatsAppNumber).where(
+                    CompanyWhatsAppNumber.phone_number_id == phone_number_id,
+                    CompanyWhatsAppNumber.is_active == True,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+            if link and link.access_token and from_wa:
+                await send_text(
+                    link.phone_number_id,
+                    link.access_token,
+                    from_wa,
+                    "Sorry for the delay — we got your message. Please send it again or tell us what you need (service, size, quantity).",
+                )
+                print("bot_trace emergency_reply sent")
+        except Exception as e3:
+            print("bot_trace emergency_reply_fail", type(e3).__name__, e3)
