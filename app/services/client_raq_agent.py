@@ -1,3 +1,31 @@
+
+def _rule_reply(company, customer_message: str, ctx: dict) -> str:
+    """Always available when Grok is down — never leave customer silent."""
+    name = getattr(company, "name", None) or "us"
+    msg = (customer_message or "").strip().lower()
+    greet = any(msg.startswith(g) or msg == g for g in (
+        "hi", "hello", "hey", "good morning", "good evening", "good afternoon", "start", "menu",
+    ))
+    if greet or len(msg) < 3:
+        return (
+            f"Hi! Welcome to *{name}*.\n"
+            "Tell me what you need (e.g. sticker, banner, nylon, frame) "
+            "with size and quantity, and I will get you a quote."
+        )
+    # pidgin-ish
+    if any(w in msg.split() for w in ("abeg", "wan", "dey", "wetin", "oya")):
+        return (
+            f"Welcome to *{name}*!\n"
+            "Abeg tell me wetin you want (sticker, banner, nylon, frame…), "
+            "size and how many pieces. I go give you price."
+        )
+    return (
+        f"Thanks for messaging *{name}*.\n"
+        "I can help with quotes and orders. "
+        "Please share what you need, size, and quantity — I will reply with the price."
+    )
+
+
 """Client RaQ Agent — Grok + tools. Primary intelligence layer.
 
 Flow: message → Grok (with tools) → tool results → Grok → WhatsApp reply.
@@ -96,7 +124,7 @@ async def _chat_with_tools(messages: list[dict], tools: list[dict] | None = None
         body["tools"] = tools
         body["tool_choice"] = "auto"
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=18.0) as client:
             log.info("grok_request model=%s msgs=%s tools=%s", _model(), len(messages), bool(tools))
             r = await client.post(
                 f"{_base()}/chat/completions",
@@ -142,11 +170,12 @@ async def run_agent(
     customer_message: str,
     recent: list[dict] | None = None,
     attachment_note: str | None = None,
-    max_tool_rounds: int = 5,
+    max_tool_rounds: int = 2,
 ) -> tuple[str | None, dict, bool]:
     """Returns (reply_text, updated_ctx, needs_human)."""
     if not _api_key():
-        return None, ctx, False
+        log.warning("grok_no_api_key — rule reply")
+        return _rule_reply(company, customer_message, ctx), ctx, False
 
     tc = ToolContext(db, company, conv, ctx, from_wa)
     system = _build_system(company, ctx)
@@ -179,7 +208,7 @@ async def run_agent(
     for _round in range(max_tool_rounds):
         msg = await _chat_with_tools(messages, TOOL_DEFINITIONS)
         if not msg:
-            return None, tc.ctx, tc.needs_human
+            return _rule_reply(company, customer_message, tc.ctx), tc.ctx, tc.needs_human
 
         tool_calls = msg.get("tool_calls") or []
         content = (msg.get("content") or "").strip()
@@ -188,7 +217,7 @@ async def run_agent(
             # Final natural reply
             if content:
                 return content, tc.ctx, tc.needs_human
-            return None, tc.ctx, tc.needs_human
+            return _rule_reply(company, customer_message, tc.ctx), tc.ctx, tc.needs_human
 
         # Append assistant tool_calls message
         messages.append({
@@ -242,4 +271,4 @@ async def run_agent(
     msg = await _chat_with_tools(messages, None)
     if msg and (msg.get("content") or "").strip():
         return msg["content"].strip(), tc.ctx, tc.needs_human
-    return None, tc.ctx, tc.needs_human
+    return _rule_reply(company, customer_message, tc.ctx), tc.ctx, tc.needs_human

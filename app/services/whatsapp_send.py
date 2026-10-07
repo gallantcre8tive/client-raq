@@ -16,8 +16,12 @@ async def _post(phone_number_id: str, access_token: str, payload: dict) -> bool:
                 headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
                 json=payload,
             )
-            return r.status_code < 300
-    except Exception:
+            if r.status_code >= 300:
+                print("wa_send_fail", r.status_code, (r.text or "")[:300], "type=", (payload or {}).get("type"))
+                return False
+            return True
+    except Exception as e:
+        print("wa_send_exc", type(e).__name__, e)
         return False
 
 

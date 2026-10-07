@@ -1001,16 +1001,29 @@ async def handle_inbound(
             print("bot_trace agent_start company=%s conv=%s wa=%s text=%r" % (
                 company.id, conv.id, from_wa, (text or "")[:80],
             ))
-            reply, ctx, needs_human = await run_agent(
-                db,
-                company=company,
-                conv=conv,
-                ctx=ctx,
-                from_wa=from_wa,
-                customer_message=text or (attachment_note or '[media]'),
-                recent=recent,
-                attachment_note=attachment_note,
-            )
+            import asyncio as _aio
+            try:
+                reply, ctx, needs_human = await _aio.wait_for(
+                    run_agent(
+                        db,
+                        company=company,
+                        conv=conv,
+                        ctx=ctx,
+                        from_wa=from_wa,
+                        customer_message=text or (attachment_note or "[media]"),
+                        recent=recent,
+                        attachment_note=attachment_note,
+                    ),
+                    timeout=25.0,
+                )
+            except _aio.TimeoutError:
+                print("bot_trace agent_timeout")
+                reply = (
+                    f"Hi! Thanks for messaging *{company.name}*. "
+                    "I am a bit slow right now — please resend what you need "
+                    "(service, size, quantity) and I will quote you."
+                )
+                needs_human = False
             print("bot_trace agent_done reply_len=%s needs_human=%s" % (
                 len(reply or ""), needs_human,
             ))
@@ -1038,7 +1051,7 @@ async def handle_inbound(
                 )
             if reply:
                 # Detect pidgin from customer message
-                if any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
+                if text and any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
                     ctx["lang"] = "pidgin"
                     _save_ctx(conv, ctx)
                 # Do not force await_fulfillment on every reply — only when quote just locked
@@ -1047,7 +1060,12 @@ async def handle_inbound(
                         conv.state = "await_fulfillment"
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
                 await db.commit()
-                await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+                ok_send = await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+                print("bot_trace send_reply ok=%s len=%s" % (ok_send, len(reply or "")))
+                if not ok_send:
+                    # one retry without formatting
+                    plain = (reply or "").replace("*", "")[:1000]
+                    await send_text(link.phone_number_id, link.access_token, from_wa, plain or "Thanks — we got your message.")
 
                 # Service example images queued by tools
                 for ex in list(ctx.pop("pending_example_images", None) or []):
