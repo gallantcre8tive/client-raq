@@ -1,5 +1,6 @@
 """Human-like printing WhatsApp bot: buttons, Grok NLU, sq-ft pricing, staff notify."""
 from __future__ import annotations
+import logging
 import json
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,8 @@ from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Conversation, Message, Order, OrderStatus
 from app.services.grok_client import grok_chat, grok_vision
 from app.services.whatsapp_send import send_text, send_buttons, send_list, send_typing, download_media
+
+log = logging.getLogger("client_raq.bot")
 
 
 def _ctx(conv: Conversation) -> dict:
@@ -621,7 +624,17 @@ async def handle_inbound(
             pass
 
     # Menu / greetings open service list (do not treat as qty)
-    if text and not interactive_id and text.lower().strip() in ("menu", "services", "start", "hi", "hello", "hey", "good morning", "good evening", "haffa", "how far", "howfar", "sup", "yo", "morning", "evening", "afternon", "afternoon"):
+    _greet_words = {
+        "menu", "services", "start", "hi", "hello", "hey", "haffa", "howfar", "sup", "yo",
+        "morning", "evening", "afternoon", "bros", "brother", "boss", "guy",
+    }
+    _tl = (text or "").lower().strip()
+    _tw = set(_tl.replace("?", " ").replace("!", " ").replace(",", " ").split())
+    if text and not interactive_id and (
+        _tl in _greet_words
+        or (_tw & _greet_words and len(_tw) <= 4)
+        or _tl.startswith(("good morning", "good evening", "good afternoon", "how far", "haffa "))
+    ):
         for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
             ctx.pop(k, None)
         _save_ctx(conv, ctx)
@@ -812,6 +825,11 @@ async def handle_inbound(
                             att.transcript = transcript
                             text = (text or "") + (" " if text else "") + transcript
                             attachment_note = f"Customer sent a voice note. Transcript: {transcript}"
+                            # language hint for agent
+                            tl = transcript.lower()
+                            if any(w in tl.split() for w in ("abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "sef", "nah")):
+                                ctx["lang"] = "pidgin"
+                            _save_ctx(conv, ctx)
                         else:
                             attachment_note = "Customer sent a voice note (transcription unavailable). Ask them to type if unclear."
                 elif att.kind == "payment_proof":
@@ -1159,6 +1177,14 @@ async def handle_inbound(
                 return
             except Exception as e2:
                 print("agent_fallback_send", type(e2).__name__, e2)
+                try:
+                    await send_text(
+                        link.phone_number_id, link.access_token, from_wa,
+                        f"Hey! *{company.name}* here — tell me wetin you need and I go help you.",
+                    )
+                except Exception:
+                    pass
+                return
 
     # ── Fast path: price / product asks get an instant rule reply (never silent) ──
     low_fast = (text or "").lower()

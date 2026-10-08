@@ -1,52 +1,51 @@
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
-    """Always available when Grok is down — never leave customer silent."""
+    """Natural fallback when Grok is down — match customer tone, never dump a form."""
     name = getattr(company, "name", None) or "us"
-    msg = (customer_message or "").strip().lower()
-    greet = any(msg.startswith(g) or msg == g for g in (
-        "hi", "hello", "hey", "good morning", "good evening", "good afternoon", "start", "menu",
-    ))
-    if greet or len(msg) < 3:
+    msg = (customer_message or "").strip()
+    low = msg.lower()
+    words = set(low.replace("?", " ").replace("!", " ").split())
+    pidgin_markers = {"abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah", "bros", "brother", "guy", "una", "sef", "sharp", "howfar", "how"}
+    is_pidgin = bool(words & pidgin_markers) or any(x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg"))
+    is_greet = bool(words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss"}) or low in ("hi", "hello", "hey", "haffa")
+    btype = (getattr(company, "business_type", None) or "printing").lower()
+
+    if is_greet and is_pidgin:
         return (
-            f"Hi! Welcome to *{name}*.\n"
-            "Tell me what you need (e.g. sticker, banner, nylon, frame) "
-            "with size and quantity, and I will get you a quote."
+            f"Haa big man! Welcome to *{name}*.\n"
+            "How your side nah? Wetin you wan do today — talk am, I dey here."
         )
-    # pidgin-ish
-    if any(w in msg.split() for w in ("abeg", "wan", "dey", "wetin", "oya")):
+    if is_greet:
         return (
-            f"Welcome to *{name}*!\n"
-            "Abeg tell me wetin you want (sticker, banner, nylon, frame…), "
-            "size and how many pieces. I go give you price."
+            f"Hey! Welcome to *{name}*.\n"
+            "How can I help you today? Just tell me what you need."
         )
+    if is_pidgin:
+        return (
+            f"I hear you — *{name}* dey online.\n"
+            "Abeg tell me wetin you need clearly and I go sort you."
+        )
+    # business-aware short nudge
+    hints = {
+        "printing": "banner, sticker, frame, nylon…",
+        "exchanger": "PayPal, crypto, gift card, bank transfer…",
+        "laundry": "wash, dry-clean, express…",
+        "skincare": "product, consultation, booking…",
+        "fashion": "tailoring, fabric, ready-to-wear…",
+        "restaurant": "menu, order, delivery…",
+        "phone_repair": "phone model and the issue…",
+        "retail": "the product you want…",
+        "logistics": "pickup and delivery details…",
+        "real_estate": "rent, sale, or inspection…",
+        "education": "the course or service…",
+    }
+    hint = hints.get(btype, "what you need")
     return (
         f"Thanks for messaging *{name}*.\n"
-        "I can help with quotes and orders. "
-        "Please share what you need, size, and quantity — I will reply with the price."
+        f"Tell me {hint} and I will help you right away."
     )
 
 
-"""Client RaQ Agent — Grok + tools. Primary intelligence layer.
-
-Flow: message → Grok (with tools) → tool results → Grok → WhatsApp reply.
-Prices always from calculate_service_price backend tool. Company isolation enforced.
-"""
-from __future__ import annotations
-
-import json
-import logging
-from typing import Any
-
-import httpx
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.config import get_settings
-from app.models.company import Company
-from app.models.conversation import Conversation, Message
-from app.services.agent_tools import TOOL_DEFINITIONS, ToolContext, execute_tool
-
-log = logging.getLogger("client_raq.agent")
 
 
 def _company_system_prompt(company) -> str:
@@ -67,7 +66,12 @@ HARD RULES:
 2. Before stating any price, call calculate_service_price (or get_service_details first).
 3. If price is not configured or tool returns error, say you will confirm with the team — call notify_human_agent if needed.
 4. Remember facts already in order state / conversation — do not re-ask.
-5. Match language: Pidgin if customer uses Pidgin; clear English otherwise.
+5. LANGUAGE (critical): Reply in the SAME language/style the customer used.
+   - Pidgin/Naija (haffa, wetin, abeg, omoh, dey) → reply in natural Pidgin, warm and short.
+   - Yoruba, Hausa, Igbo mixed with English → understand and reply in clear Pidgin or simple English with local warmth.
+   - French / Spanish / Arabic / German / Dutch / Chinese / Korean / Portuguese → reply in that language if you can; otherwise clear simple English and say you can continue in English.
+   - Never force a robotic "service, size, quantity" form on a simple greeting.
+   - For "Haffa" / "How far" / "Hi brother" → greet back warmly, then ask what they need — do NOT dump instructions.
 6. WhatsApp style: short (2–5 sentences). One clear next question when needed.
 7. Do not claim payment is confirmed unless backend/admin confirmed it.
 8. Escalate with notify_human_agent for: human request, complaints, unknown special jobs, price disputes, confusion after two tries.
@@ -86,7 +90,8 @@ Keep formal stage updated with set_conversation_state when stage clearly changes
 15. MINIMUM QUANTITY: Before confirming a quote, check the service min_qty from tools. If customer qty is below min_qty, explain the company minimum and ask them to increase qty OR confirm they will still pay (especially for small inch stickers on large-format machines — waste warning).
 16. SMALL INCH / LARGE-FORMAT WASTE: If size is in inches and both sides are under 12 inches AND quantity is under 20 (or under service min_qty), warn: material waste on large format; ask if they will increase quantity or accept paying for the sheet waste. Do not silently under-quote.
 17. TIER PRICES: If the service has fixed options / variants labeled with quantities (e.g. "50 pcs", "100 pcs"), prefer those prices over inventing a per-piece scale. Call get_service_details / list variants via tools.
-18. Always ask only the next missing fact (unit, size, qty, design, fulfillment) — one clear question.
+18. GREETINGS: If the customer only greets (hi, haffa, how far, hello, good morning), reply with a warm short greeting in their style, then ONE soft question about what they need. Do not call tools yet. Do not list every service.
+19. Always ask only the next missing fact (unit, size, qty, design, fulfillment) — one clear question.
 
 19. If the customer says wait / I want to ask a question / hold on: answer their question only. Do NOT re-ask pickup/delivery or push the payment step until they are ready.
 20. When quote is locked and they ask something else, answer first. At the end you may briefly say the previous quote is still open (service, size, qty, total) — do not send buttons text again.
@@ -204,6 +209,16 @@ async def run_agent(
         user_blob += f"\n\nAttachment event: {attachment_note}"
     user_blob += f"\n\nInternal state: {json.dumps(state_hint, ensure_ascii=False)}"
     messages.append({"role": "user", "content": user_blob})
+
+    # Fast path: pure greetings → one natural reply, no tools (swift + human)
+    _cm = (customer_message or "").strip().lower()
+    _gw = set(_cm.replace("?", " ").replace("!", " ").split())
+    _greet_set = {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "guy", "how", "far", "na"}
+    if len(_gw) <= 5 and (_gw & _greet_set) and not any(x in _cm for x in ("sticker", "banner", "nylon", "frame", "price", "how much", "paypal", "order", "qty", "quantity")):
+        msg = await _chat_with_tools(messages, None)  # no tools
+        if msg and (msg.get("content") or "").strip():
+            return msg["content"].strip(), tc.ctx, False
+        return _rule_reply(company, customer_message, ctx), ctx, False
 
     for _round in range(max_tool_rounds):
         msg = await _chat_with_tools(messages, TOOL_DEFINITIONS)

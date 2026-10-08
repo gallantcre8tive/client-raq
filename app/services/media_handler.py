@@ -88,17 +88,31 @@ async def store_whatsapp_media(
 
 
 async def transcribe_audio(content: bytes, mime: str | None = None) -> str | None:
-    """Optional Groq Whisper transcription. Returns None if GROQ_API_KEY missing."""
+    """Groq Whisper transcription — auto language (Pidgin/Yoruba/English/French/Spanish/etc.)."""
     key = (get_settings().GROQ_API_KEY or "").strip()
     if not key or not content:
+        print("transcribe_skip no_key_or_empty")
         return None
     try:
-        # Groq OpenAI-compatible audio transcriptions
+        # WhatsApp voice notes are usually ogg/opus
+        ext = "ogg"
+        mime_use = mime or "audio/ogg"
+        if "mp4" in (mime or "") or "m4a" in (mime or ""):
+            ext, mime_use = "m4a", "audio/mp4"
+        elif "mpeg" in (mime or "") or "mp3" in (mime or ""):
+            ext, mime_use = "mp3", "audio/mpeg"
+        elif "wav" in (mime or ""):
+            ext, mime_use = "wav", "audio/wav"
         files = {
-            "file": ("audio.ogg", content, mime or "audio/ogg"),
+            "file": (f"audio.{ext}", content, mime_use),
         }
-        data = {"model": "whisper-large-v3", "language": "en"}
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # Do NOT force language=en — Whisper auto-detects Yoruba, Pidgin, French, Spanish, etc.
+        data = {
+            "model": "whisper-large-v3",
+            "response_format": "json",
+            "temperature": "0",
+        }
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {key}"},
@@ -106,11 +120,15 @@ async def transcribe_audio(content: bytes, mime: str | None = None) -> str | Non
                 data=data,
             )
             if r.status_code >= 400:
-                log.warning("groq_whisper %s %s", r.status_code, (r.text or "")[:200])
+                log.warning("groq_whisper %s %s", r.status_code, (r.text or "")[:300])
+                print("transcribe_fail_http", r.status_code, (r.text or "")[:200])
                 return None
-            return (r.json().get("text") or "").strip() or None
+            text = (r.json().get("text") or "").strip()
+            print("transcribe_ok len=%s preview=%r" % (len(text), text[:80]))
+            return text or None
     except Exception as e:
         log.warning("transcribe_fail %s", type(e).__name__)
+        print("transcribe_exc", type(e).__name__, e)
         return None
 
 

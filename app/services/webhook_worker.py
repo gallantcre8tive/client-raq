@@ -122,12 +122,17 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
                 )
             )).scalar_one_or_none()
             if link and link.access_token and from_wa:
+                # Prefer natural short reply — never a robotic form dump
+                em = (
+                    "Sorry for the short delay — we got your message. "
+                    "How can we help you? Just tell us what you need."
+                )
                 await send_text(
                     link.phone_number_id,
                     link.access_token,
                     from_wa,
-                    "Sorry for the delay — we got your message. Please send it again or tell us what you need (service, size, quantity).",
+                    em,
                 )
-                print("bot_trace emergency_reply sent")
+                print("bot_trace emergency_reply sent err=%r" % (e,))
         except Exception as e3:
             print("bot_trace emergency_reply_fail", type(e3).__name__, e3)
