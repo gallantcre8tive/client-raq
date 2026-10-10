@@ -3,137 +3,229 @@
 {% block page_title %}Bot Settings{% endblock %}
 {% set active = 'bot' %}
 {% block content %}
-<p class="text-sm text-[var(--text-secondary)] mb-4 sm:mb-6 leading-relaxed">
-  Control greeting, language, and how the WhatsApp assistant uses your prices. Changes apply on the next customer message.
+<p class="text-sm text-[var(--text-secondary)] mb-5 sm:mb-6 leading-relaxed max-w-3xl">
+  Control greeting, language, and how the assistant uses your prices. Changes apply on the next customer message.
 </p>
 {% if saved %}
-<div class="mb-4 p-3 rounded-xl text-sm" style="background:var(--status-active-bg);color:var(--status-active)">Bot settings saved.</div>
+<div class="mb-5 p-3.5 rounded-xl text-sm border border-transparent" style="background:var(--status-active-bg);color:var(--status-active)">
+  Bot settings saved successfully.
+</div>
 {% endif %}
-<form method="post" action="/company/bot-settings" class="space-y-6 max-w-2xl">
-  <div class="card p-4 sm:p-6 space-y-4">
-    <h3 class="font-semibold m-0">Greeting & language</h3>
+
+<form method="post" action="/company/bot-settings" class="space-y-6 max-w-3xl">
+
+  <div class="card p-5 sm:p-6 space-y-5">
+    <div>
+      <h3 class="font-semibold text-base m-0">Greeting &amp; language</h3>
+      <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">First message customers see and how the bot speaks.</p>
+    </div>
+
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Greeting message</label>
-      <textarea name="greeting" class="input-field" rows="3" placeholder="Welcome! How can we help you today?">{{ greeting|default('') }}</textarea>
+      <textarea name="greeting" class="input-field w-full" rows="3" placeholder="Welcome! How can we help you today?">{{ greeting|default('') }}</textarea>
     </div>
-    <div class="grid sm:grid-cols-2 gap-4">
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Primary language mode</label>
-        <select name="language" class="input-field">
+        <select name="language" class="input-field w-full min-h-[44px]">
           <option value="en" {% if language=='en' %}selected{% endif %}>English only</option>
           <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Pidgin only</option>
           <option value="both" {% if language=='both' or not language %}selected{% endif %}>Auto-detect (recommended)</option>
         </select>
-        <p class="text-xs text-[var(--text-secondary)] mt-2 mb-2">Languages the bot may use (select all that apply). Bot still auto-detects customer language.</p>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-          {% set el = enabled_languages or ['en','pidgin'] %}
-          {% for code, label in [
-            ('en','English'),('pidgin','Pidgin'),('yo','Yoruba'),('ig','Igbo'),('ha','Hausa'),
-            ('fr','French'),('es','Spanish'),('ar','Arabic'),('zh','Chinese'),('ko','Korean'),
-            ('bn','Bangla'),('pt','Portuguese'),('de','German'),('nl','Dutch'),('hi','Hindi')
-          ] %}
-          <label class="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5 cursor-pointer hover:bg-[var(--surface-2)]">
-            <input type="checkbox" name="lang_{{ code }}" value="1" {% if code in el %}checked{% endif %} class="rounded">
-            <span>{{ label }}</span>
-          </label>
-          {% endfor %}
-        </div>
-
       </div>
       <div>
         <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Currency</label>
-        <select name="currency" class="input-field">
+        <select name="currency" class="input-field w-full min-h-[44px]">
           {% for c in ['NGN','USD','GHS','KES','EUR','GBP','CNY'] %}
           <option value="{{ c }}" {% if currency==c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
         </select>
       </div>
     </div>
+
+    <div>
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Languages the bot may use</label>
+      <p class="text-xs text-[var(--text-muted)] mb-3">Select all that apply. The bot still auto-detects the customer language.</p>
+      {% set el = enabled_languages or ['en','pidgin'] %}
+      <div class="flex flex-wrap gap-2.5">
+        {% for code, label in [
+          ('en','English'),('pidgin','Pidgin'),('yo','Yoruba'),('ig','Igbo'),('ha','Hausa'),
+          ('fr','French'),('es','Spanish'),('ar','Arabic'),('zh','Chinese'),('ko','Korean'),
+          ('bn','Bangla'),('pt','Portuguese'),('de','German'),('nl','Dutch'),('hi','Hindi')
+        ] %}
+        <label class="lang-chip inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm cursor-pointer transition-colors select-none
+          {% if code in el %}is-on{% else %}is-off{% endif %}">
+          <input type="checkbox" name="lang_{{ code }}" value="1" {% if code in el %}checked{% endif %} class="lang-check">
+          <span class="lang-dot" aria-hidden="true"></span>
+          <span class="font-medium whitespace-nowrap">{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
   </div>
-  <div class="card p-4 sm:p-6 space-y-3">
-    <h3 class="font-semibold m-0">Order flow options</h3>
-    <p class="text-xs text-[var(--text-muted)] m-0">Ticked options stay on after Save. Untick and Save to turn off.</p>
-    <label class="flex items-start gap-3 text-sm cursor-pointer">
-      <input type="checkbox" name="offer_pidgin" value="1" class="mt-1 rounded" {% if offer_pidgin %}checked{% endif %}>
-      <span>Offer Pidgin as a language choice (when mode is “Ask customer”)</span>
-    </label>
-    <label class="flex items-start gap-3 text-sm cursor-pointer">
-      <input type="checkbox" name="ask_size_help" value="1" class="mt-1 rounded" {% if ask_size_help %}checked{% endif %}>
-      <span>Help explain size and “unit” when customers are unsure</span>
-    </label>
-    <label class="flex items-start gap-3 text-sm cursor-pointer">
-      <input type="checkbox" name="ask_payment_proof" value="1" class="mt-1 rounded" {% if ask_payment_proof %}checked{% endif %}>
-      <span>Ask for payment screenshot after bank details</span>
-    </label>
-    <label class="flex items-start gap-3 text-sm cursor-pointer">
-      <input type="checkbox" name="ask_delivery" value="1" class="mt-1 rounded" {% if ask_delivery %}checked{% endif %}>
-      <span>Ask pickup vs delivery and date/time</span>
-    </label>
-    <label class="flex items-start gap-3 text-sm cursor-pointer">
-      <input type="checkbox" name="calc_delivery_fee" value="1" class="mt-1 rounded" {% if calc_delivery_fee %}checked{% endif %}>
-      <span>Add base delivery fee when delivery is chosen</span>
-    </label>
+
+  <div class="card p-5 sm:p-6 space-y-4">
+    <div>
+      <h3 class="font-semibold text-base m-0">Order flow options</h3>
+      <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">Ticked options stay on after Save. Untick and Save to turn off.</p>
+    </div>
+    <div class="space-y-1">
+      <label class="flex items-start gap-3 text-sm cursor-pointer p-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <input type="checkbox" name="offer_pidgin" value="1" class="mt-0.5 rounded accent-[var(--brand)]" {% if offer_pidgin %}checked{% endif %}>
+        <span class="leading-snug">Offer Pidgin as a language choice (when mode is Ask customer)</span>
+      </label>
+      <label class="flex items-start gap-3 text-sm cursor-pointer p-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <input type="checkbox" name="ask_size_help" value="1" class="mt-0.5 rounded accent-[var(--brand)]" {% if ask_size_help %}checked{% endif %}>
+        <span class="leading-snug">Help explain size and unit when customers are unsure</span>
+      </label>
+      <label class="flex items-start gap-3 text-sm cursor-pointer p-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <input type="checkbox" name="ask_payment_proof" value="1" class="mt-0.5 rounded accent-[var(--brand)]" {% if ask_payment_proof %}checked{% endif %}>
+        <span class="leading-snug">Ask for payment screenshot after bank details</span>
+      </label>
+      <label class="flex items-start gap-3 text-sm cursor-pointer p-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <input type="checkbox" name="ask_delivery" value="1" class="mt-0.5 rounded accent-[var(--brand)]" {% if ask_delivery %}checked{% endif %}>
+        <span class="leading-snug">Ask pickup vs delivery and date/time</span>
+      </label>
+      <label class="flex items-start gap-3 text-sm cursor-pointer p-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <input type="checkbox" name="calc_delivery_fee" value="1" class="mt-0.5 rounded accent-[var(--brand)]" {% if calc_delivery_fee %}checked{% endif %}>
+        <span class="leading-snug">Add base delivery fee when delivery is chosen</span>
+      </label>
+    </div>
   </div>
-  
-  <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">
-    <h3 class="font-semibold m-0">AI personality</h3>
+
+  <div class="card p-5 sm:p-6 space-y-4">
     <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Tone</label>
-      <select name="bot_personality" class="input-field min-h-[44px]">
-        <option value="friendly" {% if bot_personality|default('friendly')=='friendly' %}selected{% endif %}>Friendly</option>
-        <option value="professional" {% if bot_personality|default('')=='professional' %}selected{% endif %}>Professional</option>
-        <option value="casual" {% if bot_personality|default('')=='casual' %}selected{% endif %}>Casual</option>
-        <option value="friendly_nigerian" {% if bot_personality|default('')=='friendly_nigerian' %}selected{% endif %}>Friendly Nigerian</option>
-      </select>
+      <h3 class="font-semibold text-base m-0">AI personality</h3>
+      <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">How the bot sounds when chatting with customers.</p>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Tone</label>
+        <select name="bot_personality" class="input-field w-full min-h-[44px]">
+          <option value="friendly" {% if bot_personality|default('friendly')=='friendly' %}selected{% endif %}>Friendly</option>
+          <option value="professional" {% if bot_personality|default('')=='professional' %}selected{% endif %}>Professional</option>
+          <option value="casual" {% if bot_personality|default('')=='casual' %}selected{% endif %}>Casual</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-5 sm:p-6 space-y-4">
+    <div>
+      <h3 class="font-semibold text-base m-0">Business info for the bot</h3>
+      <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">Used when customers ask about location, hours, or your company.</p>
     </div>
     <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Custom AI instructions</label>
-      <textarea name="custom_ai_instructions" rows="4" class="input-field" placeholder="e.g. Always mention we open Mon–Sat 8am–6pm. Never promise same-day without confirmation.">{{ custom_ai_instructions|default('') }}</textarea>
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Business hours</label>
-      <input type="text" name="business_hours" class="input-field min-h-[44px]" value="{{ business_hours|default('') }}" placeholder="Mon–Sat 8am–6pm">
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Location / address</label>
-      <input type="text" name="location_text" class="input-field min-h-[44px]" value="{{ location_text|default('') }}" placeholder="Shop address for customers">
+      <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Shop / location address</label>
+      <input type="text" name="location_text" class="input-field w-full min-h-[44px]" value="{{ location_text|default('') }}" placeholder="Shop address for customers">
     </div>
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">About / description</label>
-      <textarea name="about_text" rows="2" class="input-field">{{ about_text|default('') }}</textarea>
+      <textarea name="about_text" rows="2" class="input-field w-full">{{ about_text|default('') }}</textarea>
     </div>
-    <div class="pt-2 border-t border-[var(--border-subtle)]">
-      <h4 class="text-sm font-semibold mb-2">Enquiry contact (when bot cannot answer)</h4>
-      <p class="text-xs text-[var(--text-muted)] mb-3">Shown to customers for complex questions so they can reach you quickly.</p>
-      <div class="grid sm:grid-cols-2 gap-3">
+
+    <div class="pt-4 border-t border-[var(--border-subtle)] space-y-4">
+      <div>
+        <h4 class="text-sm font-semibold m-0">Enquiry contact</h4>
+        <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">Shown when the bot cannot answer and needs to hand off to you.</p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Enquiry WhatsApp number</label>
-          <input type="text" name="enquiry_whatsapp" class="input-field min-h-[44px]" value="{{ enquiry_whatsapp|default('') }}" placeholder="+2348012345678">
+          <input type="text" name="enquiry_whatsapp" class="input-field w-full min-h-[44px]" value="{{ enquiry_whatsapp|default('') }}" placeholder="+2348012345678">
         </div>
         <div>
           <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Enquiry call number</label>
-          <input type="text" name="enquiry_phone" class="input-field min-h-[44px]" value="{{ enquiry_phone|default('') }}" placeholder="+2348012345678">
+          <input type="text" name="enquiry_phone" class="input-field w-full min-h-[44px]" value="{{ enquiry_phone|default('') }}" placeholder="+2348012345678">
         </div>
       </div>
-      <div class="mt-3">
+      <div>
         <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Short note (optional)</label>
-        <input type="text" name="enquiry_note" class="input-field min-h-[44px]" value="{{ enquiry_note|default('') }}" placeholder="e.g. Call between 9am–5pm for custom jobs">
+        <input type="text" name="enquiry_note" class="input-field w-full min-h-[44px]" value="{{ enquiry_note|default('') }}" placeholder="e.g. Call between 9am-5pm for custom jobs">
       </div>
     </div>
   </div>
 
   {% if business_type in ['printing', 'print'] %}
-  <div class="card p-4 sm:p-6 space-y-3 max-w-2xl">
-    <h3 class="font-semibold m-0">Design fee (optional)</h3>
-    <p class="text-xs text-[var(--text-muted)] m-0">Charged when customer asks your team to create artwork.</p>
+  <div class="card p-5 sm:p-6 space-y-4">
+    <div>
+      <h3 class="font-semibold text-base m-0">Design fee (optional)</h3>
+      <p class="text-xs text-[var(--text-muted)] mt-1 mb-0">Charged when a customer asks your team to create artwork.</p>
+    </div>
     <div>
       <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Default design fee</label>
-      <input type="number" name="design_fee_default" step="0.01" min="0" value="{{ design_fee_default|default(0) }}" class="input-field min-h-[44px] max-w-xs">
+      <input type="number" name="design_fee_default" step="0.01" min="0" value="{{ design_fee_default|default(0) }}" class="input-field min-h-[44px] max-w-xs w-full">
     </div>
   </div>
   {% else %}
   <input type="hidden" name="design_fee_default" value="0">
   {% endif %}
-  <button type="submit" class="btn-primary min-h-[44px] w-full sm:w-auto">Save bot settings</button>
+
+  <div class="pt-1 pb-4">
+    <button type="submit" class="btn-primary min-h-[48px] px-8 w-full sm:w-auto font-semibold">
+      Save bot settings
+    </button>
+  </div>
 </form>
+
+<style>
+  .lang-chip {
+    border-color: var(--border);
+    color: var(--text-secondary);
+    background: transparent;
+  }
+  .lang-chip:hover {
+    border-color: color-mix(in srgb, var(--brand) 50%, var(--border));
+    background: var(--surface-2);
+  }
+  .lang-chip .lang-check {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+  .lang-chip .lang-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    border: 1.5px solid currentColor;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .lang-chip.is-on,
+  .lang-chip:has(.lang-check:checked) {
+    border-color: var(--brand) !important;
+    background: color-mix(in srgb, var(--brand) 12%, transparent) !important;
+    color: var(--brand) !important;
+  }
+  .lang-chip.is-on .lang-dot,
+  .lang-chip:has(.lang-check:checked) .lang-dot {
+    border-color: var(--brand);
+    background: var(--brand);
+  }
+  .lang-chip.is-on .lang-dot::after,
+  .lang-chip:has(.lang-check:checked) .lang-dot::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: #fff;
+  }
+</style>
+<script>
+(function () {
+  document.querySelectorAll('.lang-chip').forEach(function (chip) {
+    var input = chip.querySelector('.lang-check');
+    if (!input) return;
+    input.addEventListener('change', function () {
+      chip.classList.toggle('is-on', input.checked);
+      chip.classList.toggle('is-off', !input.checked);
+    });
+  });
+})();
+</script>
 {% endblock %}
