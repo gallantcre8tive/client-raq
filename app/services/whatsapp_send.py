@@ -1,41 +1,80 @@
 """Send WhatsApp Cloud API messages (text, buttons, lists, media)."""
 from __future__ import annotations
+import asyncio
 import httpx
 
 GRAPH = "https://graph.facebook.com/v21.0"
 
 
-async def _post(phone_number_id: str, access_token: str, payload: dict) -> bool:
+def _digits(wa_id: str) -> str:
+    return "".join(c for c in (wa_id or "") if c.isdigit())
+
+
+async def _post(phone_number_id: str, access_token: str, payload: dict, *, retries: int = 2) -> bool:
     if not phone_number_id or not access_token:
+        print("wa_send_skip missing phone_number_id or token")
         return False
-    url = f"{GRAPH}/{phone_number_id}/messages"
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-                json=payload,
-            )
-            if r.status_code >= 300:
-                print("wa_send_fail", r.status_code, (r.text or "")[:300], "type=", (payload or {}).get("type"))
-                return False
-            return True
-    except Exception as e:
-        print("wa_send_exc", type(e).__name__, e)
-        return False
+    token = (access_token or "").strip()
+    url = f"{GRAPH}/{str(phone_number_id).strip()}/messages"
+    last_err = ""
+    for attempt in range(max(1, retries)):
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                r = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                if r.status_code < 300:
+                    try:
+                        data = r.json()
+                        mid = ((data.get("messages") or [{}])[0]).get("id")
+                    except Exception:
+                        mid = None
+                    print("wa_send_ok type=%s to=%s mid=%s" % (
+                        (payload or {}).get("type"),
+                        (payload or {}).get("to"),
+                        mid,
+                    ))
+                    return True
+                last_err = (r.text or "")[:400]
+                print(
+                    "wa_send_fail attempt=%s status=%s type=%s to=%s body=%s"
+                    % (attempt + 1, r.status_code, (payload or {}).get("type"), (payload or {}).get("to"), last_err)
+                )
+                # 401/403 = bad token — do not retry
+                if r.status_code in (401, 403):
+                    break
+                # 429/5xx — brief backoff
+                if r.status_code in (429, 500, 502, 503, 504):
+                    await asyncio.sleep(0.6 * (attempt + 1))
+                    continue
+                break
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            print("wa_send_exc attempt=%s %s" % (attempt + 1, last_err))
+            await asyncio.sleep(0.4 * (attempt + 1))
+    print("wa_send_give_up type=%s err=%s" % ((payload or {}).get("type"), last_err[:200]))
+    return False
 
 
 async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body: str) -> bool:
-    """Send WhatsApp text. Logs status only (never the access token)."""
-    if not to_wa_id or not body:
+    """Send WhatsApp text. Logs Graph status (never the access token)."""
+    to = _digits(to_wa_id)
+    if not to or not (body or "").strip():
+        print("wa_send_text_skip empty to or body")
         return False
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "recipient_type": "individual",
+        "to": to,
         "type": "text",
-        "text": {"body": body[:4090]},
+        "text": {"preview_url": False, "body": body[:4090]},
     }
-    return await _post(phone_number_id, access_token, payload)
+    return await _post(phone_number_id, access_token, payload, retries=3)
 
 
 async def send_buttons(
@@ -46,8 +85,8 @@ async def send_buttons(
     buttons: list[tuple[str, str]],
     header: str | None = None,
 ) -> bool:
-    """buttons: list of (id, title) max 3. title max 20 chars."""
-    if not to_wa_id or not body or not buttons:
+    to = _digits(to_wa_id)
+    if not to or not body or not buttons:
         return False
     btns = []
     for bid, title in buttons[:3]:
@@ -64,7 +103,8 @@ async def send_buttons(
         interactive["header"] = {"type": "text", "text": header[:60]}
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "recipient_type": "individual",
+        "to": to,
         "type": "interactive",
         "interactive": interactive,
     }
@@ -80,166 +120,113 @@ async def send_list(
     rows: list[tuple[str, str, str]],
     header: str | None = None,
 ) -> bool:
-    """rows: list of (id, title, description) max 10. title max 24, desc max 72."""
-    if not to_wa_id or not body or not rows:
+    to = _digits(to_wa_id)
+    if not to or not body or not rows:
         return False
-    section_rows = []
-    for rid, title, desc in rows[:10]:
-        row = {"id": str(rid)[:200], "title": str(title)[:24]}
-        if desc:
-            row["description"] = str(desc)[:72]
-        section_rows.append(row)
+    sections = [{
+        "title": "Options",
+        "rows": [
+            {"id": str(r[0])[:200], "title": str(r[1])[:24], "description": str(r[2] or "")[:72]}
+            for r in rows[:10]
+        ],
+    }]
     interactive = {
         "type": "list",
         "body": {"text": body[:1024]},
-        "action": {
-            "button": (button_label or "View options")[:20],
-            "sections": [{"title": "Options", "rows": section_rows}],
-        },
+        "action": {"button": (button_label or "View")[:20], "sections": sections},
     }
     if header:
         interactive["header"] = {"type": "text", "text": header[:60]}
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "recipient_type": "individual",
+        "to": to,
         "type": "interactive",
         "interactive": interactive,
     }
     return await _post(phone_number_id, access_token, payload)
 
 
-async def download_media(media_id: str, access_token: str):
+async def send_typing(phone_number_id: str, access_token: str, to_wa_id: str, message_id: str | None = None) -> bool:
+    """Mark message as read + typing indicator (best effort)."""
+    to = _digits(to_wa_id)
+    if not phone_number_id or not access_token or not to:
+        return False
+    token = (access_token or "").strip()
+    url = f"{GRAPH}/{str(phone_number_id).strip()}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if message_id:
+                await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={
+                        "messaging_product": "whatsapp",
+                        "status": "read",
+                        "message_id": message_id,
+                        "typing_indicator": {"type": "text"},
+                    },
+                )
+            return True
+    except Exception as e:
+        print("wa_typing_exc", type(e).__name__, e)
+        return False
+
+
+async def download_media(media_id: str, access_token: str) -> tuple[bytes | None, str | None]:
     if not media_id or not access_token:
-        return None
+        return None, None
+    token = access_token.strip()
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            meta = await client.get(
+            r = await client.get(
                 f"{GRAPH}/{media_id}",
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {token}"},
             )
-            if meta.status_code != 200:
-                return None
-            data = meta.json()
-            url = data.get("url")
-            mime = data.get("mime_type") or "image/jpeg"
-            if not url:
-                return None
-            file_r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
-            if file_r.status_code != 200:
-                return None
-            return file_r.content, mime
-    except Exception:
-        return None
-
-
-async def send_typing(phone_number_id: str, access_token: str, to_wa_id: str, message_id: str | None = None) -> bool:
-    """Show WhatsApp typing indicator (Cloud API)."""
-    if not phone_number_id or not access_token or not to_wa_id:
-        return False
-    to = to_wa_id.replace("+", "").replace(" ", "")
-    # Mark as read + typing when we have message id
-    if message_id:
-        payload = {
-            "messaging_product": "whatsapp",
-            "status": "read",
-            "message_id": message_id,
-            "typing_indicator": {"type": "text"},
-        }
-    else:
-        return False
-    return await _post(phone_number_id, access_token, payload)
-
-
-
-async def send_image(
-    phone_number_id: str,
-    access_token: str,
-    to_wa_id: str,
-    *,
-    image_url: str | None = None,
-    media_id: str | None = None,
-    caption: str | None = None,
-) -> bool:
-    """Send image by public URL or uploaded media id."""
-    if not to_wa_id or not (image_url or media_id):
-        return False
-    image: dict = {}
-    if media_id:
-        image["id"] = media_id
-    else:
-        image["link"] = image_url
-    if caption:
-        image["caption"] = caption[:1024]
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
-        "type": "image",
-        "image": image,
-    }
-    return await _post(phone_number_id, access_token, payload)
-
+            if r.status_code >= 300:
+                print("wa_media_meta_fail", r.status_code, (r.text or "")[:200])
+                return None, None
+            meta = r.json()
+            media_url = meta.get("url")
+            mime = meta.get("mime_type")
+            if not media_url:
+                return None, None
+            r2 = await client.get(media_url, headers={"Authorization": f"Bearer {token}"})
+            if r2.status_code >= 300:
+                print("wa_media_dl_fail", r2.status_code)
+                return None, None
+            return r2.content, mime
+    except Exception as e:
+        print("wa_media_exc", type(e).__name__, e)
+        return None, None
 
 
 async def upload_media_bytes(
     phone_number_id: str,
     access_token: str,
-    content: bytes,
+    data: bytes,
     mime: str,
-    filename: str = "file.bin",
+    filename: str,
 ) -> str | None:
-    """Upload file to WhatsApp Cloud API; returns media id or None."""
-    if not phone_number_id or not access_token or not content:
+    if not phone_number_id or not access_token or not data:
         return None
-    url = f"{GRAPH}/{phone_number_id}/media"
+    token = access_token.strip()
+    url = f"{GRAPH}/{str(phone_number_id).strip()}/media"
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
                 url,
-                headers={"Authorization": f"Bearer {access_token}"},
-                files={
-                    "file": (filename, content, mime or "application/octet-stream"),
-                    "messaging_product": (None, "whatsapp"),
-                    "type": (None, mime or "application/octet-stream"),
-                },
+                headers={"Authorization": f"Bearer {token}"},
+                files={"file": (filename or "file.bin", data, mime or "application/octet-stream")},
+                data={"messaging_product": "whatsapp", "type": mime or "application/octet-stream"},
             )
-            print("wa_upload_status", r.status_code)
             if r.status_code >= 300:
-                print("wa_upload_body", (r.text or "")[:200])
+                print("wa_upload_fail", r.status_code, (r.text or "")[:200])
                 return None
             return (r.json() or {}).get("id")
     except Exception as e:
-        print("wa_upload_err", type(e).__name__, e)
+        print("wa_upload_exc", type(e).__name__, e)
         return None
-
-
-async def send_document(
-    phone_number_id: str,
-    access_token: str,
-    to_wa_id: str,
-    *,
-    media_id: str | None = None,
-    link: str | None = None,
-    filename: str | None = None,
-    caption: str | None = None,
-) -> bool:
-    if not to_wa_id or (not media_id and not link):
-        return False
-    doc: dict = {}
-    if media_id:
-        doc["id"] = media_id
-    else:
-        doc["link"] = link
-    if filename:
-        doc["filename"] = filename[:255]
-    if caption:
-        doc["caption"] = caption[:1024]
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
-        "type": "document",
-        "document": doc,
-    }
-    return await _post(phone_number_id, access_token, payload)
 
 
 async def send_image_id(
@@ -249,32 +236,40 @@ async def send_image_id(
     media_id: str,
     caption: str | None = None,
 ) -> bool:
-    img: dict = {"id": media_id}
+    to = _digits(to_wa_id)
+    if not to or not media_id:
+        return False
+    image: dict = {"id": media_id}
     if caption:
-        img["caption"] = caption[:1024]
+        image["caption"] = caption[:1024]
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
+        "recipient_type": "individual",
+        "to": to,
         "type": "image",
-        "image": img,
+        "image": image,
     }
     return await _post(phone_number_id, access_token, payload)
 
 
-async def send_video_id(
+async def send_image(
     phone_number_id: str,
     access_token: str,
     to_wa_id: str,
-    media_id: str,
+    image_url: str,
     caption: str | None = None,
 ) -> bool:
-    vid: dict = {"id": media_id}
+    to = _digits(to_wa_id)
+    if not to or not image_url:
+        return False
+    image: dict = {"link": image_url}
     if caption:
-        vid["caption"] = caption[:1024]
+        image["caption"] = caption[:1024]
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_wa_id.replace("+", "").replace(" ", ""),
-        "type": "video",
-        "video": vid,
+        "recipient_type": "individual",
+        "to": to,
+        "type": "image",
+        "image": image,
     }
     return await _post(phone_number_id, access_token, payload)

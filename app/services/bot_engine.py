@@ -13,6 +13,29 @@ from app.services.whatsapp_send import send_text, send_buttons, send_list, send_
 
 log = logging.getLogger("client_raq.bot")
 
+async def _outbound_and_send(db, conv, link, from_wa, body: str) -> bool:
+    """Save outbound message then send via WhatsApp. Returns send success."""
+    body = (body or "").strip()
+    if not body:
+        return False
+    try:
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+        await db.commit()
+    except Exception as e:
+        print("outbound_save", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+    print("bot_trace outbound_send ok=%s len=%s to=%s" % (ok, len(body), from_wa))
+    if not ok:
+        plain = body.replace("*", "")[:1000]
+        ok = await send_text(link.phone_number_id, link.access_token, from_wa, plain)
+        print("bot_trace outbound_retry ok=%s" % ok)
+    return ok
+
+
 
 def _ctx(conv: Conversation) -> dict:
     try:
@@ -1274,11 +1297,13 @@ async def _handle_inbound_core(
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
                 await db.commit()
                 ok_send = await send_text(link.phone_number_id, link.access_token, from_wa, reply)
-                print("bot_trace send_reply ok=%s len=%s" % (ok_send, len(reply or "")))
+                print("bot_trace send_reply ok=%s len=%s to=%s" % (ok_send, len(reply or ""), from_wa))
                 if not ok_send:
-                    # one retry without formatting
                     plain = (reply or "").replace("*", "")[:1000]
-                    await send_text(link.phone_number_id, link.access_token, from_wa, plain or "Thanks — we got your message.")
+                    ok2 = await send_text(link.phone_number_id, link.access_token, from_wa, plain or "Thanks — we got your message.")
+                    print("bot_trace send_reply_retry ok=%s" % ok2)
+                    if not ok2:
+                        print("bot_trace SEND_FAILED_CUSTOMER_SILENT to=%s — check WhatsApp token / phone_number_id" % from_wa)
 
                 # Service example images queued by tools
                 for ex in list(ctx.pop("pending_example_images", None) or []):
@@ -1347,26 +1372,28 @@ async def _handle_inbound_core(
                 return
         except BaseException as e:
             print("agent_path", type(e).__name__, e)
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
             try:
-                low = (text or "").lower()
-                pidgin = any(w in low.split() for w in ("abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah"))
-                if pidgin:
-                    fb = (
-                        f"Sorry for the delay — *{company.name}* still dey here.\n"
-                        "Abeg tell me wetin you need (sticker, banner, nylon, frame…), "
-                        "size and quantity. I go reply sharp."
-                    )
-                else:
-                    fb = (
-                        f"Sorry for the delay — *{company.name}* is here.\n"
-                        "Tell me what you need (sticker, banner, nylon, frame…), "
-                        "size and quantity, and I will quote you right away."
-                    )
+                from app.services.client_raq_agent import _rule_reply
+                fb = _rule_reply(company, text or attachment_note or "", ctx)
                 db.add(Message(conversation_id=conv.id, direction="outbound", body=fb))
                 await db.commit()
                 ok = await send_text(link.phone_number_id, link.access_token, from_wa, fb)
-                print("bot_trace agent_fallback_send ok=%s" % ok)
+                print("bot_trace agent_fallback_rule ok=%s len=%s" % (ok, len(fb or "")))
+                if not ok:
+                    # one more plain retry
+                    plain = (fb or "").replace("*", "")[:1000]
+                    ok2 = await send_text(link.phone_number_id, link.access_token, from_wa, plain)
+                    print("bot_trace agent_fallback_retry ok=%s" % ok2)
+                return
+            except Exception as e2:
+                print("agent_fallback_send", type(e2).__name__, e2)
+                try:
+                    msg = f"Hey — *{getattr(company, 'name', None) or 'we'}* here. Tell me what you need."
+                    await send_text(link.phone_number_id, link.access_token, from_wa, msg)
+                except Exception:
+                    pass
                 return
             except Exception as e2:
                 print("agent_fallback_send", type(e2).__name__, e2)
