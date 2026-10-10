@@ -28,7 +28,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Primary language mode</label>
-        <select name="language" class="input-field w-full min-h-[44px]">
+        <select name="language" id="primary-lang-mode" class="input-field w-full min-h-[44px]">
           <option value="en" {% if language=='en' %}selected{% endif %}>English only</option>
           <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Pidgin only</option>
           <option value="both" {% if language=='both' or not language %}selected{% endif %}>Auto-detect (recommended)</option>
@@ -218,7 +218,35 @@
 </style>
 <script>
 (function () {
-  document.querySelectorAll('.lang-chip').forEach(function (chip) {
+  var mode = document.getElementById('primary-lang-mode');
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.lang-chip'));
+
+  function setChip(chip, on) {
+    var input = chip.querySelector('.lang-check');
+    if (!input) return;
+    input.checked = !!on;
+    chip.classList.toggle('is-on', !!on);
+    chip.classList.toggle('is-off', !on);
+  }
+
+  function applyMode(value) {
+    var v = (value || 'both').toLowerCase();
+    chips.forEach(function (chip) {
+      var input = chip.querySelector('.lang-check');
+      if (!input) return;
+      var code = (input.name || '').replace('lang_', '');
+      if (v === 'en') {
+        setChip(chip, code === 'en');
+      } else if (v === 'pidgin') {
+        setChip(chip, code === 'pidgin');
+      } else {
+        // Auto-detect (recommended) → enable all languages
+        setChip(chip, true);
+      }
+    });
+  }
+
+  chips.forEach(function (chip) {
     var input = chip.querySelector('.lang-check');
     if (!input) return;
     input.addEventListener('change', function () {
@@ -226,6 +254,18 @@
       chip.classList.toggle('is-off', !input.checked);
     });
   });
+
+  if (mode) {
+    mode.addEventListener('change', function () {
+      applyMode(mode.value);
+    });
+    // On load: if mode is en or pidgin, enforce matching chips.
+    // If both/auto, leave saved selection as-is (do not force all on every page load).
+    var initial = (mode.value || 'both').toLowerCase();
+    if (initial === 'en' || initial === 'pidgin') {
+      applyMode(initial);
+    }
+  }
 })();
 </script>
 {% endblock %}

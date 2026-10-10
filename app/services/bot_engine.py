@@ -706,8 +706,9 @@ async def _handle_inbound_core(
 
 
 
-    # ── Fast service intent (works even if Grok is down) ──
-    if text and not interactive_id:
+    # ── Fast service intent for PRINTING only (works even if Grok is down) ──
+    _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+    if text and not interactive_id and _btype in ("printing", "print"):
         _intent_map = [
             (("sticker", "sav", "label"), "sticker"),
             (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),

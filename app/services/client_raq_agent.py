@@ -1,14 +1,21 @@
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
-    """Natural fallback when Grok is down — match customer tone, never dump a form."""
+    """Natural fallback when Grok is down — match customer tone + business type."""
     name = getattr(company, "name", None) or "us"
     msg = (customer_message or "").strip()
     low = msg.lower()
     words = set(low.replace("?", " ").replace("!", " ").split())
-    pidgin_markers = {"abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah", "bros", "brother", "guy", "una", "sef", "sharp", "howfar", "how"}
-    is_pidgin = bool(words & pidgin_markers) or any(x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg"))
-    is_greet = bool(words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss"}) or low in ("hi", "hello", "hey", "haffa")
-    btype = (getattr(company, "business_type", None) or "printing").lower()
+    pidgin_markers = {
+        "abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah",
+        "bros", "brother", "guy", "una", "sef", "sharp", "howfar", "how", "blood",
+    }
+    is_pidgin = bool(words & pidgin_markers) or any(
+        x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg")
+    )
+    is_greet = bool(
+        words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"}
+    ) or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood")
+    btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
 
     if is_greet and is_pidgin:
         return (
@@ -20,43 +27,143 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             f"Hey! Welcome to *{name}*.\n"
             "How can I help you today? Just tell me what you need."
         )
+
+    # ── Printing ──
+    if btype in ("printing", "print"):
+        if any(x in low for x in ("sticker", "sav", "label")):
+            return (
+                f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
+                if is_pidgin else
+                f"Sticker printing — please share size (width x height) and quantity. Inches or feet?"
+            )
+        if "nylon" in low:
+            return (
+                f"Nylon — how many pieces you wan, and e go get custom print?"
+                if is_pidgin else
+                f"Nylon bags — how many pieces, and do you need custom branding?"
+            )
+        if any(x in low for x in ("banner", "flex", "rollup", "roll-up")):
+            return (
+                f"Banner/flex — tell me size in feet (e.g. 5x2) and quantity."
+                if is_pidgin else
+                f"Banner — share size in feet (e.g. 5x2 ft) and quantity."
+            )
+        if "frame" in low or "acrylic" in low:
+            return (
+                f"Frame — which size (e.g. 8x10, 12x16)? How many pieces?"
+                if not is_pidgin else
+                f"Frame — which size (8x10, 12x16…)? How many pieces?"
+            )
+
+    # ── Payment exchanger ──
+    if btype == "exchanger":
+        if any(x in low for x in ("paypal", "pay pal")):
+            return (
+                f"PayPal for *{name}* — you wan *receive* or *send*? Abeg drop the amount and currency (e.g. $100)."
+                if is_pidgin else
+                f"PayPal via *{name}* — do you want to *receive* or *send*? Share the amount and currency (e.g. $100)."
+            )
+        if any(x in low for x in ("cashapp", "cash app", "cashtag")):
+            return (
+                f"Cash App — amount and currency? I go tell you the tag / next step once confirmed."
+                if is_pidgin else
+                f"Cash App — share the amount and currency, and I will give the next steps."
+            )
+        if any(x in low for x in ("crypto", "usdt", "btc", "bitcoin", "eth")):
+            return (
+                f"Crypto — which coin/network and how much? I go check if that corridor dey available."
+                if is_pidgin else
+                f"Crypto — which coin/network and amount? I will check if that method is available."
+            )
+        if any(x in low for x in ("giftcard", "gift card", "itunes", "steam", "amazon card")):
+            return (
+                f"Gift card — which type and face value? You fit send photo of the card when ready."
+                if is_pidgin else
+                f"Gift card — which brand and face value? You can send a clear photo of the card when ready."
+            )
+        if any(x in low for x in ("bank", "transfer", "wire", "ach")):
+            return (
+                f"Bank transfer — amount, currency, and country? I go share the right details if enabled."
+                if is_pidgin else
+                f"Bank transfer — amount, currency, and country? I will share the correct details if that method is enabled."
+            )
+        return (
+            f"I dey for *{name}*. You fit use PayPal, bank, Cash App, crypto, gift card… wetin you wan do, and how much?"
+            if is_pidgin else
+            f"I can help at *{name}* with PayPal, bank, Cash App, crypto, gift cards, and more. What do you need and how much?"
+        )
+
+    # ── Laundry ──
+    if btype == "laundry":
+        if any(x in low for x in ("wash", "laundry", "dry clean", "dry-clean", "iron")):
+            return (
+                f"Laundry for *{name}* — wetin you get (clothes, duvet…)? Express or normal, and when you wan pickup?"
+                if is_pidgin else
+                f"Laundry at *{name}* — what items, normal or express, and preferred pickup/delivery time?"
+            )
+        return (
+            f"Welcome to *{name}* laundry. Tell me your items and if you need pickup."
+            if not is_pidgin else
+            f"*{name}* laundry dey available. Tell me wetin you get and if you need pickup."
+        )
+
+    # ── Phone repair ──
+    if btype in ("phone_repair", "phone"):
+        return (
+            f"Phone repair for *{name}* — which phone model, and wetin spoil (screen, battery, charging…)?"
+            if is_pidgin else
+            f"Phone repair at *{name}* — which model, and what is the issue (screen, battery, charging…)?"
+        )
+
+    # ── Real estate ──
+    if btype in ("real_estate", "realestate"):
+        return (
+            f"*{name}* real estate — you dey look rent, buy, or inspection? Area and budget?"
+            if is_pidgin else
+            f"*{name}* — are you looking to rent, buy, or book an inspection? Share area and budget."
+        )
+
+    # ── Skincare ──
+    if btype == "skincare":
+        return (
+            f"*{name}* skincare — you need product advice, consultation, or to book appointment?"
+            if not is_pidgin else
+            f"*{name}* skincare — product advice, consultation, or appointment?"
+        )
+
+    # ── Fashion ──
+    if btype == "fashion":
+        return (
+            f"*{name}* — tailoring, fabric, or ready-to-wear? Tell me what you need."
+            if not is_pidgin else
+            f"*{name}* fashion — tailoring, fabric, or ready-to-wear? Wetin you wan?"
+        )
+
+    # ── Restaurant ──
+    if btype == "restaurant":
+        return (
+            f"*{name}* — you wan see menu, place order, or ask delivery?"
+            if not is_pidgin else
+            f"*{name}* — menu, order, or delivery? Talk am."
+        )
+
+    # ── Retail / logistics / education ──
+    if btype == "retail":
+        return f"*{name}* — which product are you looking for?"
+    if btype == "logistics":
+        return f"*{name}* logistics — pickup location, drop-off, and package size?"
+    if btype == "education":
+        return f"*{name}* — which course or service do you need info on?"
+
     if is_pidgin:
         return (
             f"I hear you — *{name}* dey online.\n"
             "Abeg tell me wetin you need clearly and I go sort you."
         )
-    # business-aware short nudge
-    hints = {
-        "printing": "banner, sticker, frame, nylon…",
-        "exchanger": "PayPal, crypto, gift card, bank transfer…",
-        "laundry": "wash, dry-clean, express…",
-        "skincare": "product, consultation, booking…",
-        "fashion": "tailoring, fabric, ready-to-wear…",
-        "restaurant": "menu, order, delivery…",
-        "phone_repair": "phone model and the issue…",
-        "retail": "the product you want…",
-        "logistics": "pickup and delivery details…",
-        "real_estate": "rent, sale, or inspection…",
-        "education": "the course or service…",
-    }
-    hint = hints.get(btype, "what you need")
-    if any(x in low for x in ("sticker", "sav")):
-        if is_pidgin:
-            return f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
-        return f"Sticker printing — please share size (width x height) and quantity. Inches or feet?"
-    if "nylon" in low:
-        if is_pidgin:
-            return f"Nylon — how many pieces you wan, and e go get custom print?"
-        return f"Nylon bags — how many pieces, and do you need custom branding?"
-    if "banner" in low or "flex" in low:
-        if is_pidgin:
-            return f"Banner/flex — tell me size in feet (e.g. 5x2) and quantity."
-        return f"Banner — share size in feet (e.g. 5x2 ft) and quantity."
     return (
         f"Thanks for messaging *{name}*.\n"
-        f"Tell me {hint} and I will help you right away."
+        "Tell me what you need and I will help you right away."
     )
-
 
 
 
