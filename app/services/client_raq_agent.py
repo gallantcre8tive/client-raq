@@ -30,6 +30,13 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
 
     # ── Printing ──
     if btype in ("printing", "print"):
+        if any(x in low for x in ("print something", "wan print", "i wan print", "print am", "something jare")):
+            return (
+                f"No wahala — *{name}* fit print am.\nWetin exactly: sticker, banner, nylon, frame, or another thing?"
+                if is_pidgin or "jare" in low or "wan" in low else
+                f"Sure — *{name}* can help.\nWhat would you like to print: sticker, banner, nylon, frame, or something else?"
+            )
+
         if any(x in low for x in ("sticker", "sav", "label")):
             return (
                 f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"

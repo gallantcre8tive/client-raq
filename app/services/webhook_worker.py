@@ -137,17 +137,20 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
                 import traceback
                 traceback.print_exc()
                 print("bot_trace CRASH", type(e).__name__, e)
-                low = (text or "").lower()
-                if any(w in low for w in ("haffa", "how far", "hello", "hi ", "hey")):
-                    em = "Haa! How far? Wetin you wan do today — sticker, banner, nylon?"
-                elif "sticker" in low:
-                    em = "Oya sticker — tell me size (width x height) and how many pieces. Inches or feet?"
-                elif "nylon" in low:
-                    em = "Nylon — how many pieces, and do you need custom print?"
-                elif any(w in low for w in ("wan", "abeg", "dey")):
-                    em = "I dey here. Abeg tell me wetin you need — I go help you sharp."
-                else:
-                    em = "Hey — we are here. Tell me what you need and I will help right away."
+                try:
+                    from app.services.client_raq_agent import _rule_reply
+                    from app.models.company import Company
+                    from sqlalchemy import select as _s
+                    from app.models.company import CompanyWhatsAppNumber
+                    _link = (await db.execute(
+                        _s(CompanyWhatsAppNumber).where(
+                            CompanyWhatsAppNumber.phone_number_id == phone_number_id
+                        )
+                    )).scalar_one_or_none()
+                    _co = await db.get(Company, _link.company_id) if _link else None
+                    em = _rule_reply(_co, text or "", {}) if _co else "I got your message — how can we help?"
+                except Exception:
+                    em = "I got your message — tell me what you need and I will help."
 
                 await send_text(
                     link.phone_number_id,

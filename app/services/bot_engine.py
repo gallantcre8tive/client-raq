@@ -638,40 +638,56 @@ async def _handle_inbound_core(
         except Exception:
             pass
 
-    # Menu / greetings — always TEXT reply (interactive list is optional bonus)
+    # Menu / greetings — ONLY for new/early chats (never re-welcome mid-conversation)
     _greet_words = {
         "menu", "services", "start", "hi", "hello", "hey", "haffa", "howfar", "sup", "yo",
         "morning", "evening", "afternoon", "bros", "brother", "boss", "guy", "blood",
-        "far", "how",
     }
     _tl = (text or "").lower().strip()
     _tw = set(_tl.replace("?", " ").replace("!", " ").replace(",", " ").split())
-    _is_greet = bool(text) and not interactive_id and (
+    _is_pure_greet = bool(text) and not interactive_id and (
         _tl in _greet_words
-        or (_tw & _greet_words and len(_tw) <= 5 and not any(
-            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay")
+        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "haffa bro", "how far na", "hi bro", "hello bro")
+        or (_tw <= _greet_words and len(_tw) <= 4 and not any(
+            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay", "list", "service")
         ))
         or _tl.startswith(("good morning", "good evening", "good afternoon", "how far", "haffa "))
-        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "how far na")
     )
-    if _is_greet:
+    # Count prior outbound bot messages — if we already welcomed, treat greet as soft ping
+    _prior_out = 0
+    try:
+        _prev = (await db.execute(
+            select(Message.id).where(
+                Message.conversation_id == conv.id,
+                Message.direction == "outbound",
+            ).limit(1)
+        )).scalars().first()
+        _prior_out = 1 if _prev else 0
+    except Exception as _pe:
+        print("prior_out_check", type(_pe).__name__, _pe)
+        _prior_out = 1 if (conv.state or "") not in ("await_lang", "open", "", None) else 0
+
+    if _is_pure_greet and _prior_out == 0:
         for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
             ctx.pop(k, None)
-        ctx["lang"] = ctx.get("lang") or ("pidgin" if (_tw & {"haffa", "blood", "bros", "far", "wetin", "abeg"}) else ctx.get("lang"))
-        if "haffa" in _tw or "far" in _tw or "blood" in _tw:
+        if "haffa" in _tw or "far" in _tw or "blood" in _tw or "bro" in _tw:
             ctx["lang"] = "pidgin"
         _save_ctx(conv, ctx)
         conv.state = "await_service"
         name = company.name or "us"
-        if ctx.get("lang") == "pidgin":
+        # Prefer company greeting if set
+        custom_g = (getattr(company, "greeting_message", None) or "").strip()
+        if custom_g:
+            body = custom_g.replace("{name}", name)
+        elif ctx.get("lang") == "pidgin":
             body = (
                 f"Haa blood! Welcome to *{name}*.\n"
-                "How your side? Wetin you wan do today — sticker, banner, nylon, frame, or something else?"
+                "How your side? Wetin you wan do today?"
             )
         else:
             body = (
                 f"Hey! Welcome to *{name}*.\n"
-                "How can I help you today? Tell me what you need (sticker, banner, nylon, frame…)."
+                "How can I help you today?"
             )
         try:
             db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
@@ -683,29 +699,28 @@ async def _handle_inbound_core(
             except Exception:
                 pass
         ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
-        print("bot_trace greet_reply ok=%s" % ok)
-        # optional list — never block if it fails
-        try:
-            rows = []
-            for s in services:
-                if getattr(s, "is_active", True) is False:
-                    continue
-                rows.append((f"svc_{s.id}", (s.name or "Service")[:24], (getattr(s, "description", None) or "")[:72]))
-                if len(rows) >= 10:
-                    break
-            if rows and ok:
-                await send_list(
-                    link.phone_number_id, link.access_token, from_wa,
-                    "Or pick from the list:", "View services", rows, header=(name or "")[:60],
-                )
-        except Exception as _gl:
-            print("greet_list", type(_gl).__name__, _gl)
+        print("bot_trace greet_first ok=%s" % ok)
         return
 
-
-
-
-
+    if _is_pure_greet and _prior_out > 0:
+        # Returning soft greeting — short, do NOT re-welcome with service pitch
+        if "haffa" in _tw or "bro" in _tw or "far" in _tw:
+            ctx["lang"] = "pidgin"
+            _save_ctx(conv, ctx)
+            body = "Haa! I dey here — wetin you need?"
+        else:
+            body = "Hey — I'm here. What do you need?"
+        try:
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+            await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        await send_text(link.phone_number_id, link.access_token, from_wa, body)
+        print("bot_trace greet_soft ok=1")
+        return
 
     # ── Service list / menu (no AI needed — always answers) ──
     if text and not interactive_id:
@@ -2367,10 +2382,11 @@ async def handle_inbound(
             await db.rollback()
         except Exception:
             pass
-        # Recovery reply — intent-aware, not a sticky generic loop
+        # Recovery: ALWAYS use intelligent rule reply — never sticky welcome
         try:
             from app.models.company import CompanyWhatsAppNumber
             from sqlalchemy import select as _sel
+            from app.services.client_raq_agent import _rule_reply
             link = (await db.execute(
                 _sel(CompanyWhatsAppNumber).where(
                     CompanyWhatsAppNumber.phone_number_id == phone_number_id,
@@ -2380,21 +2396,23 @@ async def handle_inbound(
             if not link or not link.access_token or not from_wa:
                 return
             company = await db.get(Company, link.company_id)
-            name = getattr(company, "name", None) or "us"
-            low = (text or "").lower()
-            if any(w in low for w in ("sticker", "sav")):
-                msg = f"Oya sticker for *{name}*! Tell me size (e.g. 3x3 inches) and how many pieces."
-            elif any(w in low for w in ("nylon",)):
-                msg = f"Nylon for *{name}* — how many pieces, and custom print?"
-            elif any(w in low for w in ("banner", "flex")):
-                msg = f"Banner — size in feet (e.g. 5x2) and quantity?"
-            elif any(w in low for w in ("haffa", "how far", "hello", "hi", "hey", "blood")):
-                msg = f"Haa! Welcome to *{name}*. Wetin you wan do today — sticker, banner, nylon?"
-            elif any(w in low.split() for w in ("wan", "abeg", "dey", "wetin")):
-                msg = f"I dey here for *{name}*. Abeg tell me wetin you need."
-            else:
-                msg = f"Hey — *{name}* here. Tell me what you need and I will help."
+            msg = _rule_reply(company, text or "", {})
             await send_text(link.phone_number_id, link.access_token, from_wa, msg)
-            print("bot_trace recovery_reply_sent")
+            print("bot_trace recovery_rule_reply_sent len=%s" % len(msg or ""))
         except Exception as e2:
             print("bot_trace recovery_failed", type(e2).__name__, e2)
+            try:
+                from app.models.company import CompanyWhatsAppNumber
+                from sqlalchemy import select as _sel
+                link = (await db.execute(
+                    _sel(CompanyWhatsAppNumber).where(
+                        CompanyWhatsAppNumber.phone_number_id == phone_number_id,
+                    )
+                )).scalar_one_or_none()
+                if link and link.access_token and from_wa:
+                    await send_text(
+                        link.phone_number_id, link.access_token, from_wa,
+                        "I got your message — tell me clearly what you need and I will help.",
+                    )
+            except Exception:
+                pass
