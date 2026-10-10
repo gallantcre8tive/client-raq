@@ -2810,14 +2810,15 @@ async def wa_verify(request: Request):
 
 
 @app.post("/api/webhook/whatsapp")
-async def wa_incoming(request: Request, background_tasks: BackgroundTasks):
-    """ACK Meta immediately; process AI in background (spec §41)."""
+async def wa_incoming(request: Request):
+    """ACK Meta immediately; process AI in background (survives request end)."""
     try:
         body = await request.json()
     except Exception:
         return {"status": "ok"}
-    # Schedule background processing — do not await Grok here
-    background_tasks.add_task(_run_wa_background, body)
+    # create_task outlives the HTTP response better than BackgroundTasks on some hosts
+    import asyncio
+    asyncio.create_task(_run_wa_background(body))
     return {"status": "ok"}
 
 
@@ -2827,6 +2828,8 @@ async def _run_wa_background(body: dict):
         await process_whatsapp_payload(body)
     except Exception as e:
         print("bg_wa_error", type(e).__name__, e)
+        import traceback
+        traceback.print_exc()
 
 
 

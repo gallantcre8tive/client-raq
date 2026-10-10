@@ -312,6 +312,41 @@ async def run_agent(
     attachment_note: str | None = None,
     max_tool_rounds: int = 2,
 ) -> tuple[str | None, dict, bool]:
+    """Returns (reply_text, updated_ctx, needs_human). Never raises."""
+    try:
+        return await _run_agent_inner(
+            db,
+            company=company,
+            conv=conv,
+            ctx=ctx,
+            from_wa=from_wa,
+            customer_message=customer_message,
+            recent=recent,
+            attachment_note=attachment_note,
+            max_tool_rounds=max_tool_rounds,
+        )
+    except Exception as e:
+        log.warning("run_agent_outer_fail %s", type(e).__name__)
+        print("run_agent_outer_fail", type(e).__name__, e)
+        try:
+            return _rule_reply(company, customer_message, ctx), ctx, False
+        except Exception:
+            name = getattr(company, "name", None) or "us"
+            return (f"Hey — *{name}* here. Tell me what you need.", ctx, False)
+
+
+async def _run_agent_inner(
+    db: AsyncSession,
+    *,
+    company: Company,
+    conv: Conversation,
+    ctx: dict,
+    from_wa: str,
+    customer_message: str,
+    recent: list[dict] | None = None,
+    attachment_note: str | None = None,
+    max_tool_rounds: int = 2,
+) -> tuple[str | None, dict, bool]:
     """Returns (reply_text, updated_ctx, needs_human)."""
     if not _api_key():
         log.warning("grok_no_api_key — rule reply")

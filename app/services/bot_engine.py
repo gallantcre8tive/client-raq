@@ -706,6 +706,63 @@ async def _handle_inbound_core(
 
 
 
+
+    # ── Service list / menu (no AI needed — always answers) ──
+    if text and not interactive_id:
+        _tlm = text.lower().strip()
+        _menu_ask = any(
+            p in _tlm for p in (
+                "list of", "list una", "una service", "your service", "your services",
+                "wetin una", "wetin you dey sell", "wetin you offer", "show service",
+                "show services", "all service", "services", "service list", "menu",
+                "what do you offer", "what can you do", "wetin you fit do",
+            )
+        ) or _tlm in ("services", "service", "menu", "list", "price list", "pricelist")
+        if _menu_ask:
+            rows = []
+            names = []
+            for s in services:
+                if getattr(s, "is_active", True) is False:
+                    continue
+                nm = (s.name or "Service").strip()
+                names.append(nm)
+                rows.append((f"svc_{s.id}", nm[:24], (getattr(s, "description", None) or "")[:72]))
+                if len(rows) >= 10:
+                    break
+            name = company.name or "us"
+            if not names:
+                body = (
+                    f"*{name}* — services list not set yet. Tell me what you need and I will help."
+                    if (ctx.get("lang") != "pidgin") else
+                    f"*{name}* — service list never set. Abeg tell me wetin you need."
+                )
+            else:
+                bullet = "\n".join(f"• {n}" for n in names[:15])
+                if ctx.get("lang") == "pidgin" or any(w in _tlm for w in ("una", "wetin", "dey", "abeg")):
+                    body = f"*{name}* services wey we get:\n{bullet}\n\nWhich one you wan do? Just type the name."
+                else:
+                    body = f"Here are *{name}* services:\n{bullet}\n\nWhich one do you want? Type the name to continue."
+            try:
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            print("bot_trace menu_list ok=%s count=%s" % (ok, len(names)))
+            if rows and ok:
+                try:
+                    await send_list(
+                        link.phone_number_id, link.access_token, from_wa,
+                        "Pick a service:", "View services", rows, header=(name or "")[:60],
+                    )
+                except Exception as _ml:
+                    print("menu_list_interactive", _ml)
+            return
+
+
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
     if text and not interactive_id and _btype in ("printing", "print"):
@@ -1172,12 +1229,24 @@ async def _handle_inbound_core(
                     except Exception as ne2:
                         print("needs_human_notify2", ne2)
             if not reply:
-                # Grok returned empty — never leave customer silent
-                reply = (
-                    f"Hi! Welcome to *{company.name}*. "
-                    "Tell me what you want to print (sticker, banner, nylon, frame…) "
-                    "plus size and quantity, and I will get you a quote."
-                )
+                # Grok returned empty — never leave customer silent (business-aware)
+                _bt = (getattr(company, "business_type", None) or "printing").lower()
+                if _bt in ("printing", "print"):
+                    reply = (
+                        f"Hi! Welcome to *{company.name}*. "
+                        "Tell me what you need (sticker, banner, nylon, frame…) "
+                        "plus size and quantity, and I will quote you."
+                    )
+                elif _bt == "exchanger":
+                    reply = (
+                        f"Hi! *{company.name}* here. "
+                        "Tell me the method (PayPal, bank, Cash App, crypto…) and amount."
+                    )
+                else:
+                    reply = (
+                        f"Hi! Welcome to *{company.name}*. "
+                        "Tell me what you need and I will help you right away."
+                    )
             if reply:
                 # Detect pidgin from customer message
                 if text and any(w in text.lower().split() for w in ("abeg", "wan", "dey", "wetin", "oya", "naf")):
@@ -2240,6 +2309,29 @@ async def _handle_inbound_core(
             await db.rollback()
         except Exception:
             pass
+
+
+
+    # ── Absolute never-silent for free text (if nothing above replied) ──
+    if (text or "").strip() and not interactive_id:
+        try:
+            from app.services.client_raq_agent import _rule_reply as _rr
+            body = _rr(company, text, ctx)
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+            await db.commit()
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            print("bot_trace absolute_safety ok=%s" % ok)
+            return
+        except Exception as _abs:
+            print("absolute_safety", type(_abs).__name__, _abs)
+            try:
+                await send_text(
+                    link.phone_number_id, link.access_token, from_wa,
+                    f"Hey — *{company.name or 'we'}* got your message. Tell me clearly what you need.",
+                )
+            except Exception:
+                pass
+            return
 
 
 async def handle_inbound(
