@@ -2478,11 +2478,22 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
         flags = json.loads(getattr(company, "bot_flags", None) or "{}")
     except Exception:
         flags = {}
+    _elangs = ["en", "pidgin"]
+    try:
+        _raw = getattr(company, "enabled_languages", None) or ""
+        if _raw:
+            _elangs = json.loads(_raw) if isinstance(_raw, str) else list(_raw)
+            if not isinstance(_elangs, list):
+                _elangs = ["en", "pidgin"]
+    except Exception:
+        _elangs = ["en", "pidgin"]
     bt = getattr(company, "business_type", None) or "printing"
     return render(request, "company/bot_settings.html", {
         "active": "bot", "company_name": company.name, "user_name": user.full_name,
         "business_type": bt,
-        "greeting": company.greeting_message or "", "language": company.bot_language or "both",
+        "greeting": company.greeting_message or "",
+        "language": company.bot_language or "both",
+        "enabled_languages": _elangs,
         "currency": company.currency,
         "ask_size_help": flags.get("ask_size_help", True),
         "ask_payment_proof": flags.get("ask_payment_proof", True),
@@ -2505,7 +2516,22 @@ async def company_bot(request: Request, user: User = Depends(require_company), d
 @app.post("/company/bot-settings")
 async def company_bot_save(
     request: Request,
-    greeting: Optional[str] = Form(None), language: str = Form("both"), currency: str = Form("NGN"),
+    greeting: Optional[str] = Form(None), language: str = Form("both"),
+    lang_en: Optional[str] = Form(None),
+    lang_pidgin: Optional[str] = Form(None),
+    lang_yo: Optional[str] = Form(None),
+    lang_ig: Optional[str] = Form(None),
+    lang_ha: Optional[str] = Form(None),
+    lang_fr: Optional[str] = Form(None),
+    lang_es: Optional[str] = Form(None),
+    lang_ar: Optional[str] = Form(None),
+    lang_zh: Optional[str] = Form(None),
+    lang_ko: Optional[str] = Form(None),
+    lang_bn: Optional[str] = Form(None),
+    lang_pt: Optional[str] = Form(None),
+    lang_de: Optional[str] = Form(None),
+    lang_nl: Optional[str] = Form(None),
+    lang_hi: Optional[str] = Form(None), currency: str = Form("NGN"),
     design_fee_default: float = Form(0),
     custom_ai_instructions: Optional[str] = Form(None),
     bot_personality: str = Form("friendly"),
@@ -2528,6 +2554,40 @@ async def company_bot_save(
     if greeting is not None:
         company.greeting_message = greeting
     company.bot_language = language
+
+    _picked = []
+    for _code, _val in (
+        ("en", lang_en), ("pidgin", lang_pidgin), ("yo", lang_yo), ("ig", lang_ig), ("ha", lang_ha),
+        ("fr", lang_fr), ("es", lang_es), ("ar", lang_ar), ("zh", lang_zh), ("ko", lang_ko),
+        ("bn", lang_bn), ("pt", lang_pt), ("de", lang_de), ("nl", lang_nl), ("hi", lang_hi),
+    ):
+        if _val in ("on", "1", "true", "yes", "1"):
+            _picked.append(_code)
+        elif _val:
+            _picked.append(_code)
+    if not _picked:
+        if language == "en":
+            _picked = ["en"]
+        elif language == "pidgin":
+            _picked = ["pidgin"]
+        else:
+            _picked = ["en", "pidgin"]
+    try:
+        import json as _json
+        company.enabled_languages = _json.dumps(_picked)
+    except Exception:
+        pass
+
+    # Multi-language checklist from form
+    try:
+        import json as _json
+        _lang_codes = []
+        for _c in ("en","pidgin","yo","ig","ha","fr","es","ar","zh","ko","bn","pt","de","nl","hi"):
+            if request and False:
+                pass
+        # collected below via Form optional fields
+    except Exception:
+        pass
     company.currency = currency
     company.design_fee_default = float(design_fee_default or 0)
     company.custom_ai_instructions = (custom_ai_instructions or "").strip() or None

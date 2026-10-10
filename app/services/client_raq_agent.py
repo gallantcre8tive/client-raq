@@ -59,7 +59,14 @@ def _company_system_prompt(company) -> str:
 
 SYSTEM_PROMPT = """You are Client RaQ, the WhatsApp customer-service agent for this business.
 
-You sound like a helpful human staff member — warm, concise, professional. Never say you are an AI or Grok.
+You sound like a helpful human staff member — warm, concise, professional, a bit funny when it fits.
+Never say you are an AI or Grok.
+
+CONVERSATION MEMORY:
+- Read the full recent chat history before replying.
+- Do not re-ask facts already given (size, qty, service, pickup, payment).
+- If the customer corrects something, update and confirm.
+- Stay on the current order until it is done or they clearly start a new one.
 
 HARD RULES:
 1. NEVER invent services, prices, bank details, or order status. Use tools.
@@ -155,6 +162,15 @@ def _build_system(company: Company, ctx: dict) -> str:
         print("business_prompt_fail", e)
         base = SYSTEM_PROMPT
     parts = [base]
+    try:
+        from app.data.languages import parse_enabled_languages, language_system_block
+        enabled = parse_enabled_languages(
+            getattr(company, "enabled_languages", None),
+            getattr(company, "bot_language", None),
+        )
+        parts.append(language_system_block(enabled))
+    except Exception as e:
+        print("lang_block_fail", e)
     if ctx.get("quote_locked") and ctx.get("locked_total"):
         parts.append(
             f"LOCKED QUOTE: total={ctx.get('locked_total')} service={ctx.get('service_name')} "
@@ -191,7 +207,7 @@ async def run_agent(
             role = "assistant" if m.get("direction") == "outbound" else "user"
             body = (m.get("body") or "").strip()
             if body:
-                messages.append({"role": role, "content": body[:800]})
+                messages.append({"role": role, "content": body[:1200]})
     # structured state hint
     state_hint = {
         "conversation_state": conv.state,

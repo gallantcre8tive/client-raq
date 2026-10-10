@@ -22,8 +22,23 @@
         <select name="language" class="input-field">
           <option value="en" {% if language=='en' %}selected{% endif %}>English only</option>
           <option value="pidgin" {% if language=='pidgin' %}selected{% endif %}>Pidgin only</option>
-          <option value="both" {% if language=='both' or not language %}selected{% endif %}>Ask customer (English or Pidgin)</option>
+          <option value="both" {% if language=='both' or not language %}selected{% endif %}>Auto-detect (recommended)</option>
         </select>
+        <p class="text-xs text-[var(--text-secondary)] mt-2 mb-2">Languages the bot may use (select all that apply). Bot still auto-detects customer language.</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+          {% set el = enabled_languages or ['en','pidgin'] %}
+          {% for code, label in [
+            ('en','English'),('pidgin','Pidgin'),('yo','Yoruba'),('ig','Igbo'),('ha','Hausa'),
+            ('fr','French'),('es','Spanish'),('ar','Arabic'),('zh','Chinese'),('ko','Korean'),
+            ('bn','Bangla'),('pt','Portuguese'),('de','German'),('nl','Dutch'),('hi','Hindi')
+          ] %}
+          <label class="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5 cursor-pointer hover:bg-[var(--surface-2)]">
+            <input type="checkbox" name="lang_{{ code }}" value="1" {% if code in el %}checked{% endif %} class="rounded">
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+
       </div>
       <div>
         <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">Currency</label>

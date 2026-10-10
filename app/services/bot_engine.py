@@ -608,6 +608,21 @@ async def handle_inbound(
 
     ctx = _ctx(conv)
     low = text.lower()
+    # LANG_DETECT_BLOCK — auto language for multi-lang agent
+    try:
+        words = set(low.replace("?", " ").replace("!", " ").split())
+        if words & {"abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "sef", "nah", "bros"}:
+            ctx["lang"] = "pidgin"
+        elif any(x in low for x in ("bonjour", "merci", "s'il vous", "svp")):
+            ctx["lang"] = "fr"
+        elif any(x in low for x in ("hola", "gracias", "buenos", "por favor")):
+            ctx["lang"] = "es"
+        elif any(x in low for x in ("e kaaro", "e ku", "bawo", "pele", "o se")):
+            ctx["lang"] = "yo"
+        _save_ctx(conv, ctx)
+    except Exception:
+        pass
+
     state = conv.state or "await_lang"
     company_lang = (getattr(company, "bot_language", None) or "both").lower()
     if company_lang in ("en", "pidgin") and not ctx.get("lang"):
@@ -1002,7 +1017,7 @@ async def handle_inbound(
             from app.services.client_raq_agent import run_agent
             recent_rows = list((await db.execute(
                 select(Message).where(Message.conversation_id == conv.id)
-                .order_by(Message.id.desc()).limit(12)
+                .order_by(Message.id.desc()).limit(16)
             )).scalars().all())
             recent = [
                 {"direction": m.direction, "body": m.body or ""}

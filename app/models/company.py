@@ -20,6 +20,8 @@ class Company(Base):
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     greeting_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     bot_language: Mapped[str] = mapped_column(String(20), default="both")
+    # JSON list e.g. ["en","pidgin","yo","ig","ha","fr","es","zh","ko","bn"]
+    enabled_languages: Mapped[str | None] = mapped_column(Text, nullable=True)
     bot_flags: Mapped[str | None] = mapped_column(Text, nullable=True)
     design_fee_default: Mapped[float] = mapped_column(Float, default=0)
     custom_ai_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)

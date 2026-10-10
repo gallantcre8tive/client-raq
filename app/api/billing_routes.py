@@ -554,6 +554,21 @@ async def register_submit(
         await seed_company_from_template(db, company_id=company.id, business_type=business_type or "printing", company_name=business_name)
     except Exception as _se:
         print("seed_register", _se)
+
+        try:
+            from app.models.conversation import AdminNotification
+            import datetime as _dt
+            db.add(AdminNotification(
+                company_id=int(company.id),
+                conversation_id=None,
+                title="New Client RaQ signup",
+                body=f"{getattr(company,'name','')} paid register type={getattr(company,'business_type','')} at {_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+                priority="normal",
+            ))
+            await db.flush()
+        except Exception as _pn:
+            print("platform_signup_notify", type(_pn).__name__, _pn)
+
     await db.refresh(user)
 
     resp = RedirectResponse("/company/dashboard?subscribed=1", status_code=303)
@@ -1466,6 +1481,20 @@ async def trial_verify_code(
         print("seed_trial_verify", se)
     try:
         await write_audit(db, action="trial_signup_verified", detail=email, actor_email=email, company_id=company_id, ip=ip)
+
+        try:
+            from app.models.conversation import AdminNotification
+            import datetime as _dt
+            db.add(AdminNotification(
+                company_id=int(company_id),
+                conversation_id=None,
+                title="New Client RaQ signup",
+                body=f"{business_name} ({email}) type={business_type} signed up at {_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+                priority="normal",
+            ))
+            await db.flush()
+        except Exception as _pn:
+            print("platform_signup_notify", type(_pn).__name__, _pn)
 
         try:
             from app.services.email_service import send_welcome_email

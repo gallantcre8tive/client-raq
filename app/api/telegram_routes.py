@@ -196,12 +196,12 @@ async def telegram_webhook(
                 select(Message)
                 .where(Message.conversation_id == conv.id)
                 .order_by(Message.id.desc())
-                .limit(12)
+                .limit(16)
             )).scalars().all()
             for m in reversed(list(rows)):
                 recent.append({
-                    "role": "user" if m.direction == "inbound" else "assistant",
-                    "content": (m.body or "")[:500],
+                    "direction": m.direction,
+                    "body": (m.body or "")[:1000],
                 })
         except Exception:
             recent = []

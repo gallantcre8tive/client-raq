@@ -203,6 +203,7 @@ async def ensure_billing_schema():
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(200)",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS whatsapp_enabled BOOLEAN DEFAULT true",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT false",
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS enabled_languages TEXT",
 
         """CREATE TABLE IF NOT EXISTS email_verifications (
             id SERIAL PRIMARY KEY,
