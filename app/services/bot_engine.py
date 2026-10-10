@@ -525,7 +525,7 @@ async def _ensure_order_for_payment(db, company, conv, ctx, from_wa, att_id=None
     return order
 
 
-async def handle_inbound(
+async def _handle_inbound_core(
     db: AsyncSession,
     *,
     phone_number_id: str,
@@ -638,43 +638,135 @@ async def handle_inbound(
         except Exception:
             pass
 
-    # Menu / greetings open service list (do not treat as qty)
+    # Menu / greetings — always TEXT reply (interactive list is optional bonus)
     _greet_words = {
         "menu", "services", "start", "hi", "hello", "hey", "haffa", "howfar", "sup", "yo",
-        "morning", "evening", "afternoon", "bros", "brother", "boss", "guy",
+        "morning", "evening", "afternoon", "bros", "brother", "boss", "guy", "blood",
+        "far", "how",
     }
     _tl = (text or "").lower().strip()
     _tw = set(_tl.replace("?", " ").replace("!", " ").replace(",", " ").split())
-    if text and not interactive_id and (
+    _is_greet = bool(text) and not interactive_id and (
         _tl in _greet_words
-        or (_tw & _greet_words and len(_tw) <= 4)
+        or (_tw & _greet_words and len(_tw) <= 5 and not any(
+            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay")
+        ))
         or _tl.startswith(("good morning", "good evening", "good afternoon", "how far", "haffa "))
-    ):
+        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "how far na")
+    )
+    if _is_greet:
         for k in ("fulfillment", "address", "datetime", "date", "time", "payment_proof"):
             ctx.pop(k, None)
+        ctx["lang"] = ctx.get("lang") or ("pidgin" if (_tw & {"haffa", "blood", "bros", "far", "wetin", "abeg"}) else ctx.get("lang"))
+        if "haffa" in _tw or "far" in _tw or "blood" in _tw:
+            ctx["lang"] = "pidgin"
         _save_ctx(conv, ctx)
         conv.state = "await_service"
-        rows = []
-        for s in services:
-            if getattr(s, "is_active", True) is False:
-                continue
-            rows.append((f"svc_{s.id}", (s.name or "Service")[:24], (getattr(s, "description", None) or "")[:72]))
-            if len(rows) >= 10:
-                break
-        body = _t(
-            ctx,
-            f"Welcome to *{company.name}*. Choose a service or type what you need (e.g. nylon, banner, sticker):",
-            f"Welcome to *{company.name}*. Choose service or type wetin you need (e.g. nylon, banner, sticker):",
-        )
-        db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
-        await db.commit()
-        if rows:
-            await send_list(link.phone_number_id, link.access_token, from_wa, body, "View services", rows, header=(company.name or "")[:60])
+        name = company.name or "us"
+        if ctx.get("lang") == "pidgin":
+            body = (
+                f"Haa blood! Welcome to *{name}*.\n"
+                "How your side? Wetin you wan do today — sticker, banner, nylon, frame, or something else?"
+            )
         else:
-            await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            body = (
+                f"Hey! Welcome to *{name}*.\n"
+                "How can I help you today? Tell me what you need (sticker, banner, nylon, frame…)."
+            )
+        try:
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+            await db.commit()
+        except Exception as _gc:
+            print("greet_commit", _gc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+        print("bot_trace greet_reply ok=%s" % ok)
+        # optional list — never block if it fails
+        try:
+            rows = []
+            for s in services:
+                if getattr(s, "is_active", True) is False:
+                    continue
+                rows.append((f"svc_{s.id}", (s.name or "Service")[:24], (getattr(s, "description", None) or "")[:72]))
+                if len(rows) >= 10:
+                    break
+            if rows and ok:
+                await send_list(
+                    link.phone_number_id, link.access_token, from_wa,
+                    "Or pick from the list:", "View services", rows, header=(name or "")[:60],
+                )
+        except Exception as _gl:
+            print("greet_list", type(_gl).__name__, _gl)
         return
 
 
+
+
+
+    # ── Fast service intent (works even if Grok is down) ──
+    if text and not interactive_id:
+        _intent_map = [
+            (("sticker", "sav", "label"), "sticker"),
+            (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),
+            (("nylon", "nylon bag", "polybag"), "nylon"),
+            (("frame", "frameless", "acrylic"), "frame"),
+            (("jotter", "notebook"), "jotter"),
+            (("cloth", "tshirt", "t-shirt", "tee"), "cloth"),
+        ]
+        _low = text.lower()
+        _hit = None
+        for keys, label in _intent_map:
+            if any(k in _low for k in keys):
+                _hit = label
+                break
+        if _hit and not ctx.get("quote_locked"):
+            # Match to company service if possible
+            matched = None
+            for s in services:
+                if not getattr(s, "is_active", True):
+                    continue
+                sn = (s.name or "").lower()
+                if _hit in sn or any(k in sn for k in next(ks for ks, lb in _intent_map if lb == _hit)):
+                    matched = s
+                    break
+            if matched:
+                ctx["service_id"] = matched.id
+                ctx["service_name"] = matched.name
+            else:
+                ctx["service_name"] = _hit
+            ctx["lang"] = ctx.get("lang") or ("pidgin" if any(w in _low.split() for w in ("wan", "abeg", "dey", "wetin")) else "en")
+            _save_ctx(conv, ctx)
+            conv.state = "await_details"
+            # Only short-circuit to rule reply if message is pure intent (no size/qty yet)
+            has_size = bool(__import__("re").search(r"\d+\s*[x×]\s*\d+", _low)) or bool(__import__("re").search(r"\d+\s*(inch|inches|ft|feet|pcs|pieces)", _low))
+            if not has_size:
+                name = company.name or "us"
+                if ctx.get("lang") == "pidgin":
+                    body = (
+                        f"Oya! *{ctx.get('service_name') or _hit}* — no problem.\n"
+                        "Abeg tell me the *size* (width x height) and *how many pieces*.\n"
+                        "Size dey inches or feet?"
+                    )
+                else:
+                    body = (
+                        f"Great — *{ctx.get('service_name') or _hit}*.\n"
+                        "Please share the *size* (width x height) and *quantity*.\n"
+                        "Is the size in inches or feet?"
+                    )
+                try:
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+                print("bot_trace intent_reply service=%s ok=%s" % (_hit, ok))
+                return
 
 
     # Returning customer: ensure Customer row + previous order hint in ctx
@@ -1168,8 +1260,9 @@ async def handle_inbound(
                     except Exception:
                         pass
                 return
-        except Exception as e:
+        except BaseException as e:
             print("agent_path", type(e).__name__, e)
+            import traceback; traceback.print_exc()
             try:
                 low = (text or "").lower()
                 pidgin = any(w in low.split() for w in ("abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah"))
@@ -2146,3 +2239,69 @@ async def handle_inbound(
             await db.rollback()
         except Exception:
             pass
+
+
+async def handle_inbound(
+    db: AsyncSession,
+    *,
+    phone_number_id: str,
+    from_wa: str,
+    text: str | None,
+    media_id: str | None = None,
+    media_kind: str | None = None,
+    button_id: str | None = None,
+    list_id: str | None = None,
+    wa_message_id: str | None = None,
+) -> None:
+    """Public entry — never raises to webhook. Always attempts a customer reply on failure."""
+    try:
+        await _handle_inbound_core(
+            db,
+            phone_number_id=phone_number_id,
+            from_wa=from_wa,
+            text=text,
+            media_id=media_id,
+            media_kind=media_kind,
+            button_id=button_id,
+            list_id=list_id,
+            wa_message_id=wa_message_id,
+        )
+    except BaseException as e:
+        import traceback
+        traceback.print_exc()
+        print("bot_trace handle_inbound_FATAL", type(e).__name__, e, "text=", (text or "")[:80])
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # Recovery reply — intent-aware, not a sticky generic loop
+        try:
+            from app.models.company import CompanyWhatsAppNumber
+            from sqlalchemy import select as _sel
+            link = (await db.execute(
+                _sel(CompanyWhatsAppNumber).where(
+                    CompanyWhatsAppNumber.phone_number_id == phone_number_id,
+                    CompanyWhatsAppNumber.is_active == True,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+            if not link or not link.access_token or not from_wa:
+                return
+            company = await db.get(Company, link.company_id)
+            name = getattr(company, "name", None) or "us"
+            low = (text or "").lower()
+            if any(w in low for w in ("sticker", "sav")):
+                msg = f"Oya sticker for *{name}*! Tell me size (e.g. 3x3 inches) and how many pieces."
+            elif any(w in low for w in ("nylon",)):
+                msg = f"Nylon for *{name}* — how many pieces, and custom print?"
+            elif any(w in low for w in ("banner", "flex")):
+                msg = f"Banner — size in feet (e.g. 5x2) and quantity?"
+            elif any(w in low for w in ("haffa", "how far", "hello", "hi", "hey", "blood")):
+                msg = f"Haa! Welcome to *{name}*. Wetin you wan do today — sticker, banner, nylon?"
+            elif any(w in low.split() for w in ("wan", "abeg", "dey", "wetin")):
+                msg = f"I dey here for *{name}*. Abeg tell me wetin you need."
+            else:
+                msg = f"Hey — *{name}* here. Tell me what you need and I will help."
+            await send_text(link.phone_number_id, link.access_token, from_wa, msg)
+            print("bot_trace recovery_reply_sent")
+        except Exception as e2:
+            print("bot_trace recovery_failed", type(e2).__name__, e2)

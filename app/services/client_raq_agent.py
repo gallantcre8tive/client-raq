@@ -40,6 +40,18 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
         "education": "the course or service…",
     }
     hint = hints.get(btype, "what you need")
+    if any(x in low for x in ("sticker", "sav")):
+        if is_pidgin:
+            return f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
+        return f"Sticker printing — please share size (width x height) and quantity. Inches or feet?"
+    if "nylon" in low:
+        if is_pidgin:
+            return f"Nylon — how many pieces you wan, and e go get custom print?"
+        return f"Nylon bags — how many pieces, and do you need custom branding?"
+    if "banner" in low or "flex" in low:
+        if is_pidgin:
+            return f"Banner/flex — tell me size in feet (e.g. 5x2) and quantity."
+        return f"Banner — share size in feet (e.g. 5x2 ft) and quantity."
     return (
         f"Thanks for messaging *{name}*.\n"
         f"Tell me {hint} and I will help you right away."

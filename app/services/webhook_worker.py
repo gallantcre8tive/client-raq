@@ -9,6 +9,15 @@ from app.services.bot_engine import handle_inbound
 
 log = logging.getLogger("client_raq.webhook_bg")
 
+# Serialize processing per customer so concurrent webhooks don't corrupt state
+import asyncio
+_customer_locks: dict[str, asyncio.Lock] = {}
+
+def _lock_for(key: str) -> asyncio.Lock:
+    if key not in _customer_locks:
+        _customer_locks[key] = asyncio.Lock()
+    return _customer_locks[key]
+
 
 async def process_whatsapp_payload(body: dict[str, Any]) -> None:
     """Run outside the webhook request lifecycle with its own DB session."""
@@ -87,18 +96,20 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
         log.info("webhook_unsupported_type %s", msg_type)
         # Still try handle with empty text so we can send a fallback
 
+    lock = _lock_for(f"{phone_number_id}:{from_wa}")
     try:
-        await handle_inbound(
-            db,
-            phone_number_id=phone_number_id,
-            from_wa=from_wa,
-            text=text,
-            media_id=media_id,
-            media_kind=media_kind,
-            button_id=button_id,
-            list_id=list_id,
-            wa_message_id=wa_message_id,
-        )
+        async with lock:
+            await handle_inbound(
+                db,
+                phone_number_id=phone_number_id,
+                from_wa=from_wa,
+                text=text,
+                media_id=media_id,
+                media_kind=media_kind,
+                button_id=button_id,
+                list_id=list_id,
+                wa_message_id=wa_message_id,
+            )
         try:
             await db.commit()
         except Exception:
@@ -123,10 +134,21 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
             )).scalar_one_or_none()
             if link and link.access_token and from_wa:
                 # Prefer natural short reply — never a robotic form dump
-                em = (
-                    "Sorry for the short delay — we got your message. "
-                    "How can we help you? Just tell us what you need."
-                )
+                import traceback
+                traceback.print_exc()
+                print("bot_trace CRASH", type(e).__name__, e)
+                low = (text or "").lower()
+                if any(w in low for w in ("haffa", "how far", "hello", "hi ", "hey")):
+                    em = "Haa! How far? Wetin you wan do today — sticker, banner, nylon?"
+                elif "sticker" in low:
+                    em = "Oya sticker — tell me size (width x height) and how many pieces. Inches or feet?"
+                elif "nylon" in low:
+                    em = "Nylon — how many pieces, and do you need custom print?"
+                elif any(w in low for w in ("wan", "abeg", "dey")):
+                    em = "I dey here. Abeg tell me wetin you need — I go help you sharp."
+                else:
+                    em = "Hey — we are here. Tell me what you need and I will help right away."
+
                 await send_text(
                     link.phone_number_id,
                     link.access_token,
