@@ -172,7 +172,7 @@
             <input type="file" name="file" accept="image/*,video/*,.pdf,.doc,.docx" class="hidden" onchange="var el=this.form.querySelector('[data-file-label]'); if(el) el.textContent=this.files[0]?this.files[0].name:'';">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--text-secondary)]"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </label>
-          <textarea name="body" rows="1" placeholder="Type a reply to the customer…" class="flex-1 input text-sm resize-none min-h-[44px] max-h-32 py-2.5"></textarea>
+          <textarea name="body" rows="2" placeholder="Type a reply to the customer…" class="flex-1 text-sm resize-none min-h-[48px] max-h-32 py-2.5 px-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40" style="color: var(--text-primary); background: var(--surface, #111); caret-color: var(--primary, #3b82f6);"></textarea>
           <button type="submit" class="btn btn-primary shrink-0 h-11 px-5">Send</button>
         </div>
         <div data-file-label class="text-xs text-[var(--text-muted)] px-1"></div>

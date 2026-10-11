@@ -273,3 +273,78 @@ async def send_image(
         "image": image,
     }
     return await _post(phone_number_id, access_token, payload)
+
+
+async def send_document(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str | None = None,
+    *,
+    document_url: str | None = None,
+    filename: str | None = None,
+    caption: str | None = None,
+) -> bool:
+    """Send a document by uploaded media id or public link."""
+    to = _digits(to_wa_id)
+    if not to or (not media_id and not document_url):
+        return False
+    doc: dict = {}
+    if media_id:
+        doc["id"] = media_id
+    else:
+        doc["link"] = document_url
+    if filename:
+        doc["filename"] = filename[:240]
+    if caption:
+        doc["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "document",
+        "document": doc,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_video_id(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str,
+    caption: str | None = None,
+) -> bool:
+    to = _digits(to_wa_id)
+    if not to or not media_id:
+        return False
+    video: dict = {"id": media_id}
+    if caption:
+        video["caption"] = caption[:1024]
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "video",
+        "video": video,
+    }
+    return await _post(phone_number_id, access_token, payload)
+
+
+async def send_audio_id(
+    phone_number_id: str,
+    access_token: str,
+    to_wa_id: str,
+    media_id: str,
+) -> bool:
+    to = _digits(to_wa_id)
+    if not to or not media_id:
+        return False
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "audio",
+        "audio": {"id": media_id},
+    }
+    return await _post(phone_number_id, access_token, payload)
