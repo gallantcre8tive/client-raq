@@ -40,6 +40,20 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     ) or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood")
     btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
 
+    # Continue active order if context already has a service (do not re-greet)
+    svc = (ctx or {}).get("service_name")
+    if svc and not is_greet:
+        if is_pidgin or any(w in low for w in ("wan", "abeg", "dey", "nah", "sef")):
+            return (
+                f"For *{svc}* — abeg tell me the *size* (width x height) and *how many pieces*.\n"
+                "Size dey inches or feet?"
+            )
+        return (
+            f"For *{svc}* — please share the *size* (width x height) and *quantity*.\n"
+            "Is the size in inches or feet?"
+        )
+
+
     if is_greet and is_pidgin:
         return (
             f"Haa big man! Welcome to *{name}*.\n"

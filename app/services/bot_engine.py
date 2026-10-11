@@ -709,11 +709,13 @@ async def _handle_inbound_core(
     }
     _tl = (text or "").lower().strip()
     _tw = set(_tl.replace("?", " ").replace("!", " ").replace(",", " ").split())
-    _is_pure_greet = bool(text) and not interactive_id and (
+    # Never treat "?" / "??" / "..." / single punctuation as a greeting
+    _punct_only = bool(_tl) and all(c in "?.!,…~- " for c in _tl)
+    _is_pure_greet = bool(text) and not interactive_id and not _punct_only and (
         _tl in _greet_words
-        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "haffa bro", "how far na", "hi bro", "hello bro")
-        or (_tw <= _greet_words and len(_tw) <= 4 and not any(
-            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay", "list", "service")
+        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "haffa bro", "how far na", "hi bro", "hello bro", "how far brother", "how far bro")
+        or (_tw and _tw <= _greet_words and len(_tw) <= 4 and not any(
+            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay", "list", "service", "wan", "want", "need")
         ))
         or _tl.startswith(("good morning", "good evening", "good afternoon", "how far", "haffa "))
     )
@@ -766,9 +768,16 @@ async def _handle_inbound_core(
         print("bot_trace greet_first ok=%s" % ok)
         return
 
-    if _is_pure_greet and _prior_out > 0:
+    # Soft-greet only for real greetings — never for "?" or when customer already has active service intent
+    _has_service_kw = any(x in _tl for x in (
+        "sticker", "banner", "nylon", "frame", "print", "flex", "jotter", "cloth", "pen",
+        "paypal", "crypto", "giftcard", "price", "how much", "order", "wan do", "i want", "i need",
+    ))
+    if _is_pure_greet and _prior_out > 0 and not _has_service_kw and not ctx.get("service_name") and (conv.state or "") not in (
+        "await_details", "await_size", "await_qty", "await_qty_fixed", "await_artwork", "await_fulfillment", "await_payment", "await_proof"
+    ):
         # Returning soft greeting — short, do NOT re-welcome with service pitch
-        if "haffa" in _tw or "bro" in _tw or "far" in _tw:
+        if "haffa" in _tw or "bro" in _tw or "far" in _tw or "blood" in _tw:
             ctx["lang"] = "pidgin"
             _save_ctx(conv, ctx)
             body = "Haa! I dey here — wetin you need?"
@@ -842,10 +851,45 @@ async def _handle_inbound_core(
             return
 
 
+
+    # ── Follow-up nudge ("?", "ok", "abeg") while waiting for details — re-ask, do not re-greet ──
+    if text and not interactive_id and (_punct_only or _tl in ("?", "??", "...", "ok", "okay", "abeg", "pls", "please", "sir", "ma")):
+        _st = (conv.state or "")
+        if _st in ("await_details", "await_size", "await_qty", "await_qty_fixed", "await_artwork", "await_fulfillment", "await_payment", "await_proof", "await_service") or ctx.get("service_name"):
+            svc = ctx.get("service_name") or "that job"
+            if _st in ("await_payment", "await_proof") or ctx.get("payment_details_sent"):
+                body = (
+                    "Abeg send the *payment screenshot* when you don pay — I go confirm am."
+                    if ctx.get("lang") == "pidgin"
+                    else "Please send the *payment screenshot* once you have paid so we can confirm."
+                )
+            elif ctx.get("lang") == "pidgin":
+                body = (
+                    "I still dey wait for the *%s* details.\n"
+                    "Abeg drop *size* (width x height) and *how many pieces* — inches or feet?"
+                ) % svc
+            else:
+                body = (
+                    "Still need a few details for *%s*.\n"
+                    "Please send *size* (width x height) and *quantity* — inches or feet?"
+                ) % svc
+            try:
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            print("bot_trace pending_nudge ok=%s state=%s" % (ok, _st))
+            return
+
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     try:
         _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
-        if text and not interactive_id and _btype in ("printing", "print"):
+        # Printing fast-path; other business types fall through to agent/rule_reply with context
+        if text and not interactive_id and _btype in ("printing", "print", ""):
             _intent_map = [
                 (("sticker", "sav", "label"), "sticker"),
                 (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),
@@ -2445,7 +2489,23 @@ async def _handle_inbound_core(
         if need_reply:
             try:
                 from app.services.client_raq_agent import _rule_reply as _rr
-                body = _rr(company, text, ctx)
+                # Prefer continuing active service over generic greeting
+                if ctx.get("service_name") and (conv.state or "") in (
+                    "await_details", "await_size", "await_qty", "await_qty_fixed", "await_service", "await_artwork"
+                ):
+                    svc = ctx.get("service_name")
+                    if ctx.get("lang") == "pidgin":
+                        body = (
+                            "For *%s* — abeg send *size* (e.g. 5x2) and *how many pieces*.\n"
+                            "Size dey inches or feet?"
+                        ) % svc
+                    else:
+                        body = (
+                            "For *%s* — please send *size* (e.g. 5x2) and *quantity*.\n"
+                            "Is the size in inches or feet?"
+                        ) % svc
+                else:
+                    body = _rr(company, text, ctx)
                 if not body or len((body or "").strip()) < 2:
                     body = (
                         f"I hear you — *{getattr(company, 'name', None) or 'we'}* dey online. "
