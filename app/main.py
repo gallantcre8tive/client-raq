@@ -2337,13 +2337,21 @@ async def company_messages_reply(
             att_id = att.id
 
     display = text or (filename if file_bytes else "Attachment")
-    db.add(Message(
+    # Safe Message create: works with or without attachment_id on the model
+    _msg_kw = dict(
         conversation_id=conv.id,
         direction="outbound",
         body=display,
         media_url=media_url,
-        attachment_id=att_id,
-    ))
+    )
+    if hasattr(Message, "attachment_id") and att_id is not None:
+        _msg_kw["attachment_id"] = att_id
+    if hasattr(Message, "media_type") and file_bytes is not None:
+        try:
+            _msg_kw["media_type"] = (mime or "").split("/")[0] if mime else None
+        except Exception:
+            pass
+    db.add(Message(**_msg_kw))
     await db.commit()
 
     link = (await db.execute(

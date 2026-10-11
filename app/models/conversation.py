@@ -16,13 +16,12 @@ class OrderStatus(str, enum.Enum):
 
 
 class Customer(Base):
-    """Per-company WhatsApp customer profile."""
+    """Per-company WhatsApp customer profile (spec §9)."""
     __tablename__ = "customers"
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
     wa_id: Mapped[str] = mapped_column(String(50), index=True)
     profile_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    profile_pic_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     language_preference: Mapped[str | None] = mapped_column(String(20), nullable=True)
     total_conversations: Mapped[int] = mapped_column(Integer, default=0)
     last_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -52,9 +51,11 @@ class Message(Base):
     __tablename__ = "messages"
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
-    direction: Mapped[str] = mapped_column(String(20))  # inbound | outbound
+    direction: Mapped[str] = mapped_column(String(20))
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    media_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    attachment_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     conversation = relationship("Conversation", back_populates="messages")
 
@@ -64,33 +65,30 @@ class Order(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
-    customer_wa_id: Mapped[str] = mapped_column(String(50))
+    customer_wa_id: Mapped[str] = mapped_column(String(50), index=True)
     customer_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     service_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
-    total_amount: Mapped[float] = mapped_column(Float, default=0)
+    total: Mapped[float] = mapped_column(Float, default=0)
     currency: Mapped[str] = mapped_column(String(10), default="NGN")
-    status: Mapped[OrderStatus] = mapped_column(
-        SAEnum(
-            OrderStatus,
-            values_callable=lambda obj: [e.value for e in obj],
-            native_enum=False,
-            validate_strings=True,
-        ),
-        default=OrderStatus.AWAITING_ACCEPTANCE,
-    )
-    payment_proof_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus), default=OrderStatus.AWAITING_ACCEPTANCE)
     status_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fulfillment: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    schedule_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    payment_proof: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     company = relationship("Company", back_populates="orders")
 
 
+
+
 class Attachment(Base):
-    """Stored media from WhatsApp (designs, payment proofs, voice notes, etc.)."""
+    """Stored customer files: designs, payment screenshots, documents (spec §14, §28)."""
     __tablename__ = "attachments"
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    customer_wa_id: Mapped[str] = mapped_column(String(50), index=True)
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
     message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
@@ -103,7 +101,6 @@ class Attachment(Base):
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
 
 class AdminNotification(Base):
     """High-priority alerts for company admins (handoff, payment, etc.)."""

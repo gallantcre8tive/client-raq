@@ -285,7 +285,6 @@ async def send_document(
     filename: str | None = None,
     caption: str | None = None,
 ) -> bool:
-    """Send a document by uploaded media id or public link."""
     to = _digits(to_wa_id)
     if not to or (not media_id and not document_url):
         return False
