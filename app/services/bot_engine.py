@@ -13,33 +13,6 @@ from app.services.whatsapp_send import send_text, send_buttons, send_list, send_
 
 log = logging.getLogger("client_raq.bot")
 
-def _set_order_status(order, status_key: str) -> None:
-    """Set order.status safely across enum name/value mismatches."""
-    try:
-        from app.models.conversation import OrderStatus
-        key = (status_key or "").strip().lower()
-        mapping = {
-            "awaiting_acceptance": getattr(OrderStatus, "AWAITING_ACCEPTANCE", None),
-            "payment_submitted": getattr(OrderStatus, "PAYMENT_SUBMITTED", None),
-            "payment_confirmed": getattr(OrderStatus, "PAYMENT_CONFIRMED", None),
-            "in_production": getattr(OrderStatus, "IN_PRODUCTION", None),
-            "ready": getattr(OrderStatus, "READY", None),
-            "completed": getattr(OrderStatus, "COMPLETED", None),
-            "rejected": getattr(OrderStatus, "REJECTED", None),
-        }
-        val = mapping.get(key)
-        if val is not None:
-            order.status = val
-            return
-        # try by name
-        for m in OrderStatus:
-            if m.value == key or m.name.lower() == key:
-                order.status = m
-                return
-    except Exception as e:
-        print("set_order_status", type(e).__name__, e)
-
-
 async def _outbound_and_send(db, conv, link, from_wa, body: str) -> bool:
     """Save outbound message then send via WhatsApp. Returns send success."""
     body = (body or "").strip()
@@ -158,30 +131,53 @@ def _parse_qty(text: str):
     return None
 
 
-def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str | None = None) -> float:
-    """Deterministic pricing. Never treat English 'in' as inches."""
-    base = float(service.base_price or 0)
-    qty = max(1, int(qty or 1))
-    mode = getattr(service, "pricing_method", None) or _unit_mode(service.unit)
-    if mode in ("sqin",):
-        mode = "sqft"
-    if mode in ("custom", "setup_unit", "tier"):
-        mode = _unit_mode(service.unit)
-    if mode == "piece" or not width or not height:
-        return round(base * qty, 2)
-    unit = (size_unit or "").lower().strip() or _detect_size_unit(size_text or "", None)
-    w, h = float(width), float(height)
-    if mode == "sqft":
-        if unit in ("in", "inch", "inches"):
-            return round((w * h * qty * base) / 144.0, 2)
-        if unit in ("m", "metre", "meter", "sqm"):
-            return round(w * h * 10.7639 * base * qty, 2)
-        return round(w * h * base * qty, 2)  # feet
-    if mode == "sqm":
-        if unit in ("ft", "feet", "foot"):
-            return round((w * h / 10.7639) * base * qty, 2)
-        return round(w * h * base * qty, 2)
-    return round(w * h * base * qty, 2)
+def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str | None = None, **kwargs) -> float:
+    """Deterministic pricing via pricing_engine — correct for all business types."""
+    try:
+        from app.services.pricing_engine import calculate as _price_calc
+        res = _price_calc(
+            service,
+            width=width,
+            height=height,
+            qty=qty,
+            size_text=size_text or "",
+            size_unit=size_unit,
+            amount=kwargs.get("amount"),
+            design_fee=kwargs.get("design_fee"),
+            extra_fee=kwargs.get("extra_fee"),
+            unit_price_override=kwargs.get("unit_price_override"),
+            weight_kg=kwargs.get("weight_kg"),
+            hours=kwargs.get("hours"),
+            ctx=kwargs.get("ctx") or {},
+        )
+        if res.get("ok") and res.get("total") is not None:
+            return float(res["total"])
+        # Fallback piece price when size missing for area methods
+        base = float(getattr(service, "base_price", 0) or 0)
+        q = max(1, int(qty or 1))
+        return round(base * q, 2)
+    except Exception as e:
+        print("pricing_engine_fallback", type(e).__name__, e)
+        base = float(getattr(service, "base_price", 0) or 0)
+        q = max(1, int(qty or 1))
+        mode = getattr(service, "pricing_method", None) or _unit_mode(getattr(service, "unit", None))
+        if mode in ("sqin",):
+            mode = "sqft"
+        if mode == "piece" or not width or not height:
+            return round(base * q, 2)
+        unit = (size_unit or "").lower().strip() or _detect_size_unit(size_text or "", None)
+        w, h = float(width), float(height)
+        if mode == "sqft":
+            if unit in ("in", "inch", "inches"):
+                return round((w * h * q * base) / 144.0, 2)
+            if unit in ("m", "metre", "meter", "sqm"):
+                return round(w * h * 10.7639 * base * q, 2)
+            return round(w * h * base * q, 2)
+        if mode == "sqm":
+            if unit in ("ft", "feet", "foot"):
+                return round((w * h / 10.7639) * base * q, 2)
+            return round(w * h * base * q, 2)
+        return round(w * h * base * q, 2)
 
 
 def _is_clarifying_question(text: str) -> bool:
@@ -586,7 +582,6 @@ async def _handle_inbound_core(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
-    profile_name: str | None = None,
 ) -> None:
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(
@@ -657,19 +652,6 @@ async def _handle_inbound_core(
         print("bot_trace live_takeover_flag_ignored_keep_replying conv=%s" % getattr(conv, "id", None))
 
 
-    # Persist WhatsApp profile name when Meta sends contacts
-    try:
-        if profile_name:
-            pn = str(profile_name).strip()[:150]
-            if pn:
-                if not getattr(conv, "customer_name", None) or conv.customer_name == from_wa:
-                    conv.customer_name = pn
-                ctx_tmp = _ctx(conv)
-                ctx_tmp["profile_name"] = pn
-                _save_ctx(conv, ctx_tmp)
-    except Exception as _pn:
-        print("profile_name_save", type(_pn).__name__, _pn)
-
     ctx = _ctx(conv)
     low = text.lower()
     # LANG_DETECT_BLOCK — auto language for multi-lang agent
@@ -709,13 +691,11 @@ async def _handle_inbound_core(
     }
     _tl = (text or "").lower().strip()
     _tw = set(_tl.replace("?", " ").replace("!", " ").replace(",", " ").split())
-    # Never treat "?" / "??" / "..." / single punctuation as a greeting
-    _punct_only = bool(_tl) and all(c in "?.!,…~- " for c in _tl)
-    _is_pure_greet = bool(text) and not interactive_id and not _punct_only and (
+    _is_pure_greet = bool(text) and not interactive_id and (
         _tl in _greet_words
-        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "haffa bro", "how far na", "hi bro", "hello bro", "how far brother", "how far bro")
-        or (_tw and _tw <= _greet_words and len(_tw) <= 4 and not any(
-            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay", "list", "service", "wan", "want", "need")
+        or _tl in ("how far", "howfar", "haffa", "haffa blood", "haffa brother", "haffa bro", "how far na", "hi bro", "hello bro")
+        or (_tw <= _greet_words and len(_tw) <= 4 and not any(
+            x in _tl for x in ("sticker", "banner", "nylon", "frame", "print", "price", "how much", "order", "pay", "list", "service")
         ))
         or _tl.startswith(("good morning", "good evening", "good afternoon", "how far", "haffa "))
     )
@@ -768,16 +748,9 @@ async def _handle_inbound_core(
         print("bot_trace greet_first ok=%s" % ok)
         return
 
-    # Soft-greet only for real greetings — never for "?" or when customer already has active service intent
-    _has_service_kw = any(x in _tl for x in (
-        "sticker", "banner", "nylon", "frame", "print", "flex", "jotter", "cloth", "pen",
-        "paypal", "crypto", "giftcard", "price", "how much", "order", "wan do", "i want", "i need",
-    ))
-    if _is_pure_greet and _prior_out > 0 and not _has_service_kw and not ctx.get("service_name") and (conv.state or "") not in (
-        "await_details", "await_size", "await_qty", "await_qty_fixed", "await_artwork", "await_fulfillment", "await_payment", "await_proof"
-    ):
+    if _is_pure_greet and _prior_out > 0:
         # Returning soft greeting — short, do NOT re-welcome with service pitch
-        if "haffa" in _tw or "bro" in _tw or "far" in _tw or "blood" in _tw:
+        if "haffa" in _tw or "bro" in _tw or "far" in _tw:
             ctx["lang"] = "pidgin"
             _save_ctx(conv, ctx)
             body = "Haa! I dey here — wetin you need?"
@@ -851,123 +824,68 @@ async def _handle_inbound_core(
             return
 
 
-
-    # ── Follow-up nudge ("?", "ok", "abeg") while waiting for details — re-ask, do not re-greet ──
-    if text and not interactive_id and (_punct_only or _tl in ("?", "??", "...", "ok", "okay", "abeg", "pls", "please", "sir", "ma")):
-        _st = (conv.state or "")
-        if _st in ("await_details", "await_size", "await_qty", "await_qty_fixed", "await_artwork", "await_fulfillment", "await_payment", "await_proof", "await_service") or ctx.get("service_name"):
-            svc = ctx.get("service_name") or "that job"
-            if _st in ("await_payment", "await_proof") or ctx.get("payment_details_sent"):
-                body = (
-                    "Abeg send the *payment screenshot* when you don pay — I go confirm am."
-                    if ctx.get("lang") == "pidgin"
-                    else "Please send the *payment screenshot* once you have paid so we can confirm."
-                )
-            elif ctx.get("lang") == "pidgin":
-                body = (
-                    "I still dey wait for the *%s* details.\n"
-                    "Abeg drop *size* (width x height) and *how many pieces* — inches or feet?"
-                ) % svc
-            else:
-                body = (
-                    "Still need a few details for *%s*.\n"
-                    "Please send *size* (width x height) and *quantity* — inches or feet?"
-                ) % svc
-            try:
-                db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
-                await db.commit()
-            except Exception:
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
-            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
-            print("bot_trace pending_nudge ok=%s state=%s" % (ok, _st))
-            return
-
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
-    try:
-        _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
-        # Printing fast-path; other business types fall through to agent/rule_reply with context
-        if text and not interactive_id and _btype in ("printing", "print", ""):
-            _intent_map = [
-                (("sticker", "sav", "label"), "sticker"),
-                (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),
-                (("nylon", "nylon bag", "polybag"), "nylon"),
-                (("frame", "frameless", "acrylic"), "frame"),
-                (("jotter", "notebook"), "jotter"),
-                (("cloth", "tshirt", "t-shirt", "tee"), "cloth"),
-            ]
-            _low = text.lower()
-            _hit = None
-            for keys, label in _intent_map:
-                if any(k in _low for k in keys):
-                    _hit = label
+    _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+    if text and not interactive_id and _btype in ("printing", "print"):
+        _intent_map = [
+            (("sticker", "sav", "label"), "sticker"),
+            (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),
+            (("nylon", "nylon bag", "polybag"), "nylon"),
+            (("frame", "frameless", "acrylic"), "frame"),
+            (("jotter", "notebook"), "jotter"),
+            (("cloth", "tshirt", "t-shirt", "tee"), "cloth"),
+        ]
+        _low = text.lower()
+        _hit = None
+        for keys, label in _intent_map:
+            if any(k in _low for k in keys):
+                _hit = label
+                break
+        if _hit and not ctx.get("quote_locked"):
+            # Match to company service if possible
+            matched = None
+            for s in services:
+                if not getattr(s, "is_active", True):
+                    continue
+                sn = (s.name or "").lower()
+                if _hit in sn or any(k in sn for k in next(ks for ks, lb in _intent_map if lb == _hit)):
+                    matched = s
                     break
-            if _hit and not ctx.get("quote_locked"):
-                # Match to company service if possible
-                matched = None
-                _keys = []
-                for ks, lb in _intent_map:
-                    if lb == _hit:
-                        _keys = list(ks)
-                        break
-                for s in services:
-                    if not getattr(s, "is_active", True):
-                        continue
-                    sn = (s.name or "").lower()
-                    if _hit in sn or any(k in sn for k in _keys):
-                        matched = s
-                        break
-                if matched:
-                    ctx["service_id"] = matched.id
-                    ctx["service_name"] = matched.name
+            if matched:
+                ctx["service_id"] = matched.id
+                ctx["service_name"] = matched.name
+            else:
+                ctx["service_name"] = _hit
+            ctx["lang"] = ctx.get("lang") or ("pidgin" if any(w in _low.split() for w in ("wan", "abeg", "dey", "wetin")) else "en")
+            _save_ctx(conv, ctx)
+            conv.state = "await_details"
+            # Only short-circuit to rule reply if message is pure intent (no size/qty yet)
+            has_size = bool(__import__("re").search(r"\d+\s*[x×]\s*\d+", _low)) or bool(__import__("re").search(r"\d+\s*(inch|inches|ft|feet|pcs|pieces)", _low))
+            if not has_size:
+                name = company.name or "us"
+                if ctx.get("lang") == "pidgin":
+                    body = (
+                        f"Oya! *{ctx.get('service_name') or _hit}* — no problem.\n"
+                        "Abeg tell me the *size* (width x height) and *how many pieces*.\n"
+                        "Size dey inches or feet?"
+                    )
                 else:
-                    ctx["service_name"] = _hit
-                ctx["lang"] = ctx.get("lang") or ("pidgin" if any(w in _low.split() for w in ("wan", "abeg", "dey", "wetin")) else "en")
-                _save_ctx(conv, ctx)
-                conv.state = "await_details"
-                # Only short-circuit to rule reply if message is pure intent (no size/qty yet)
-                has_size = bool(__import__("re").search(r"\d+\s*[x×]\s*\d+", _low)) or bool(__import__("re").search(r"\d+\s*(inch|inches|ft|feet|pcs|pieces)", _low))
-                if not has_size:
-                    name = company.name or "us"
-                    if ctx.get("lang") == "pidgin":
-                        body = (
-                            f"Oya! *{ctx.get('service_name') or _hit}* — no problem.\n"
-                            "Abeg tell me the *size* (width x height) and *how many pieces*.\n"
-                            "Size dey inches or feet?"
-                        )
-                    else:
-                        body = (
-                            f"Great — *{ctx.get('service_name') or _hit}*.\n"
-                            "Please share the *size* (width x height) and *quantity*.\n"
-                            "Is the size in inches or feet?"
-                        )
+                    body = (
+                        f"Great — *{ctx.get('service_name') or _hit}*.\n"
+                        "Please share the *size* (width x height) and *quantity*.\n"
+                        "Is the size in inches or feet?"
+                    )
+                try:
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                    await db.commit()
+                except Exception:
                     try:
-                        db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
-                        await db.commit()
+                        await db.rollback()
                     except Exception:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                    ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
-                    print("bot_trace intent_reply service=%s ok=%s" % (_hit, ok))
-                    return
-    except Exception as _intent_e:
-        print("intent_fast_path", type(_intent_e).__name__, _intent_e)
-        try:
-            _low2 = (text or "").lower()
-            if any(k in _low2 for k in ("sticker", "banner", "nylon", "frame", "print")):
-                from app.services.client_raq_agent import _rule_reply as _rr2
-                _b2 = _rr2(company, text, ctx)
-                db.add(Message(conversation_id=conv.id, direction="outbound", body=_b2))
-                await db.commit()
-                await send_text(link.phone_number_id, link.access_token, from_wa, _b2)
-                print("bot_trace intent_emergency_ok")
+                        pass
+                ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+                print("bot_trace intent_reply service=%s ok=%s" % (_hit, ok))
                 return
-        except Exception as _ie2:
-            print("intent_emergency_fail", _ie2)
 
 
     # Returning customer: ensure Customer row + previous order hint in ctx
@@ -982,38 +900,22 @@ async def _handle_inbound_core(
             await db.flush()
         else:
             cust.total_conversations = int(cust.total_conversations or 0) + 1
-            if not getattr(cust, "profile_name", None) and ctx.get("profile_name"):
-                cust.profile_name = str(ctx.get("profile_name"))[:150]
-        if not ctx.get("last_order_hint"):
-            try:
-                prev = (await db.execute(
-                    select(OrderModel).where(
-                        OrderModel.company_id == company.id,
-                        OrderModel.customer_wa_id == from_wa,
-                    ).order_by(OrderModel.id.desc()).limit(1)
-                )).scalars().first()
-                if prev:
-                    tot = float(getattr(prev, "total_amount", None) or getattr(prev, "total", None) or 0)
-                    ctx["last_order_hint"] = {
-                        "id": prev.id,
-                        "service_name": getattr(prev, "service_name", None),
-                        "total": tot,
-                        "details": (getattr(prev, "details", None) or "")[:180],
-                    }
-                    _save_ctx(conv, ctx)
-            except Exception as e_ord:
-                # Enum mismatch or schema drift must never stop the bot
-                print("returning_customer_order_skip", type(e_ord).__name__, e_ord)
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
+        prev = (await db.execute(
+            select(OrderModel).where(
+                OrderModel.company_id == company.id,
+                OrderModel.customer_wa_id == from_wa,
+            ).order_by(OrderModel.id.desc()).limit(1)
+        )).scalars().first()
+        if prev and not ctx.get("last_order_hint"):
+            ctx["last_order_hint"] = {
+                "id": prev.id,
+                "service_name": prev.service_name,
+                "total": float(prev.total or 0),
+                "details": (prev.details or "")[:180],
+            }
+            _save_ctx(conv, ctx)
     except Exception as e:
         print("returning_customer", type(e).__name__, e)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
 
 
     # ── Subscription / trial gate (platform billing) ──
@@ -1050,6 +952,7 @@ async def _handle_inbound_core(
             await db.commit()
             if sub.message_count_trial > limit:
                 try:
+                    from app.services.whatsapp_send import send_text
                     await send_text(link.phone_number_id, link.access_token, from_wa,
                         "This free trial has reached its message limit. Please subscribe on Client-RaQ to continue.")
                 except Exception:
@@ -2474,66 +2377,26 @@ async def _handle_inbound_core(
 
 
 
-    # ── Absolute never-silent: always answer free text if nothing sent a reply above ──
-    # Detect whether we already saved an outbound for this inbound turn by checking
-    # the last message direction. If last is still inbound, force a reply.
+    # ── Absolute never-silent for free text (if nothing above replied) ──
     if (text or "").strip() and not interactive_id:
         try:
-            last = (await db.execute(
-                select(Message).where(Message.conversation_id == conv.id)
-                .order_by(Message.id.desc()).limit(1)
-            )).scalars().first()
-            need_reply = (not last) or (getattr(last, "direction", None) == "inbound")
-        except Exception:
-            need_reply = True
-        if need_reply:
+            from app.services.client_raq_agent import _rule_reply as _rr
+            body = _rr(company, text, ctx)
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+            await db.commit()
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            print("bot_trace absolute_safety ok=%s" % ok)
+            return
+        except Exception as _abs:
+            print("absolute_safety", type(_abs).__name__, _abs)
             try:
-                from app.services.client_raq_agent import _rule_reply as _rr
-                # Prefer continuing active service over generic greeting
-                if ctx.get("service_name") and (conv.state or "") in (
-                    "await_details", "await_size", "await_qty", "await_qty_fixed", "await_service", "await_artwork"
-                ):
-                    svc = ctx.get("service_name")
-                    if ctx.get("lang") == "pidgin":
-                        body = (
-                            "For *%s* — abeg send *size* (e.g. 5x2) and *how many pieces*.\n"
-                            "Size dey inches or feet?"
-                        ) % svc
-                    else:
-                        body = (
-                            "For *%s* — please send *size* (e.g. 5x2) and *quantity*.\n"
-                            "Is the size in inches or feet?"
-                        ) % svc
-                else:
-                    body = _rr(company, text, ctx)
-                if not body or len((body or "").strip()) < 2:
-                    body = (
-                        f"I hear you — *{getattr(company, 'name', None) or 'we'}* dey online. "
-                        "Tell me wetin you need (service, size, quantity)."
-                    )
-                try:
-                    db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
-                    await db.commit()
-                except Exception:
-                    try:
-                        await db.rollback()
-                    except Exception:
-                        pass
-                ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
-                print("bot_trace absolute_safety ok=%s len=%s" % (ok, len(body or "")))
-                if not ok:
-                    plain = (body or "").replace("*", "")[:1000]
-                    await send_text(link.phone_number_id, link.access_token, from_wa, plain)
-            except Exception as _abs:
-                print("absolute_safety", type(_abs).__name__, _abs)
-                try:
-                    await send_text(
-                        link.phone_number_id, link.access_token, from_wa,
-                        f"Hey — *{getattr(company, 'name', None) or 'we'}* got your message. Tell me clearly what you need.",
-                    )
-                except Exception:
-                    pass
-
+                await send_text(
+                    link.phone_number_id, link.access_token, from_wa,
+                    f"Hey — *{company.name or 'we'}* got your message. Tell me clearly what you need.",
+                )
+            except Exception:
+                pass
+            return
 
 
 async def handle_inbound(
@@ -2547,7 +2410,6 @@ async def handle_inbound(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
-    profile_name: str | None = None,
 ) -> None:
     """Public entry — never raises to webhook. Always attempts a customer reply on failure."""
     try:
@@ -2561,7 +2423,6 @@ async def handle_inbound(
             button_id=button_id,
             list_id=list_id,
             wa_message_id=wa_message_id,
-            profile_name=profile_name,
         )
     except BaseException as e:
         import traceback

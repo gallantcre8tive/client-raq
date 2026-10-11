@@ -117,6 +117,18 @@ def render(request: Request, name: str, context: dict | None = None, status_code
             if cname:
                 ctx["company_name"] = cname
             ctx.pop("company", None)
+            # Multi-tab session: expose company_id for cid query on all nav links
+            try:
+                cid = getattr(getattr(request, "state", None), "company_id", None)
+                if cid:
+                    ctx["company_id"] = int(cid)
+                elif ctx.get("company_id") is None:
+                    # from user in context if present
+                    u = ctx.get("user")
+                    if u is not None and getattr(u, "company_id", None):
+                        ctx["company_id"] = int(u.company_id)
+            except Exception:
+                pass
     except Exception as _e:
         print("render_nav_labels", _e)
     try:
@@ -252,9 +264,17 @@ async def landing(request: Request, db: AsyncSession = Depends(get_db)):
 
 # ---------- Platform auth ----------
 
-def set_session(response: RedirectResponse, user_id: int, scope: str = "company") -> RedirectResponse:
-    """Set auth cookie. secure=True required for HTTPS (Render / clientraq.com)."""
-    token = create_access_token({"sub": str(user_id), "scope": scope})
+def set_session(
+    response: RedirectResponse,
+    user_id: int,
+    scope: str = "company",
+    company_id: int | None = None,
+) -> RedirectResponse:
+    """Set auth cookie. Per-company cookies enable multi-tab isolation on the same browser."""
+    payload = {"sub": str(user_id), "scope": scope}
+    if scope == "company" and company_id is not None:
+        payload["cid"] = int(company_id)
+    token = create_access_token(payload)
     common = dict(
         httponly=True,
         samesite="lax",
@@ -272,6 +292,19 @@ def set_session(response: RedirectResponse, user_id: int, scope: str = "company"
         response.set_cookie(plat, token, **common)
     else:
         response.set_cookie(comp, token, **common)
+        # Per-company cookie — each tab can keep a different company session
+        if company_id is not None:
+            response.set_cookie(f"crq_cs_{int(company_id)}", token, **common)
+            # Soft preference (readable by JS) so links can target this company
+            response.set_cookie(
+                "crq_active_cid",
+                str(int(company_id)),
+                max_age=60 * 60 * 24 * 7,
+                path="/",
+                samesite="lax",
+                secure=True,
+                httponly=False,
+            )
     response.set_cookie(legacy, token, **common)
     return response
 
@@ -925,12 +958,31 @@ async def company_login(
         pass
 
     resp = RedirectResponse(dest, status_code=303)
-    return set_session(resp, int(row["id"]), scope="company")
+    return set_session(resp, int(row["id"]), scope="company", company_id=int(company["id"]))
 
 
 @app.get("/company/logout")
-async def company_logout():
-    return clear_session(RedirectResponse("/company/login", status_code=303))
+async def company_logout(request: Request):
+    """Clear this company's session without wiping other company tabs' cookies."""
+    resp = RedirectResponse("/company/login", status_code=303)
+    cid = request.query_params.get("cid") or request.cookies.get("crq_active_cid")
+    try:
+        plat = settings.SESSION_COOKIE_PLATFORM
+        comp = settings.SESSION_COOKIE_COMPANY
+    except Exception:
+        plat, comp = "crq_platform_session", "crq_company_session"
+    legacy = getattr(settings, "SESSION_COOKIE", "crq_session")
+    opts = dict(path="/")
+    if cid and str(cid).isdigit():
+        resp.delete_cookie(f"crq_cs_{int(cid)}", **opts)
+        # If legacy matches this tab, clear it too
+        resp.delete_cookie(comp, **opts)
+        resp.delete_cookie(legacy, **opts)
+        resp.delete_cookie("crq_active_cid", **opts)
+    else:
+        resp = clear_session(resp, scope="company")
+        resp.delete_cookie("crq_active_cid", **opts)
+    return resp
 
 
 # ---------- Company pages ----------
@@ -1049,6 +1101,21 @@ def apply_nav_labels(ctx: dict, company=None) -> dict:
     except Exception as e:
         print("apply_nav_labels", e)
     return ctx
+
+
+
+def _ctx_company_id(user, company=None) -> int | None:
+    try:
+        if company is not None and getattr(company, "id", None):
+            return int(company.id)
+    except Exception:
+        pass
+    try:
+        if user is not None and getattr(user, "company_id", None):
+            return int(user.company_id)
+    except Exception:
+        pass
+    return None
 
 
 @app.get("/company/dashboard", response_class=HTMLResponse)
@@ -2337,7 +2404,6 @@ async def company_messages_reply(
             att_id = att.id
 
     display = text or (filename if file_bytes else "Attachment")
-    # Safe Message create: works with or without attachment_id on the model
     _msg_kw = dict(
         conversation_id=conv.id,
         direction="outbound",

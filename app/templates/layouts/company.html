@@ -294,3 +294,39 @@
 {% endblock %}
 
 {% block scripts %}{% endblock %}
+
+<script>
+/* Client RaQ multi-tab company isolation: stamp cid on every company link/form */
+(function () {
+  var cid = {{ company_id|default('')|tojson }};
+  if (!cid && window.__CRQ_COMPANY_ID) cid = window.__CRQ_COMPANY_ID;
+  if (!cid) return;
+  try { document.cookie = "crq_active_cid=" + cid + "; path=/; SameSite=Lax; max-age=" + (60*60*24*7); } catch (e) {}
+  function stampUrl(href) {
+    try {
+      var u = new URL(href, window.location.origin);
+      if (!u.pathname.startsWith("/company")) return href;
+      if (u.pathname.indexOf("/company/login") === 0) return href;
+      if (!u.searchParams.has("cid")) u.searchParams.set("cid", String(cid));
+      return u.pathname + u.search + u.hash;
+    } catch (e) { return href; }
+  }
+  document.querySelectorAll('a[href^="/company"]').forEach(function (a) {
+    a.setAttribute("href", stampUrl(a.getAttribute("href")));
+  });
+  document.querySelectorAll('form').forEach(function (f) {
+    var action = f.getAttribute("action") || window.location.pathname;
+    if (action.indexOf("/company") !== 0 && action.charAt(0) === "/") return;
+    if (action.indexOf("/company") === 0 || !action) {
+      if (!f.querySelector('input[name="cid"]')) {
+        var i = document.createElement("input");
+        i.type = "hidden"; i.name = "cid"; i.value = String(cid);
+        f.appendChild(i);
+      }
+      if (action && action.indexOf("/company") === 0 && action.indexOf("cid=") < 0) {
+        f.setAttribute("action", stampUrl(action));
+      }
+    }
+  });
+})();
+</script>

@@ -68,9 +68,9 @@ def _render(request: Request, template: str, ctx: dict | None = None):
     return render(request, template, ctx or {})
 
 
-def _set_company_session(response: RedirectResponse, user_id: int) -> RedirectResponse:
+def _set_company_session(response: RedirectResponse, user_id: int, company_id: int | None = None) -> RedirectResponse:
     from app.main import set_session
-    return set_session(response, user_id, scope="company")
+    return set_session(response, user_id, scope="company", company_id=company_id)
 
 
 # ── Public pricing API (landing) ─────────────────────────────────────────────
@@ -193,7 +193,7 @@ async def trial_create(
         print("seed_trial", _se)
 
     resp = RedirectResponse("/company/dashboard?trial=1", status_code=303)
-    return _set_company_session(resp, user.id)
+    return _set_company_session(resp, user.id, company_id=getattr(user, 'company_id', None))
 
 
 # ── Checkout (paid) ──────────────────────────────────────────────────────────
@@ -486,7 +486,7 @@ async def register_submit(
         rt.used = True
         await db.commit()
         resp = RedirectResponse("/company/dashboard?subscribed=1", status_code=303)
-        return _set_company_session(resp, existing.id)
+        return _set_company_session(resp, existing.id, company_id=getattr(existing, 'company_id', None))
 
     if existing:
         return _render(request, "public/register.html", {
@@ -572,7 +572,7 @@ async def register_submit(
     await db.refresh(user)
 
     resp = RedirectResponse("/company/dashboard?subscribed=1", status_code=303)
-    return _set_company_session(resp, user.id)
+    return _set_company_session(resp, user.id, company_id=getattr(user, 'company_id', None))
 
 
 # ── Platform admin: pricing ──────────────────────────────────────────────────
