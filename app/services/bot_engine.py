@@ -123,11 +123,38 @@ def _parse_size(text: str):
 
 def _parse_qty(text: str):
     low = (text or "").lower()
-    m = re.search(r"(\d+)\s*(unit|units|pcs|pc|piece|pieces|qty|quantity|copy|copies)\b", low)
+    m = re.search(
+        r"(?:of\s+)?(\d+)\s*(units?|pcs?\.?|pieces?|qty|quantity|copies?|copy)\b",
+        low,
+    )
     if m:
         return max(1, int(m.group(1)))
     if re.fullmatch(r"\d+", (text or "").strip()):
         return max(1, int(text.strip()))
+    return None
+
+
+
+def _resolve_service(services, ctx: dict):
+    """Find active service from ctx service_id or service_name (fuzzy)."""
+    sid = ctx.get("service_id")
+    if sid is not None:
+        for s in services or []:
+            if getattr(s, "id", None) == sid and getattr(s, "is_active", True):
+                return s
+    name = (ctx.get("service_name") or "").lower().strip()
+    if not name:
+        return None
+    for s in services or []:
+        if not getattr(s, "is_active", True):
+            continue
+        sn = (s.name or "").lower()
+        if name == sn or name in sn or sn in name:
+            return s
+    token = name.split()[0]
+    for s in services or []:
+        if getattr(s, "is_active", True) and token in (s.name or "").lower():
+            return s
     return None
 
 
@@ -848,7 +875,7 @@ async def _handle_inbound_core(
                 if not getattr(s, "is_active", True):
                     continue
                 sn = (s.name or "").lower()
-                if _hit in sn or any(k in sn for k in next(ks for ks, lb in _intent_map if lb == _hit)):
+                if _hit in sn or any(k in sn for k in next((ks for ks, lb in _intent_map if lb == _hit), ())):
                     matched = s
                     break
             if matched:
@@ -856,11 +883,63 @@ async def _handle_inbound_core(
                 ctx["service_name"] = matched.name
             else:
                 ctx["service_name"] = _hit
-            ctx["lang"] = ctx.get("lang") or ("pidgin" if any(w in _low.split() for w in ("wan", "abeg", "dey", "wetin")) else "en")
+            ctx["lang"] = ctx.get("lang") or (
+                "pidgin" if any(w in _low.split() for w in ("wan", "abeg", "dey", "wetin", "nah", "bro", "oya")) else "en"
+            )
+            _w, _h = _parse_size(text)
+            _q = _parse_qty(text)
+            if _w and _h:
+                ctx["width"], ctx["height"] = _w, _h
+            if _q:
+                ctx["qty"] = _q
+            if "inch" in _low or "inches" in _low:
+                ctx["size_unit"] = "in"
+            elif any(x in _low for x in ("ft", "feet", "foot")):
+                ctx["size_unit"] = "ft"
             _save_ctx(conv, ctx)
             conv.state = "await_details"
-            # Only short-circuit to rule reply if message is pure intent (no size/qty yet)
-            has_size = bool(__import__("re").search(r"\d+\s*[x×]\s*\d+", _low)) or bool(__import__("re").search(r"\d+\s*(inch|inches|ft|feet|pcs|pieces)", _low))
+            try:
+                await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            has_size = bool(ctx.get("width") and ctx.get("height"))
+            # Full ask in one message → quote now
+            if has_size and matched:
+                unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
+                ctx["size_unit"] = unit
+                total = _calc_total(matched, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
+                ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = total
+                ctx["quote_locked"] = True
+                ctx["service_id"] = matched.id
+                ctx["service_name"] = matched.name
+                _save_ctx(conv, ctx)
+                conv.state = "await_fulfillment"
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+                size_bit = f"{ctx['width']:g}×{ctx['height']:g} {unit} "
+                body = (
+                    f"Oya! *{matched.name}* {size_bit}× {ctx.get('qty')} pieces\n"
+                    f"Total: *{company.currency} {total:,.0f}*\n\nYou wan *pickup* or *delivery*?"
+                    if ctx.get("lang") == "pidgin" else
+                    f"*{matched.name}* {size_bit}× {ctx.get('qty')}\n"
+                    f"Total: *{company.currency} {total:,.0f}*\n\nPickup or delivery?"
+                )
+                try:
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+                print("bot_trace intent_full_quote ok=%s total=%s" % (ok, total))
+                return
             if not has_size:
                 name = company.name or "us"
                 if ctx.get("lang") == "pidgin":
@@ -2221,40 +2300,69 @@ async def _handle_inbound_core(
             ctx["width"], ctx["height"] = w, h
         if qty:
             ctx["qty"] = qty
+        low_t = (text or "").lower()
+        if "inch" in low_t or "inches" in low_t:
+            ctx["size_unit"] = "in"
+        elif any(x in low_t for x in ("ft", "feet", "foot")):
+            ctx["size_unit"] = "ft"
         if not ctx.get("qty"):
             ctx["qty"] = 1
-        svc = next((s for s in services if s.id == ctx.get("service_id")), None)
-        if svc and _is_sqft_unit(svc.unit) and not (ctx.get("width") and ctx.get("height")):
+        svc = _resolve_service(services, ctx)
+        if svc and not ctx.get("service_id"):
+            ctx["service_id"] = svc.id
+            ctx["service_name"] = svc.name
+        if not (ctx.get("width") and ctx.get("height")):
             outbound = _t(
                 ctx,
-                "Please send the size like *3x5* (width x height in feet), and how many units.",
-                "Abeg send size like *3x5* (width x height for feet), and how many units.",
+                "I got you — please send the size like *7x2* (width x height), and how many pieces. Inches or feet?",
+                "I hear you — abeg send size like *7x2* (width x height), and how many pieces. Inches or feet?",
             )
+            _save_ctx(conv, ctx)
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            return
         elif svc:
             unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
             ctx["size_unit"] = unit
-            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit)
+            total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
             ctx["locked_total"] = total
             ctx["quote_locked"] = True
             ctx["total"] = total
             ctx["subtotal"] = total
             _save_ctx(conv, ctx)
             conv.state = "await_fulfillment"
-            size_bit = ""
-            if ctx.get("width") and ctx.get("height"):
-                size_bit = f"{ctx['width']:g}×{ctx['height']:g} "
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            size_bit = f"{ctx['width']:g}×{ctx['height']:g} {unit} "
             outbound = _t(
                 ctx,
-                f"*{svc.name}* {size_bit}× {ctx.get('qty')} unit(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
-                f"*{svc.name}* {size_bit}× {ctx.get('qty')} unit(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                f"*{svc.name}* {size_bit}× {ctx.get('qty')} piece(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                f"*{svc.name}* {size_bit}× {ctx.get('qty')} piece(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
             )
             await _reply(link, from_wa, outbound, buttons=[("ful_pickup", "Pickup"), ("ful_delivery", "Delivery")])
             db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
             await db.commit()
+            print("bot_trace await_details_quote total=%s" % total)
             return
         else:
-            outbound = _t(ctx, "Please pick a service first.", "Abeg pick service first.")
+            outbound = _t(
+                ctx,
+                "Which service is this for? Type *sticker*, *banner*, *nylon*, or *menu*.",
+                "Which service be this? Type *sticker*, *banner*, *nylon*, or *menu*.",
+            )
             conv.state = "await_intent"
+            _save_ctx(conv, ctx)
+            db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+            await db.commit()
+            await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            return
 
     # Fulfillment
     elif state == "await_fulfillment" or interactive_id in ("ful_pickup", "ful_delivery"):
@@ -2377,15 +2485,77 @@ async def _handle_inbound_core(
 
 
 
-    # ── Absolute never-silent for free text (if nothing above replied) ──
-    if (text or "").strip() and not interactive_id:
+
+    # ── Recover size/qty follow-ups if state drifted but service is known ──
+    if (text or "").strip() and not interactive_id and not outbound:
+        _rw, _rh = _parse_size(text)
+        if (_rw and _rh) and (ctx.get("service_name") or ctx.get("service_id")):
+            ctx["width"], ctx["height"] = _rw, _rh
+            _rq = _parse_qty(text)
+            if _rq:
+                ctx["qty"] = _rq
+            if not ctx.get("qty"):
+                ctx["qty"] = int(ctx.get("qty") or 1)
+            low_r = text.lower()
+            if "inch" in low_r:
+                ctx["size_unit"] = "in"
+            svc = _resolve_service(services, ctx)
+            if svc:
+                unit = ctx.get("size_unit") or _detect_size_unit(text, ctx)
+                ctx["size_unit"] = unit
+                total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
+                ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = total
+                ctx["quote_locked"] = True
+                ctx["service_id"] = svc.id
+                ctx["service_name"] = svc.name
+                _save_ctx(conv, ctx)
+                conv.state = "await_fulfillment"
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+                size_bit = f"{ctx['width']:g}×{ctx['height']:g} {unit} "
+                outbound = _t(
+                    ctx,
+                    f"*{svc.name}* {size_bit}× {ctx.get('qty')}\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                    f"*{svc.name}* {size_bit}× {ctx.get('qty')}\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                )
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                await db.commit()
+                await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+                print("bot_trace size_recovery_quote total=%s" % total)
+                return
+
+    # ── Absolute never-silent (only if no outbound was produced above) ──
+    if (text or "").strip() and not interactive_id and not outbound:
         try:
-            from app.services.client_raq_agent import _rule_reply as _rr
-            body = _rr(company, text, ctx)
+            # Continue active quote instead of re-greeting
+            if ctx.get("service_name") or (conv.state or "").startswith("await_"):
+                if not (ctx.get("width") and ctx.get("height")):
+                    body = _t(
+                        ctx,
+                        f"Still on *{ctx.get('service_name') or 'your order'}* — send size like *7x2* and quantity (e.g. 900 pieces).",
+                        f"We still dey on *{ctx.get('service_name') or 'your order'}* — send size like *7x2* and quantity (e.g. 900 pieces).",
+                    )
+                elif not ctx.get("quote_locked"):
+                    body = _t(
+                        ctx,
+                        "I have the size. Confirm quantity if needed, or say *quote* to lock the price.",
+                        "I don get the size. Confirm quantity or type *quote* make I lock price.",
+                    )
+                else:
+                    body = _t(
+                        ctx,
+                        "Your quote is ready. Choose *pickup* or *delivery*, or ask me anything about this order.",
+                        "Your quote don ready. Choose *pickup* or *delivery*, or ask me anything about this order.",
+                    )
+            else:
+                from app.services.client_raq_agent import _rule_reply as _rr
+                body = _rr(company, text, ctx)
             db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
             await db.commit()
             ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
-            print("bot_trace absolute_safety ok=%s" % ok)
+            print("bot_trace absolute_safety ok=%s state=%s svc=%s" % (ok, conv.state, ctx.get("service_name")))
             return
         except Exception as _abs:
             print("absolute_safety", type(_abs).__name__, _abs)

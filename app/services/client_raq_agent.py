@@ -1,26 +1,3 @@
-"""Client RaQ Agent — Grok + tools. Primary intelligence layer.
-
-Flow: message → Grok (with tools) → tool results → Grok → WhatsApp reply.
-Prices always from calculate_service_price backend tool. Company isolation enforced.
-"""
-from __future__ import annotations
-
-import json
-import logging
-from typing import Any
-
-import httpx
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.config import get_settings
-from app.models.company import Company
-from app.models.conversation import Conversation, Message
-from app.services.agent_tools import TOOL_DEFINITIONS, ToolContext, execute_tool
-
-log = logging.getLogger("client_raq.agent")
-
-
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
@@ -35,24 +12,30 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     is_pidgin = bool(words & pidgin_markers) or any(
         x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg")
     )
+    # Never re-welcome mid-quote — continue the active service
+    if ctx.get("service_name") or ctx.get("service_id") or ctx.get("width"):
+        svc = ctx.get("service_name") or "your order"
+        if not (ctx.get("width") and ctx.get("height")):
+            return (
+                f"Still on *{svc}* — abeg send size like *7x2* and how many pieces (inches or feet)."
+                if is_pidgin else
+                f"Still working on *{svc}* — please send size like *7x2* and quantity (inches or feet)."
+            )
+        if not ctx.get("quote_locked"):
+            return (
+                f"I don get your size for *{svc}*. Confirm quantity or say *quote* make I give price."
+                if is_pidgin else
+                f"I have your size for *{svc}*. Confirm quantity or say *quote* for the total."
+            )
+        return (
+            f"Your *{svc}* quote still dey. Pickup or delivery — or ask me anything about am."
+            if is_pidgin else
+            f"Your *{svc}* quote is still open. Pickup or delivery — or ask me anything about it."
+        )
     is_greet = bool(
         words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"}
     ) or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood")
     btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
-
-    # Continue active order if context already has a service (do not re-greet)
-    svc = (ctx or {}).get("service_name")
-    if svc and not is_greet:
-        if is_pidgin or any(w in low for w in ("wan", "abeg", "dey", "nah", "sef")):
-            return (
-                f"For *{svc}* — abeg tell me the *size* (width x height) and *how many pieces*.\n"
-                "Size dey inches or feet?"
-            )
-        return (
-            f"For *{svc}* — please share the *size* (width x height) and *quantity*.\n"
-            "Is the size in inches or feet?"
-        )
-
 
     if is_greet and is_pidgin:
         return (
