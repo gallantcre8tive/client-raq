@@ -3,11 +3,17 @@
 {% block page_title %}Messages{% endblock %}
 {% set active = 'messages' %}
 {% block content %}
-{% set ch = (channel or 'all')|lower %}
+{% set ch = (channel|default('all'))|lower %}
+{% set tg_on = false %}
+{% if company is defined and company %}
+  {% set tg_on = company.telegram_enabled|default(false) %}
+{% elif telegram_enabled is defined %}
+  {% set tg_on = telegram_enabled %}
+{% endif %}
 <div class="space-y-4">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <p class="text-sm text-[var(--text-secondary)] max-w-2xl">
-      Live customer chats from WhatsApp{% if company.telegram_enabled|default(false) %} and Telegram{% endif %}.
+      Live customer chats from WhatsApp{% if tg_on %} and Telegram{% endif %}.
       Reply as your team — media shows in-thread with download.
     </p>
     <div class="flex items-center gap-1 p-1 rounded-xl bg-[var(--surface-subtle)] border border-[var(--border-subtle)] self-start">
@@ -20,7 +26,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m.444 5.884h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-1.99.523.531-1.94-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
         WhatsApp
       </a>
-      {% if company.telegram_enabled|default(false) %}
+      {% if tg_on %}
       <a href="/company/messages?channel=telegram{% if selected_id %}&c={{ selected_id }}{% endif %}"
          class="px-3 py-1.5 rounded-lg text-xs font-semibold no-underline transition inline-flex items-center gap-1.5
          {% if ch == 'telegram' %}bg-[var(--primary)] text-white{% else %}text-[var(--text-secondary)] hover:text-[var(--text-primary)]{% endif %}">
@@ -34,7 +40,6 @@
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 min-h-[min(72vh,680px)]">
-    {# ── Thread list ── #}
     <div class="card overflow-hidden flex flex-col max-h-[min(72vh,680px)] border border-[var(--border-subtle)]">
       <div class="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
         <span class="font-semibold text-sm">Conversations</span>
@@ -54,7 +59,7 @@
                 <span>{{ (t.name or t.wa or '?')[0]|upper }}</span>
                 {% endif %}
               </div>
-              {% if t.channel == 'telegram' %}
+              {% if t.channel|default('whatsapp') == 'telegram' %}
               <span class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#2AABEE] flex items-center justify-center" title="Telegram">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.458.02.889-.15 1.562-.788 5.36-.788 5.36s-.064.258-.3.27c-.19.01-.3-.12-.3-.12l-2.04-1.56s-.48-.36-.22-.78c.1-.16 1.64-1.58 1.64-1.58.68-.64.24-.9 0-.7l-2.8 1.9s-.84.08-1.24-.12c-.44-.24-1.36-.48-1.36-.48s-.88-.56.08-1.12c0 0 4.04-1.8 5.84-2.4.6-.2 1.8-.48 1.8-.48z"/></svg>
               </span>
@@ -78,19 +83,18 @@
         </a>
         {% else %}
         <div class="px-4 py-12 text-center text-sm text-[var(--text-muted)]">
-          No {{ ch if ch != 'all' else '' }} conversations yet.
+          No conversations yet.
         </div>
         {% endfor %}
       </div>
     </div>
 
-    {# ── Thread detail ── #}
     <div class="card overflow-hidden flex flex-col max-h-[min(72vh,680px)] min-h-[420px] border border-[var(--border-subtle)]">
       {% if selected %}
       <div class="px-4 py-3 border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-full overflow-hidden bg-[var(--surface-subtle)] flex items-center justify-center text-sm font-semibold ring-1 ring-[var(--border-subtle)]">
-            {% if selected.avatar_url %}
+            {% if selected.avatar_url is defined and selected.avatar_url %}
             <img src="{{ selected.avatar_url }}" alt="" class="w-full h-full object-cover" loading="lazy">
             {% else %}
             <span>{{ (selected.customer_name or selected.customer_wa_id or '?')[0]|upper }}</span>
@@ -100,7 +104,7 @@
             <div class="font-semibold text-sm truncate">{{ selected.customer_name or selected.customer_wa_id }}</div>
             <div class="text-[11px] text-[var(--text-muted)] truncate flex items-center gap-1.5">
               <span>+{{ selected.customer_wa_id }}</span>
-              {% if selected_channel == 'telegram' %}
+              {% if selected_channel|default('whatsapp') == 'telegram' %}
               <span class="text-[#2AABEE]">· Telegram</span>
               {% else %}
               <span class="text-[#25D366]">· WhatsApp</span>
@@ -127,10 +131,10 @@
         <div class="flex {% if m.direction == 'outbound' %}justify-end{% else %}justify-start{% endif %}">
           <div class="max-w-[min(85%,420px)] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm
             {% if m.direction == 'outbound' %}bg-[var(--primary)] text-white rounded-br-md{% else %}bg-[var(--card-bg,var(--surface))] text-[var(--text-primary)] border border-[var(--border-subtle)] rounded-bl-md{% endif %}">
-            {% if m.media_src or (m.media_url and (m.media_url.startswith('/media/') or m.media_url.startswith('http') or m.media_url.startswith('/company/'))) %}
-              {% set mu = m.media_src or m.media_url %}
-              {% set low = (mu or '')|lower %}
-              {% set kind = m.media_kind or '' %}
+            {% set mu = m.media_src if m.media_src is defined and m.media_src else (m.media_url if m.media_url is defined else none) %}
+            {% if mu and (mu.startswith('/media/') or mu.startswith('http') or mu.startswith('/company/')) %}
+              {% set low = mu|lower %}
+              {% set kind = m.media_kind|default('') %}
               {% if kind == 'video' or low.endswith('.mp4') or low.endswith('.webm') or low.endswith('.mov') %}
                 <video src="{{ mu }}" controls class="max-w-full rounded-lg mb-1.5 max-h-56 bg-black/20"></video>
                 <a href="{{ mu }}" download class="inline-flex items-center gap-1 text-[11px] opacity-85 hover:opacity-100 mb-1">
@@ -139,7 +143,7 @@
               {% elif kind == 'document' or low.endswith('.pdf') or low.endswith('.doc') or low.endswith('.docx') %}
                 <a href="{{ mu }}" target="_blank" rel="noopener" class="inline-flex items-center gap-2 underline mb-1 {% if m.direction == 'outbound' %}text-white{% else %}text-[var(--primary)]{% endif %}">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  {{ m.media_name or 'Document' }}
+                  {{ m.media_name|default('Document') }}
                 </a>
               {% else %}
                 <a href="{{ mu }}" target="_blank" rel="noopener" class="block">
@@ -168,7 +172,7 @@
             <input type="file" name="file" accept="image/*,video/*,.pdf,.doc,.docx" class="hidden" onchange="var el=this.form.querySelector('[data-file-label]'); if(el) el.textContent=this.files[0]?this.files[0].name:'';">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--text-secondary)]"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </label>
-          <textarea name="body" rows="1" placeholder="Type a reply to the customer…" class="flex-1 input text-sm resize-none min-h-[44px] max-h-32 py-2.5" style="field-sizing:content"></textarea>
+          <textarea name="body" rows="1" placeholder="Type a reply to the customer…" class="flex-1 input text-sm resize-none min-h-[44px] max-h-32 py-2.5"></textarea>
           <button type="submit" class="btn btn-primary shrink-0 h-11 px-5">Send</button>
         </div>
         <div data-file-label class="text-xs text-[var(--text-muted)] px-1"></div>
