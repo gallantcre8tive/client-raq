@@ -13,6 +13,33 @@ from app.services.whatsapp_send import send_text, send_buttons, send_list, send_
 
 log = logging.getLogger("client_raq.bot")
 
+def _set_order_status(order, status_key: str) -> None:
+    """Set order.status safely across enum name/value mismatches."""
+    try:
+        from app.models.conversation import OrderStatus
+        key = (status_key or "").strip().lower()
+        mapping = {
+            "awaiting_acceptance": getattr(OrderStatus, "AWAITING_ACCEPTANCE", None),
+            "payment_submitted": getattr(OrderStatus, "PAYMENT_SUBMITTED", None),
+            "payment_confirmed": getattr(OrderStatus, "PAYMENT_CONFIRMED", None),
+            "in_production": getattr(OrderStatus, "IN_PRODUCTION", None),
+            "ready": getattr(OrderStatus, "READY", None),
+            "completed": getattr(OrderStatus, "COMPLETED", None),
+            "rejected": getattr(OrderStatus, "REJECTED", None),
+        }
+        val = mapping.get(key)
+        if val is not None:
+            order.status = val
+            return
+        # try by name
+        for m in OrderStatus:
+            if m.value == key or m.name.lower() == key:
+                order.status = m
+                return
+    except Exception as e:
+        print("set_order_status", type(e).__name__, e)
+
+
 async def _outbound_and_send(db, conv, link, from_wa, body: str) -> bool:
     """Save outbound message then send via WhatsApp. Returns send success."""
     body = (body or "").strip()
@@ -559,6 +586,7 @@ async def _handle_inbound_core(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
+    profile_name: str | None = None,
 ) -> None:
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(
@@ -628,6 +656,19 @@ async def _handle_inbound_core(
     if getattr(conv, "is_live_takeover", False):
         print("bot_trace live_takeover_flag_ignored_keep_replying conv=%s" % getattr(conv, "id", None))
 
+
+    # Persist WhatsApp profile name when Meta sends contacts
+    try:
+        if profile_name:
+            pn = str(profile_name).strip()[:150]
+            if pn:
+                if not getattr(conv, "customer_name", None) or conv.customer_name == from_wa:
+                    conv.customer_name = pn
+                ctx_tmp = _ctx(conv)
+                ctx_tmp["profile_name"] = pn
+                _save_ctx(conv, ctx_tmp)
+    except Exception as _pn:
+        print("profile_name_save", type(_pn).__name__, _pn)
 
     ctx = _ctx(conv)
     low = text.lower()
@@ -877,22 +918,38 @@ async def _handle_inbound_core(
             await db.flush()
         else:
             cust.total_conversations = int(cust.total_conversations or 0) + 1
-        prev = (await db.execute(
-            select(OrderModel).where(
-                OrderModel.company_id == company.id,
-                OrderModel.customer_wa_id == from_wa,
-            ).order_by(OrderModel.id.desc()).limit(1)
-        )).scalars().first()
-        if prev and not ctx.get("last_order_hint"):
-            ctx["last_order_hint"] = {
-                "id": prev.id,
-                "service_name": prev.service_name,
-                "total": float(prev.total or 0),
-                "details": (prev.details or "")[:180],
-            }
-            _save_ctx(conv, ctx)
+            if not getattr(cust, "profile_name", None) and ctx.get("profile_name"):
+                cust.profile_name = str(ctx.get("profile_name"))[:150]
+        if not ctx.get("last_order_hint"):
+            try:
+                prev = (await db.execute(
+                    select(OrderModel).where(
+                        OrderModel.company_id == company.id,
+                        OrderModel.customer_wa_id == from_wa,
+                    ).order_by(OrderModel.id.desc()).limit(1)
+                )).scalars().first()
+                if prev:
+                    tot = float(getattr(prev, "total_amount", None) or getattr(prev, "total", None) or 0)
+                    ctx["last_order_hint"] = {
+                        "id": prev.id,
+                        "service_name": getattr(prev, "service_name", None),
+                        "total": tot,
+                        "details": (getattr(prev, "details", None) or "")[:180],
+                    }
+                    _save_ctx(conv, ctx)
+            except Exception as e_ord:
+                # Enum mismatch or schema drift must never stop the bot
+                print("returning_customer_order_skip", type(e_ord).__name__, e_ord)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
     except Exception as e:
         print("returning_customer", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
     # ── Subscription / trial gate (platform billing) ──
@@ -929,7 +986,6 @@ async def _handle_inbound_core(
             await db.commit()
             if sub.message_count_trial > limit:
                 try:
-                    from app.services.whatsapp_send import send_text
                     await send_text(link.phone_number_id, link.access_token, from_wa,
                         "This free trial has reached its message limit. Please subscribe on Client-RaQ to continue.")
                 except Exception:
@@ -2387,6 +2443,7 @@ async def handle_inbound(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
+    profile_name: str | None = None,
 ) -> None:
     """Public entry — never raises to webhook. Always attempts a customer reply on failure."""
     try:
@@ -2400,6 +2457,7 @@ async def handle_inbound(
             button_id=button_id,
             list_id=list_id,
             wa_message_id=wa_message_id,
+            profile_name=profile_name,
         )
     except BaseException as e:
         import traceback

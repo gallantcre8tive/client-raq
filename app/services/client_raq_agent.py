@@ -1,3 +1,26 @@
+"""Client RaQ Agent — Grok + tools. Primary intelligence layer.
+
+Flow: message → Grok (with tools) → tool results → Grok → WhatsApp reply.
+Prices always from calculate_service_price backend tool. Company isolation enforced.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.models.company import Company
+from app.models.conversation import Conversation, Message
+from app.services.agent_tools import TOOL_DEFINITIONS, ToolContext, execute_tool
+
+log = logging.getLogger("client_raq.agent")
+
+
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
