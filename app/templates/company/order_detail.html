@@ -3,27 +3,78 @@
 {% block page_title %}Order #{{ order_id }}{% endblock %}
 {% set active = 'orders' %}
 {% block content %}
-<a href="/company/orders" class="text-sm text-[var(--primary)] hover:underline mb-4 inline-block">Back to orders</a>
+<a href="/company/orders{% if company_id %}?cid={{ company_id }}{% endif %}" class="text-sm text-[var(--primary)] hover:underline mb-4 inline-block">Back to orders</a>
 <div class="grid lg:grid-cols-2 gap-6">
-  <div class="card p-6 space-y-4">
-    <h3 class="font-semibold">Order details</h3>
-    <dl class="text-sm space-y-2">
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Customer</dt><dd class="text-right">{{ customer|default('—') }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Service</dt><dd class="text-right">{{ service|default('—') }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Details</dt><dd class="text-right text-xs">{{ details|default('—') }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Fulfillment</dt><dd class="text-right">{{ fulfillment|default('—') }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Total</dt><dd class="font-tabular">{{ total|default('—') }}</dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-[var(--text-muted)]">Status</dt><dd><span class="status-pill status-pending">{{ status|default('pending') }}</span></dd></div>
+  <div class="card p-6 space-y-5">
+    <h3 class="font-semibold text-base">Order details</h3>
+    <dl class="text-sm space-y-3">
+      <div class="flex justify-between gap-4 items-start">
+        <dt class="text-[var(--text-muted)] shrink-0">Customer</dt>
+        <dd class="text-right font-medium break-all">{{ customer|default('—') }}</dd>
+      </div>
+      <div class="flex justify-between gap-4 items-start">
+        <dt class="text-[var(--text-muted)] shrink-0">Service</dt>
+        <dd class="text-right font-medium">{{ service|default('—') }}</dd>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <dt class="text-[var(--text-muted)]">Details</dt>
+        <dd class="text-sm leading-relaxed rounded-xl bg-[var(--surface-subtle)] border border-[var(--border-subtle)] p-3">
+          {% if details_lines %}
+            <ul class="space-y-1">
+            {% for line in details_lines %}
+              <li class="flex gap-2"><span class="text-[var(--text-muted)] shrink-0">{{ line.label }}:</span> <span class="font-medium">{{ line.value }}</span></li>
+            {% endfor %}
+            </ul>
+          {% else %}
+            <span class="whitespace-pre-wrap break-words">{{ details|default('—') }}</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div class="flex justify-between gap-4">
+        <dt class="text-[var(--text-muted)]">Fulfillment</dt>
+        <dd class="text-right">{{ fulfillment|default('—') }}</dd>
+      </div>
+      <div class="flex justify-between gap-4">
+        <dt class="text-[var(--text-muted)]">Total</dt>
+        <dd class="font-tabular font-semibold text-base">{{ total|default('—') }}</dd>
+      </div>
+      <div class="flex justify-between gap-4 items-center">
+        <dt class="text-[var(--text-muted)]">Status</dt>
+        <dd><span class="status-pill status-pending">{{ status|default('pending') }}</span></dd>
+      </div>
     </dl>
+
     {% if payment_proof %}
-    <div>
-      <div class="text-xs font-medium text-[var(--text-muted)] mb-2">Payment screenshot</div>
-      <a href="{{ payment_proof }}" target="_blank" rel="noopener">
-        <img src="{{ payment_proof }}" alt="Payment proof" class="rounded-lg max-h-64 border border-[var(--border-subtle)]">
-      </a>
-      <a href="{{ payment_proof }}{% if '?' not in payment_proof %}?download=1{% else %}&download=1{% endif %}" class="text-xs text-[var(--primary)] underline mt-2 inline-block" download>Download screenshot</a>
+    <div class="pt-2 border-t border-[var(--border-subtle)]">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Payment screenshot</div>
+        <a href="{{ payment_proof }}{% if '?' in payment_proof %}&{% else %}?{% endif %}download=1{% if company_id and 'cid=' not in payment_proof %}&cid={{ company_id }}{% endif %}"
+           class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)]"
+           download title="Download" aria-label="Download payment screenshot">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </a>
+      </div>
+      <div class="relative rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] overflow-hidden min-h-[180px] flex items-center justify-center">
+        <a href="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}" target="_blank" rel="noopener" class="block w-full">
+          <img
+            id="crq-proof-img"
+            src="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}"
+            alt="Payment screenshot"
+            class="w-full max-h-[420px] object-contain mx-auto block"
+            loading="eager"
+            onerror="this.classList.add('hidden'); document.getElementById('crq-proof-fallback').classList.remove('hidden');"
+          >
+        </a>
+        <div id="crq-proof-fallback" class="hidden p-6 text-center text-sm text-[var(--text-muted)] space-y-3">
+          <p>Preview unavailable in this browser view.</p>
+          <a href="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}" target="_blank" rel="noopener" class="btn-primary inline-flex items-center gap-2 text-sm px-4 py-2">
+            Open file
+          </a>
+        </div>
+      </div>
     </div>
     {% endif %}
+
     {% if payment_ai %}
     <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 text-xs space-y-1">
       <div class="font-semibold text-sm mb-1">AI analysis (not verification)</div>
@@ -38,14 +89,20 @@
       <div class="text-[var(--text-muted)] mt-1">You must still verify or reject this payment manually.</div>
     </div>
     {% endif %}
+
     {% if conversation_id %}
-    <a href="/company/messages?c={{ conversation_id }}" class="text-sm text-[var(--primary)] underline">Open conversation</a>
+    <a href="/company/messages?c={{ conversation_id }}{% if company_id %}&cid={{ company_id }}{% endif %}" class="text-sm text-[var(--primary)] hover:underline inline-flex items-center gap-1">
+      Open conversation
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+    </a>
     {% endif %}
   </div>
+
   <div class="card p-6">
     <h3 class="font-semibold mb-4">Update status</h3>
     <p class="text-xs text-[var(--text-muted)] mb-4">When you confirm payment or change status, the customer is notified on WhatsApp.</p>
     <form method="post" action="/company/orders/{{ order_id }}/status" class="space-y-3">
+      {% if company_id %}<input type="hidden" name="cid" value="{{ company_id }}">{% endif %}
       <select name="status" class="input-field">
         <option value="awaiting_acceptance">Awaiting acceptance</option>
         <option value="payment_submitted" {% if status=='payment_submitted' %}selected{% endif %}>Payment submitted</option>
@@ -55,7 +112,7 @@
         <option value="completed">Completed</option>
         <option value="rejected">Rejected</option>
       </select>
-      <textarea name="note" class="input-field" placeholder="Optional note to customer..."></textarea>
+      <textarea name="note" class="input-field min-h-[88px]" placeholder="Optional note to customer..."></textarea>
       <button type="submit" class="btn-primary w-full">Update & notify customer</button>
     </form>
   </div>

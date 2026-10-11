@@ -117,18 +117,6 @@ def render(request: Request, name: str, context: dict | None = None, status_code
             if cname:
                 ctx["company_name"] = cname
             ctx.pop("company", None)
-            # Multi-tab session: expose company_id for cid query on all nav links
-            try:
-                cid = getattr(getattr(request, "state", None), "company_id", None)
-                if cid:
-                    ctx["company_id"] = int(cid)
-                elif ctx.get("company_id") is None:
-                    # from user in context if present
-                    u = ctx.get("user")
-                    if u is not None and getattr(u, "company_id", None):
-                        ctx["company_id"] = int(u.company_id)
-            except Exception:
-                pass
     except Exception as _e:
         print("render_nav_labels", _e)
     try:
@@ -264,17 +252,9 @@ async def landing(request: Request, db: AsyncSession = Depends(get_db)):
 
 # ---------- Platform auth ----------
 
-def set_session(
-    response: RedirectResponse,
-    user_id: int,
-    scope: str = "company",
-    company_id: int | None = None,
-) -> RedirectResponse:
-    """Set auth cookie. Per-company cookies enable multi-tab isolation on the same browser."""
-    payload = {"sub": str(user_id), "scope": scope}
-    if scope == "company" and company_id is not None:
-        payload["cid"] = int(company_id)
-    token = create_access_token(payload)
+def set_session(response: RedirectResponse, user_id: int, scope: str = "company") -> RedirectResponse:
+    """Set auth cookie. secure=True required for HTTPS (Render / clientraq.com)."""
+    token = create_access_token({"sub": str(user_id), "scope": scope})
     common = dict(
         httponly=True,
         samesite="lax",
@@ -292,19 +272,6 @@ def set_session(
         response.set_cookie(plat, token, **common)
     else:
         response.set_cookie(comp, token, **common)
-        # Per-company cookie — each tab can keep a different company session
-        if company_id is not None:
-            response.set_cookie(f"crq_cs_{int(company_id)}", token, **common)
-            # Soft preference (readable by JS) so links can target this company
-            response.set_cookie(
-                "crq_active_cid",
-                str(int(company_id)),
-                max_age=60 * 60 * 24 * 7,
-                path="/",
-                samesite="lax",
-                secure=True,
-                httponly=False,
-            )
     response.set_cookie(legacy, token, **common)
     return response
 
@@ -958,31 +925,12 @@ async def company_login(
         pass
 
     resp = RedirectResponse(dest, status_code=303)
-    return set_session(resp, int(row["id"]), scope="company", company_id=int(company["id"]))
+    return set_session(resp, int(row["id"]), scope="company")
 
 
 @app.get("/company/logout")
-async def company_logout(request: Request):
-    """Clear this company's session without wiping other company tabs' cookies."""
-    resp = RedirectResponse("/company/login", status_code=303)
-    cid = request.query_params.get("cid") or request.cookies.get("crq_active_cid")
-    try:
-        plat = settings.SESSION_COOKIE_PLATFORM
-        comp = settings.SESSION_COOKIE_COMPANY
-    except Exception:
-        plat, comp = "crq_platform_session", "crq_company_session"
-    legacy = getattr(settings, "SESSION_COOKIE", "crq_session")
-    opts = dict(path="/")
-    if cid and str(cid).isdigit():
-        resp.delete_cookie(f"crq_cs_{int(cid)}", **opts)
-        # If legacy matches this tab, clear it too
-        resp.delete_cookie(comp, **opts)
-        resp.delete_cookie(legacy, **opts)
-        resp.delete_cookie("crq_active_cid", **opts)
-    else:
-        resp = clear_session(resp, scope="company")
-        resp.delete_cookie("crq_active_cid", **opts)
-    return resp
+async def company_logout():
+    return clear_session(RedirectResponse("/company/login", status_code=303))
 
 
 # ---------- Company pages ----------
@@ -1101,21 +1049,6 @@ def apply_nav_labels(ctx: dict, company=None) -> dict:
     except Exception as e:
         print("apply_nav_labels", e)
     return ctx
-
-
-
-def _ctx_company_id(user, company=None) -> int | None:
-    try:
-        if company is not None and getattr(company, "id", None):
-            return int(company.id)
-    except Exception:
-        pass
-    try:
-        if user is not None and getattr(user, "company_id", None):
-            return int(user.company_id)
-    except Exception:
-        pass
-    return None
 
 
 @app.get("/company/dashboard", response_class=HTMLResponse)
@@ -1968,6 +1901,37 @@ async def company_orders(
     })
 
 
+
+def _format_order_details(raw: str | None) -> list[dict]:
+    """Turn key=value; key=value details into readable label/value rows."""
+    import re as _re
+    if not raw or not str(raw).strip():
+        return []
+    text = str(raw).strip()
+    parts = _re.split(r"[;\n]+", text)
+    rows = []
+    labels = {
+        "width": "Width", "height": "Height", "size_unit": "Unit",
+        "variant_label": "Option", "qty": "Quantity", "design_fee": "Design fee",
+        "size_text": "Size", "amount": "Amount", "rate": "Rate",
+        "service": "Service", "color": "Color", "material": "Material",
+        "fulfillment": "Fulfillment", "delivery": "Delivery",
+    }
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if "=" in p:
+            k, _, v = p.partition("=")
+            k = k.strip()
+            v = v.strip()
+            lab = labels.get(k.lower(), k.replace("_", " ").title())
+            rows.append({"label": lab, "value": v})
+        else:
+            rows.append({"label": "Note", "value": p})
+    return rows
+
+
 @app.get("/company/orders/{order_id}", response_class=HTMLResponse)
 async def company_order_detail(
     order_id: int, request: Request, user: User = Depends(require_company), db: AsyncSession = Depends(get_db),
@@ -2054,10 +2018,18 @@ async def company_order_detail(
             await db.rollback()
         except Exception:
             pass
+    # Prefer authenticated attachment URL so the image always loads in-browser
+    if proof and str(proof).startswith("/") is False and str(proof).isdigit():
+        proof = f"/company/attachments/{proof}"
+    if proof and "/company/attachments/" in str(proof) and "cid=" not in str(proof):
+        sep = "&" if "?" in str(proof) else "?"
+        proof = f"{proof}{sep}cid={cid}"
+
     return render(request, "company/order_detail.html", {
         "active": "orders",
         "company_name": company_name,
         "user_name": user_name,
+        "company_id": cid,
         "order_id": order_row["id"],
         "customer": order_row.get("customer_name") or order_row.get("customer_wa_id") or "—",
         "service": order_row.get("service_name") or "—",
@@ -2065,6 +2037,7 @@ async def company_order_detail(
         "status": st.replace("_", " "),
         "payment_proof": proof,
         "details": order_row.get("details") or "",
+        "details_lines": _format_order_details(order_row.get("details")),
         "fulfillment": order_row.get("fulfillment") or "",
         "conversation_id": order_row.get("conversation_id"),
         "payment_ai": payment_ai,
@@ -2254,7 +2227,7 @@ async def company_messages(request: Request, user: User = Depends(require_compan
                     if aid:
                         att = await db.get(Attachment, aid)
                     if att:
-                        media_src = f"/company/attachments/{att.id}"
+                        media_src = f"/company/attachments/{att.id}?cid={int(user.company_id)}"
                         mime = (att.mime_type or "").lower()
                         if mime.startswith("image/"):
                             media_kind = "image"
@@ -2404,20 +2377,13 @@ async def company_messages_reply(
             att_id = att.id
 
     display = text or (filename if file_bytes else "Attachment")
-    _msg_kw = dict(
+    db.add(Message(
         conversation_id=conv.id,
         direction="outbound",
         body=display,
         media_url=media_url,
-    )
-    if hasattr(Message, "attachment_id") and att_id is not None:
-        _msg_kw["attachment_id"] = att_id
-    if hasattr(Message, "media_type") and file_bytes is not None:
-        try:
-            _msg_kw["media_type"] = (mime or "").split("/")[0] if mime else None
-        except Exception:
-            pass
-    db.add(Message(**_msg_kw))
+        attachment_id=att_id,
+    ))
     await db.commit()
 
     link = (await db.execute(
