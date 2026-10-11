@@ -1,3 +1,16 @@
+"""Client RaQ AI agent — Grok/xAI with tools + natural rule fallbacks."""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+import httpx
+
+from app.config import get_settings
+
+log = logging.getLogger("client_raq.agent")
+
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
@@ -12,8 +25,16 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     is_pidgin = bool(words & pidgin_markers) or any(
         x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg")
     )
-    # Never re-welcome mid-quote — continue the active service
-    if ctx.get("service_name") or ctx.get("service_id") or ctx.get("width"):
+    # Continue active quote only when message is NOT a new service / clear new request
+    _new_service = any(
+        x in low
+        for x in (
+            "sticker", "banner", "nylon", "frame", "flex", "jotter", "cloth", "sav",
+            "paypal", "cashapp", "giftcard", "crypto", "laundry", "repair",
+            "new order", "another", "different", "start over", "start again",
+        )
+    )
+    if (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width")) and not _new_service:
         svc = ctx.get("service_name") or "your order"
         if not (ctx.get("width") and ctx.get("height")):
             return (
@@ -32,6 +53,7 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             if is_pidgin else
             f"Your *{svc}* quote is still open. Pickup or delivery — or ask me anything about it."
         )
+
     is_greet = bool(
         words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"}
     ) or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood")
@@ -254,18 +276,28 @@ Keep formal stage updated with set_conversation_state when stage clearly changes
 
 
 def _api_key() -> str:
-    s = get_settings()
-    return (getattr(s, "GROK_API_KEY", None) or getattr(s, "XAI_API_KEY", None) or "").strip()
+    try:
+        s = get_settings()
+        return (getattr(s, "GROK_API_KEY", None) or getattr(s, "XAI_API_KEY", None) or "").strip()
+    except Exception as e:
+        log.warning("get_settings api_key fail %s", e)
+        return ""
 
 
 def _model() -> str:
-    s = get_settings()
-    return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-4-fast-non-reasoning").strip()
+    try:
+        s = get_settings()
+        return (getattr(s, "GROK_MODEL", None) or getattr(s, "XAI_MODEL", None) or "grok-4-fast-non-reasoning").strip()
+    except Exception:
+        return "grok-4-fast-non-reasoning"
 
 
 def _base() -> str:
-    s = get_settings()
-    return (getattr(s, "GROK_BASE_URL", None) or "https://api.x.ai/v1").rstrip("/")
+    try:
+        s = get_settings()
+        return (getattr(s, "GROK_BASE_URL", None) or "https://api.x.ai/v1").rstrip("/")
+    except Exception:
+        return "https://api.x.ai/v1"
 
 
 async def _chat_with_tools(messages: list[dict], tools: list[dict] | None = None) -> dict | None:
@@ -353,7 +385,7 @@ async def run_agent(
             max_tool_rounds=max_tool_rounds,
         )
     except Exception as e:
-        log.warning("run_agent_outer_fail %s", type(e).__name__)
+        log.warning("run_agent_outer_fail %s", type(e).__name__, exc_info=True)
         print("run_agent_outer_fail", type(e).__name__, e)
         try:
             return _rule_reply(company, customer_message, ctx), ctx, False

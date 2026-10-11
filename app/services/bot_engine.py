@@ -869,7 +869,12 @@ async def _handle_inbound_core(
             if any(k in _low for k in keys):
                 _hit = label
                 break
-        if _hit and not ctx.get("quote_locked"):
+        if _hit:
+            # New service name different from locked quote → start fresh
+            _prev = (ctx.get("service_name") or "").lower()
+            if ctx.get("quote_locked") and _hit not in _prev and _prev and _hit not in _prev:
+                for k in ("quote_locked", "locked_total", "width", "height", "qty", "total", "subtotal", "size_unit"):
+                    ctx.pop(k, None)
             # Match to company service if possible
             matched = None
             for s in services:
@@ -989,13 +994,17 @@ async def _handle_inbound_core(
             ).order_by(OrderModel.id.desc()).limit(1)
         )).scalars().first()
         if prev and not ctx.get("last_order_hint"):
-            ctx["last_order_hint"] = {
-                "id": prev.id,
-                "service_name": prev.service_name,
-                "total": float(prev.total or 0),
-                "details": (prev.details or "")[:180],
-            }
-            _save_ctx(conv, ctx)
+            try:
+                ctx["last_order_hint"] = {
+                    "id": prev.id,
+                    "service_name": getattr(prev, "service_name", None),
+                    "total": float(getattr(prev, "total", 0) or 0),
+                    "details": (getattr(prev, "details", None) or "")[:180],
+                    "status": str(getattr(getattr(prev, "status", None), "value", getattr(prev, "status", "")) or ""),
+                }
+                _save_ctx(conv, ctx)
+            except Exception as _ph:
+                print("last_order_hint_skip", type(_ph).__name__, _ph)
     except Exception as e:
         print("returning_customer", type(e).__name__, e)
 
