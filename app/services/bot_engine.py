@@ -609,6 +609,7 @@ async def _handle_inbound_core(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
+    profile_name: str | None = None,
 ) -> None:
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(
@@ -974,11 +975,13 @@ async def _handle_inbound_core(
             select(Customer).where(Customer.company_id == company.id, Customer.wa_id == from_wa)
         )).scalars().first()
         if not cust:
-            cust = Customer(company_id=company.id, wa_id=from_wa, profile_name=None)
+            cust = Customer(company_id=company.id, wa_id=from_wa, profile_name=(profile_name or None))
             db.add(cust)
             await db.flush()
         else:
             cust.total_conversations = int(cust.total_conversations or 0) + 1
+            if profile_name and not (cust.profile_name or "").strip():
+                cust.profile_name = profile_name
         prev = (await db.execute(
             select(OrderModel).where(
                 OrderModel.company_id == company.id,
@@ -2580,8 +2583,13 @@ async def handle_inbound(
     button_id: str | None = None,
     list_id: str | None = None,
     wa_message_id: str | None = None,
+    profile_name: str | None = None,
+    **kwargs,
 ) -> None:
     """Public entry — never raises to webhook. Always attempts a customer reply on failure."""
+    # Accept extra kwargs (e.g. profile_name) so webhook never TypeErrors
+    if profile_name is None and kwargs.get("profile_name"):
+        profile_name = kwargs.get("profile_name")
     try:
         await _handle_inbound_core(
             db,
@@ -2593,6 +2601,7 @@ async def handle_inbound(
             button_id=button_id,
             list_id=list_id,
             wa_message_id=wa_message_id,
+            profile_name=profile_name,
         )
     except BaseException as e:
         import traceback

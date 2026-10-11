@@ -37,13 +37,20 @@ async def process_whatsapp_payload(body: dict[str, Any]) -> None:
                         phone_number_id,
                         len(msgs),
                     )
+                    contacts = value.get("contacts") or []
+                    contact_names = {}
+                    for c in contacts:
+                        wa = (c.get("wa_id") or c.get("waId") or "")
+                        nm = ((c.get("profile") or {}).get("name")) or c.get("name")
+                        if wa and nm:
+                            contact_names[str(wa)] = str(nm)
                     for msg in msgs:
-                        await _one_message(db, phone_number_id, msg)
+                        await _one_message(db, phone_number_id, msg, contact_names=contact_names)
     except Exception as e:
         log.exception("bg_webhook %s", e)
 
 
-async def _one_message(db, phone_number_id: str, msg: dict) -> None:
+async def _one_message(db, phone_number_id: str, msg: dict, contact_names: dict | None = None) -> None:
     from_wa = msg.get("from") or ""
     wa_message_id = msg.get("id")
     log.info(
@@ -96,28 +103,12 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
         log.info("webhook_unsupported_type %s", msg_type)
         # Still try handle with empty text so we can send a fallback
 
-    # WhatsApp profile name from contacts payload (when present)
-    profile_name = None
-    try:
-        for c in (value.get("contacts") or []):
-            wa_id = (c.get("wa_id") or "")
-            if wa_id and str(wa_id) in str(from_wa):
-                profile_name = ((c.get("profile") or {}).get("name") or c.get("name") or {}).get("formatted_name") if isinstance((c.get("profile") or {}).get("name"), dict) else ((c.get("profile") or {}).get("name") or None)
-                if not profile_name and isinstance(c.get("profile"), dict):
-                    profile_name = c["profile"].get("name")
-                break
-        if not profile_name:
-            for c in (value.get("contacts") or []):
-                p = c.get("profile") or {}
-                if p.get("name"):
-                    profile_name = p.get("name")
-                    break
-    except Exception:
-        profile_name = None
-
     lock = _lock_for(f"{phone_number_id}:{from_wa}")
     try:
         async with lock:
+            pname = None
+            if contact_names:
+                pname = contact_names.get(str(from_wa)) or contact_names.get(from_wa)
             await handle_inbound(
                 db,
                 phone_number_id=phone_number_id,
@@ -128,7 +119,7 @@ async def _one_message(db, phone_number_id: str, msg: dict) -> None:
                 button_id=button_id,
                 list_id=list_id,
                 wa_message_id=wa_message_id,
-                profile_name=profile_name,
+                profile_name=pname,
             )
         try:
             await db.commit()
