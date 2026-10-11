@@ -22,7 +22,7 @@
           {% if details_lines %}
             <ul class="space-y-1">
             {% for line in details_lines %}
-              <li class="flex gap-2"><span class="text-[var(--text-muted)] shrink-0">{{ line.label }}:</span> <span class="font-medium">{{ line.value }}</span></li>
+              <li class="flex gap-2 flex-wrap"><span class="text-[var(--text-muted)] shrink-0">{{ line.label }}:</span> <span class="font-medium">{{ line.value }}</span></li>
             {% endfor %}
             </ul>
           {% else %}
@@ -48,29 +48,24 @@
     <div class="pt-2 border-t border-[var(--border-subtle)]">
       <div class="flex items-center justify-between gap-3 mb-3">
         <div class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Payment screenshot</div>
-        <a href="{{ payment_proof }}{% if '?' in payment_proof %}&{% else %}?{% endif %}download=1{% if company_id and 'cid=' not in payment_proof %}&cid={{ company_id }}{% endif %}"
+        {% if payment_proof_download %}
+        <a href="{{ payment_proof_download }}"
            class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)]"
            download title="Download" aria-label="Download payment screenshot">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </a>
+        {% endif %}
       </div>
-      <div class="relative rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] overflow-hidden min-h-[180px] flex items-center justify-center">
-        <a href="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}" target="_blank" rel="noopener" class="block w-full">
-          <img
-            id="crq-proof-img"
-            src="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}"
-            alt="Payment screenshot"
-            class="w-full max-h-[420px] object-contain mx-auto block"
-            loading="eager"
-            onerror="this.classList.add('hidden'); document.getElementById('crq-proof-fallback').classList.remove('hidden');"
-          >
-        </a>
-        <div id="crq-proof-fallback" class="hidden p-6 text-center text-sm text-[var(--text-muted)] space-y-3">
-          <p>Preview unavailable in this browser view.</p>
-          <a href="{{ payment_proof }}{% if company_id and 'cid=' not in payment_proof %}{{ '?' if '?' not in payment_proof else '&' }}cid={{ company_id }}{% endif %}" target="_blank" rel="noopener" class="btn-primary inline-flex items-center gap-2 text-sm px-4 py-2">
-            Open file
-          </a>
-        </div>
+      <div class="relative rounded-xl border border-[var(--border-subtle)] bg-[#0b1220] overflow-hidden min-h-[220px] flex items-center justify-center p-2">
+        {% if payment_proof_embedded or (payment_proof is string and payment_proof.startswith('data:')) %}
+          <img src="{{ payment_proof }}" alt="Payment screenshot" class="w-full max-h-[520px] object-contain mx-auto block rounded-lg">
+        {% else %}
+          <img id="crq-proof-img" src="{{ payment_proof }}" alt="Payment screenshot" class="w-full max-h-[520px] object-contain mx-auto block rounded-lg"
+               onerror="this.style.display='none'; var f=document.getElementById('crq-proof-fallback'); if(f) f.classList.remove('hidden');">
+          <div id="crq-proof-fallback" class="hidden p-6 text-center text-sm text-[var(--text-muted)]">
+            Screenshot could not be loaded. Ask the customer to resend it in Messages.
+          </div>
+        {% endif %}
       </div>
     </div>
     {% endif %}
@@ -80,11 +75,6 @@
       <div class="font-semibold text-sm mb-1">AI analysis (not verification)</div>
       {% if payment_ai.platform %}<div>Platform: {{ payment_ai.platform }}</div>{% endif %}
       {% if payment_ai.amount %}<div>Amount shown: {{ payment_ai.currency or '' }} {{ payment_ai.amount }}</div>{% endif %}
-      {% if payment_ai.status_shown %}<div>Status shown: {{ payment_ai.status_shown }}</div>{% endif %}
-      {% if payment_ai.recipient %}<div>Recipient: {{ payment_ai.recipient }}</div>{% endif %}
-      {% if payment_ai.reference %}<div>Reference: {{ payment_ai.reference }}</div>{% endif %}
-      {% if payment_ai.transaction_date %}<div>Date: {{ payment_ai.transaction_date }}</div>{% endif %}
-      {% if payment_ai.confidence %}<div>Confidence: {{ payment_ai.confidence }}</div>{% endif %}
       {% if payment_ai.summary %}<div class="text-[var(--text-secondary)]">{{ payment_ai.summary }}</div>{% endif %}
       <div class="text-[var(--text-muted)] mt-1">You must still verify or reject this payment manually.</div>
     </div>
@@ -93,7 +83,6 @@
     {% if conversation_id %}
     <a href="/company/messages?c={{ conversation_id }}{% if company_id %}&cid={{ company_id }}{% endif %}" class="text-sm text-[var(--primary)] hover:underline inline-flex items-center gap-1">
       Open conversation
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
     </a>
     {% endif %}
   </div>

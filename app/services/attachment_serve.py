@@ -58,6 +58,7 @@ async def resolve_bytes(
     # Re-download from WhatsApp if we still have media id + company token
     mid = (att.wa_media_id or "").strip()
     if not mid:
+        print("resolve_bytes_miss no_local no_wa_media_id att=%s path=%s" % (getattr(att,"id",None), getattr(att,"storage_path",None)))
         return None
     link = (await db.execute(
         select(CompanyWhatsAppNumber).where(

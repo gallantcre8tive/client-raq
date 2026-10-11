@@ -1915,7 +1915,6 @@ def _format_order_details(raw: str | None) -> list[dict]:
         "variant_label": "Option", "qty": "Quantity", "design_fee": "Design fee",
         "size_text": "Size", "amount": "Amount", "rate": "Rate",
         "service": "Service", "color": "Color", "material": "Material",
-        "fulfillment": "Fulfillment", "delivery": "Delivery",
     }
     for p in parts:
         p = p.strip()
@@ -1923,10 +1922,8 @@ def _format_order_details(raw: str | None) -> list[dict]:
             continue
         if "=" in p:
             k, _, v = p.partition("=")
-            k = k.strip()
-            v = v.strip()
-            lab = labels.get(k.lower(), k.replace("_", " ").title())
-            rows.append({"label": lab, "value": v})
+            lab = labels.get(k.strip().lower(), k.strip().replace("_", " ").title())
+            rows.append({"label": lab, "value": v.strip()})
         else:
             rows.append({"label": "Note", "value": p})
     return rows
@@ -2018,12 +2015,73 @@ async def company_order_detail(
             await db.rollback()
         except Exception:
             pass
-    # Prefer authenticated attachment URL so the image always loads in-browser
-    if proof and str(proof).startswith("/") is False and str(proof).isdigit():
-        proof = f"/company/attachments/{proof}"
-    if proof and "/company/attachments/" in str(proof) and "cid=" not in str(proof):
-        sep = "&" if "?" in str(proof) else "?"
-        proof = f"{proof}{sep}cid={cid}"
+    # Embed payment screenshot as data-URI so it always shows in the admin UI
+    import base64 as _b64
+    import re as _re
+    proof_data_url = None
+    proof_download = None
+    att_id_for_proof = None
+    try:
+        m_att = _re.search(r"/company/attachments/(\d+)", str(proof or ""))
+        if m_att:
+            att_id_for_proof = int(m_att.group(1))
+        elif str(proof or "").isdigit():
+            att_id_for_proof = int(proof)
+        if not att_id_for_proof:
+            att_row2 = (await db.execute(sa_text("""
+                SELECT id FROM attachments
+                WHERE company_id = :cid
+                  AND (kind = 'payment_proof' OR kind ILIKE '%payment%')
+                  AND (
+                    order_id = :oid
+                    OR (:cvid IS NOT NULL AND conversation_id = :cvid)
+                  )
+                ORDER BY id DESC LIMIT 1
+            """), {
+                "cid": cid,
+                "oid": int(order_row["id"]),
+                "cvid": order_row.get("conversation_id"),
+            })).mappings().first()
+            if not att_row2:
+                # last resort: any payment_proof for this company customer
+                att_row2 = (await db.execute(sa_text("""
+                    SELECT id FROM attachments
+                    WHERE company_id = :cid AND kind = 'payment_proof'
+                    ORDER BY id DESC LIMIT 1
+                """), {"cid": cid})).mappings().first()
+            if att_row2:
+                att_id_for_proof = int(att_row2["id"])
+        if att_id_for_proof:
+            from app.models.conversation import Attachment as _Att
+            from app.services.attachment_serve import resolve_bytes as _resolve
+            att_obj = await db.get(_Att, att_id_for_proof)
+            if att_obj and int(att_obj.company_id) == int(cid):
+                resolved = await _resolve(db, att_obj)
+                proof_download = f"/company/attachments/{att_id_for_proof}?cid={cid}&download=1"
+                if resolved and resolved[0]:
+                    content, mime, fname = resolved
+                    mime = mime or "image/jpeg"
+                    low = (fname or "").lower()
+                    if not str(mime).startswith("image/"):
+                        if low.endswith((".jpg", ".jpeg")):
+                            mime = "image/jpeg"
+                        elif low.endswith(".png"):
+                            mime = "image/png"
+                        elif low.endswith(".webp"):
+                            mime = "image/webp"
+                    if str(mime).startswith("image/"):
+                        proof_data_url = "data:%s;base64,%s" % (mime, _b64.b64encode(content).decode("ascii"))
+                        proof = proof_data_url
+                    else:
+                        proof = proof_download
+                else:
+                    proof = f"/company/attachments/{att_id_for_proof}?cid={cid}"
+    except Exception as e_proof:
+        print("order_proof_embed", type(e_proof).__name__, e_proof)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     return render(request, "company/order_detail.html", {
         "active": "orders",
@@ -2036,6 +2094,8 @@ async def company_order_detail(
         "total": f"{order_row.get('currency') or currency} {float(order_row.get('total') or 0):,.0f}",
         "status": st.replace("_", " "),
         "payment_proof": proof,
+        "payment_proof_download": proof_download or (proof if proof and str(proof).startswith("/") else None),
+        "payment_proof_embedded": bool(proof_data_url),
         "details": order_row.get("details") or "",
         "details_lines": _format_order_details(order_row.get("details")),
         "fulfillment": order_row.get("fulfillment") or "",
@@ -2172,27 +2232,51 @@ async def company_attachment_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Serve customer/admin file. Re-downloads from WhatsApp if missing on disk (Render-safe)."""
-    from fastapi.responses import Response
+    from fastapi.responses import Response, HTMLResponse
     from app.models.conversation import Attachment
     from app.services.attachment_serve import resolve_bytes
 
     att = await db.get(Attachment, attachment_id)
-    if not att or att.company_id != user.company_id:
-        raise HTTPException(404, detail="Attachment not found")
+    if not att or int(att.company_id) != int(user.company_id):
+        return HTMLResponse("<h3>Attachment not found</h3>", status_code=404)
     resolved = await resolve_bytes(db, att)
-    if not resolved:
-        raise HTTPException(404, detail="File not available")
+    if not resolved or not resolved[0]:
+        print(
+            "attachment_missing id=%s path=%s wa_media_id=%s"
+            % (attachment_id, getattr(att, "storage_path", None), getattr(att, "wa_media_id", None))
+        )
+        return HTMLResponse(
+            "<div style='font-family:system-ui;padding:2rem'>"
+            "<h3>File not available</h3>"
+            "<p>This file is not on the server and could not be re-downloaded from WhatsApp. "
+            "Ask the customer to resend it in chat.</p></div>",
+            status_code=404,
+        )
     content, mime, fname = resolved
+    mime = mime or "application/octet-stream"
+    low = (fname or "").lower()
+    if mime == "application/octet-stream":
+        if low.endswith((".jpg", ".jpeg")):
+            mime = "image/jpeg"
+        elif low.endswith(".png"):
+            mime = "image/png"
+        elif low.endswith(".webp"):
+            mime = "image/webp"
+        elif low.endswith(".gif"):
+            mime = "image/gif"
     force_dl = request.query_params.get("download") in ("1", "true", "yes")
-    disp = "attachment" if force_dl or not (mime or "").startswith("image/") else "inline"
+    safe_name = (fname or "file").replace('"', "").replace("\\", "_")[:180]
+    disp = "attachment" if force_dl or not mime.startswith("image/") else "inline"
     return Response(
         content=content,
-        media_type=mime or "application/octet-stream",
+        media_type=mime,
         headers={
-            "Content-Disposition": f'{disp}; filename="{fname}"',
+            "Content-Disposition": f'{disp}; filename="{safe_name}"',
             "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
         },
     )
+
 
 
 @app.get("/company/messages", response_class=HTMLResponse)
