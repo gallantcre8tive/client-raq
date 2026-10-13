@@ -54,10 +54,27 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             f"Your *{svc}* quote is still open. Pickup or delivery — or ask me anything about it."
         )
 
-    is_greet = bool(
-        words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"}
-    ) or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood")
+    # "??" / "?" alone is follow-up confusion, NOT a greeting
+    is_confused = low in ("?", "??", "???", "hello?", "wetin?", "wetin", "eh?", "abi?")
+    is_greet = (not is_confused) and (
+        bool(words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"})
+        or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood", "how far my oga", "how e be")
+    )
     btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+    if is_confused:
+        if ctx.get("service_name"):
+            return (
+                f"I still dey for *{ctx.get('service_name')}*. Abeg tell me size and quantity clearly so I fit quote you."
+                if is_pidgin else
+                f"Still on *{ctx.get('service_name')}*. Please share size and quantity so I can quote you."
+            )
+        return (
+            f"I dey here for *{name}*. Wetin you wan do? Sticker, banner, nylon, frame — or tell me another service."
+            if is_pidgin else
+            f"I'm here for *{name}*. What do you need? Tell me the service and details."
+        )
 
     if is_greet and is_pidgin:
         return (
@@ -416,11 +433,11 @@ async def _run_agent_inner(
 
     messages: list[dict] = [{"role": "system", "content": system}]
     if recent:
-        for m in recent[-8:]:
+        for m in recent[-16:]:
             role = "assistant" if m.get("direction") == "outbound" else "user"
             body = (m.get("body") or "").strip()
             if body:
-                messages.append({"role": role, "content": body[:1200]})
+                messages.append({"role": role, "content": body[:2000]})
     # structured state hint
     state_hint = {
         "conversation_state": conv.state,
@@ -437,6 +454,7 @@ async def _run_agent_inner(
     if attachment_note:
         user_blob += f"\n\nAttachment event: {attachment_note}"
     user_blob += f"\n\nInternal state: {json.dumps(state_hint, ensure_ascii=False)}"
+    user_blob += "\n\nRULES: Never restart with a welcome if conversation already started. Never invent prices. Use tools for price/services. Short WhatsApp replies. If customer said sticker/banner/etc, continue that flow. If message is ?? or short, use history."
     messages.append({"role": "user", "content": user_blob})
 
     # Fast path: pure greetings → one natural reply, no tools (swift + human)

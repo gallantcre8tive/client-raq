@@ -150,3 +150,61 @@ async def clear_notifications(db: AsyncSession, company_id: int) -> None:
             await db.rollback()
         except Exception:
             pass
+
+
+async def notify_platform_message(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    title: str,
+    body: str,
+) -> bool:
+    """Platform admin → company notification (bell)."""
+    return await notify_company(
+        db,
+        int(company_id),
+        title=(title or "Message from Client RaQ")[:200],
+        body=(body or "")[:2000],
+        priority="high",
+        kind="platform_message",
+        link_path="/company/dashboard",
+    )
+
+
+async def notify_new_order(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    order_id: int,
+    summary: str,
+    customer_label: str = "",
+) -> bool:
+    return await notify_company(
+        db,
+        int(company_id),
+        title=f"New order #{order_id}",
+        body=(summary or "")[:2000],
+        priority="high",
+        kind="order",
+        link_path=f"/company/orders/{order_id}",
+    )
+
+
+async def notify_payment_proof(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    order_id: int | None = None,
+    customer_label: str = "",
+    body: str = "",
+) -> bool:
+    link = f"/company/orders/{order_id}" if order_id else "/company/orders"
+    return await notify_company(
+        db,
+        int(company_id),
+        title="Payment screenshot received",
+        body=(body or f"Customer {customer_label} sent payment proof.")[:2000],
+        priority="high",
+        kind="payment",
+        link_path=link,
+    )

@@ -1142,6 +1142,7 @@ async def _handle_inbound_core(
                             att.transcript = transcript
                             text = (text or "") + (" " if text else "") + transcript
                             attachment_note = f"Customer sent a voice note. Transcript: {transcript}"
+                            print("bot_trace voice_transcript len=%s preview=%r" % (len(transcript), transcript[:80]))
                             # language hint for agent
                             tl = transcript.lower()
                             if any(w in tl.split() for w in ("abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "sef", "nah")):
@@ -1149,6 +1150,10 @@ async def _handle_inbound_core(
                             _save_ctx(conv, ctx)
                         else:
                             attachment_note = "Customer sent a voice note (transcription unavailable). Ask them to type if unclear."
+                            if not (text or "").strip():
+                                text = ""  # keep empty; agent/rule will ask to type
+                                ctx["voice_failed"] = True
+                                _save_ctx(conv, ctx)
                 elif att.kind == "payment_proof":
                     blob = await _dl(media_id, link.access_token)
                     analysis = {}
@@ -1346,9 +1351,12 @@ async def _handle_inbound_core(
             except _aio.TimeoutError:
                 print("bot_trace agent_timeout")
                 reply = (
-                    f"Hi! Thanks for messaging *{company.name}*. "
-                    "I am a bit slow right now — please resend what you need "
-                    "(service, size, quantity) and I will quote you."
+                    f"*{company.name}* still dey with you — network slow small. "
+                    "Abeg resend wetin you need (service, size, quantity) make I continue."
+                    if (ctx.get("lang") == "pidgin" or any(w in (text or "").lower() for w in ("wan", "abeg", "dey", "wetin")))
+                    else
+                    f"*{company.name}* here — we are a bit slow right now. "
+                    "Please resend what you need (service, size, quantity) and we will continue from there."
                 )
                 needs_human = False
             print("bot_trace agent_done reply_len=%s needs_human=%s" % (
