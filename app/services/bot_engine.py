@@ -129,6 +129,9 @@ def _parse_qty(text: str):
     )
     if m:
         return max(1, int(m.group(1)))
+    m = re.search(r"(\d+)(pcs|pieces|pc)\b", low)
+    if m:
+        return max(1, int(m.group(1)))
     if re.fullmatch(r"\d+", (text or "").strip()):
         return max(1, int(text.strip()))
     return None
@@ -877,13 +880,27 @@ async def _handle_inbound_core(
                     ctx.pop(k, None)
             # Match to company service if possible
             matched = None
+            _extra = {
+                "sticker": ("sav", "vinyl", "label", "decal", "sticker"),
+                "banner": ("flex", "banner", "rollup", "roll up"),
+                "nylon": ("nylon", "poly"),
+                "frame": ("frame", "acrylic", "frameless"),
+            }
             for s in services:
                 if not getattr(s, "is_active", True):
                     continue
                 sn = (s.name or "").lower()
-                if _hit in sn or any(k in sn for k in next((ks for ks, lb in _intent_map if lb == _hit), ())):
+                keys = next((ks for ks, lb in _intent_map if lb == _hit), ())
+                extra = _extra.get(_hit, ())
+                if _hit in sn or any(k in sn for k in keys) or any(k in sn for k in extra):
                     matched = s
                     break
+            if matched is None:
+                # last resort: any active service for printing
+                for s in services:
+                    if getattr(s, "is_active", True):
+                        matched = s
+                        break
             if matched:
                 ctx["service_id"] = matched.id
                 ctx["service_name"] = matched.name
@@ -912,6 +929,9 @@ async def _handle_inbound_core(
                 except Exception:
                     pass
             has_size = bool(ctx.get("width") and ctx.get("height"))
+            # Prefer resolved service if matched missing
+            if has_size and not matched:
+                matched = _resolve_service(services, ctx)
             # Full ask in one message → quote now
             if has_size and matched:
                 unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
@@ -971,6 +991,30 @@ async def _handle_inbound_core(
                 ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
                 print("bot_trace intent_reply service=%s ok=%s" % (_hit, ok))
                 return
+
+            # Size already given but catalog miss — still acknowledge, do not re-ask size
+            if has_size:
+                unit = ctx.get("size_unit") or "in"
+                q = ctx.get("qty") or 1
+                body = (
+                    f"I don get: *{_hit}* {ctx.get('width'):g}×{ctx.get('height'):g} {unit} × {q}.\n"
+                    f"Abeg type the exact service name we get for *{company.name}* (or *menu*) make I lock price."
+                    if ctx.get("lang") == "pidgin" else
+                    f"Got it: *{_hit}* {ctx.get('width'):g}×{ctx.get('height'):g} {unit} × {q}.\n"
+                    f"Please type the exact service name for *{company.name}* (or *menu*) so I can lock the price."
+                )
+                try:
+                    db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+                print("bot_trace intent_size_ack ok=%s" % ok)
+                return
+
 
 
     # Returning customer: ensure Customer row + previous order hint in ctx

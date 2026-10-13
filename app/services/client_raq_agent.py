@@ -11,6 +11,28 @@ from app.config import get_settings
 
 log = logging.getLogger("client_raq.agent")
 
+def _extract_size_qty(msg: str):
+    """Return (w, h, qty, unit) from free text if present."""
+    import re
+    low = (msg or "").lower()
+    w = h = qty = None
+    unit = None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)", low)
+    if m:
+        w, h = float(m.group(1)), float(m.group(2))
+    m = re.search(r"(?:of\s+)?(\d+)\s*(units?|pcs?\.?|pieces?|qty|quantity)\b", low)
+    if not m:
+        m = re.search(r"(\d+)(pcs|pieces|pc)\b", low)
+    if m:
+        qty = max(1, int(m.group(1)))
+    if "inch" in low:
+        unit = "in"
+    elif any(x in low for x in ("ft", "feet", "foot")):
+        unit = "ft"
+    return w, h, qty, unit
+
+
+
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
@@ -97,6 +119,17 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             )
 
         if any(x in low for x in ("sticker", "sav", "label")):
+            w, h, qty, unit = _extract_size_qty(msg)
+            if w and h:
+                unit = unit or "in"
+                qbit = f" × {qty} pieces" if qty else ""
+                return (
+                    f"Oya! Sticker *{w:g}×{h:g} {unit}*{qbit} for *{name}*.\n"
+                    f"I go confirm the total now — you wan pickup or delivery after the quote?"
+                    if is_pidgin else
+                    f"Sticker *{w:g}×{h:g} {unit}*{qbit} noted for *{name}*.\n"
+                    f"I'll confirm the total — pickup or delivery after the quote?"
+                )
             return (
                 f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
                 if is_pidgin else
@@ -109,6 +142,15 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                 f"Nylon bags — how many pieces, and do you need custom branding?"
             )
         if any(x in low for x in ("banner", "flex", "rollup", "roll-up")):
+            w, h, qty, unit = _extract_size_qty(msg)
+            if w and h:
+                unit = unit or "ft"
+                qbit = f" × {qty}" if qty else ""
+                return (
+                    f"Banner *{w:g}×{h:g} {unit}*{qbit} — I go confirm price for *{name}*."
+                    if is_pidgin else
+                    f"Banner *{w:g}×{h:g} {unit}*{qbit} noted — confirming price for *{name}*."
+                )
             return (
                 f"Banner/flex — tell me size in feet (e.g. 5x2) and quantity."
                 if is_pidgin else
