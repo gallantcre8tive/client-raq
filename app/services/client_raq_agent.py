@@ -34,6 +34,13 @@ def _extract_size_qty(msg: str):
 
 
 
+
+
+def _escalate_human(is_pidgin: bool = True) -> str:
+    if is_pidgin:
+        return "Hold on small — I go holla my person make e confirm this one for you. I go message you back sharp."
+    return "Give me a moment — I will check with the team and get back to you shortly."
+
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
     name = getattr(company, "name", None) or "us"
@@ -65,24 +72,26 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
         # allow normal greeting path — do not force "still on SAV"
         pass
     elif (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width")) and not _new_service:
-        svc = ctx.get("service_name") or "your order"
+        # ALWAYS parse THIS message for size/qty before asking again
+        w, h, qty, unit = _extract_size_qty(msg)
+        if w and h:
+            unit = unit or ("in" if "inch" in low else "ft" if any(x in low for x in ("ft", "feet")) else ctx.get("size_unit") or "in")
+            q = qty or ctx.get("qty") or 1
+            # Signal to engine: size captured — short human ack (engine will quote if it can)
+            if is_pidgin:
+                return f"Oya I get am — *{w:g}×{h:g} {unit}* × {q} pcs. Make I check the price for you sharp sharp."
+            return f"Got it — *{w:g}×{h:g} {unit}* × {q} pcs. Checking the price for you now."
         if not (ctx.get("width") and ctx.get("height")):
-            return (
-                f"Still on *{svc}* — abeg send size like *7x2* and how many pieces (inches or feet)."
-                if is_pidgin else
-                f"Still working on *{svc}* — please send size like *7x2* and quantity (inches or feet)."
-            )
+            if is_pidgin:
+                return "Abeg send the size like *5x2* and how many pieces (inches or feet)."
+            return "Please send the size like *5x2* and how many pieces (inches or feet)."
         if not ctx.get("quote_locked"):
-            return (
-                f"I don get your size for *{svc}*. Confirm quantity or say *quote* make I give price."
-                if is_pidgin else
-                f"I have your size for *{svc}*. Confirm quantity or say *quote* for the total."
-            )
-        return (
-            f"Your *{svc}* quote still dey. Pickup or delivery — or ask me anything about am."
-            if is_pidgin else
-            f"Your *{svc}* quote is still open. Pickup or delivery — or ask me anything about it."
-        )
+            if is_pidgin:
+                return "I don get the size. Confirm quantity or say *quote* make I give price."
+            return "I have the size. Confirm quantity or say *quote* for the total."
+        if is_pidgin:
+            return "Your quote still dey open. You wan *pickup* or *delivery*?"
+        return "Your quote is still open. Pickup or delivery?"
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
     is_confused = low in ("?", "??", "???", "hello?", "wetin?", "wetin", "eh?", "abi?")
@@ -96,26 +105,20 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     if is_confused:
         if ctx.get("service_name"):
             return (
-                f"I still dey for *{ctx.get('service_name')}*. Abeg tell me size and quantity clearly so I fit quote you."
+                "I still dey on that order — abeg drop size like *5x2* and how many pieces."
                 if is_pidgin else
-                f"Still on *{ctx.get('service_name')}*. Please share size and quantity so I can quote you."
+                "Still on that order — please send size like *5x2* and quantity."
             )
         return (
-            f"I dey here for *{name}*. Wetin you wan do? Sticker, banner, nylon, frame — or tell me another service."
+            "I dey here. Wetin you wan do today?"
             if is_pidgin else
-            f"I'm here for *{name}*. What do you need? Tell me the service and details."
+            "I'm here. What do you need today?"
         )
 
     if is_greet and is_pidgin:
-        return (
-            f"Haa big man! Welcome to *{name}*.\n"
-            "How your side nah? Wetin you wan do today — talk am, I dey here."
-        )
+        return "How far my guy! Wetin you wan do today — I dey here."
     if is_greet:
-        return (
-            f"Hey! Welcome to *{name}*.\n"
-            "How can I help you today? Just tell me what you need."
-        )
+        return "Hey! How can I help you today? Just tell me what you need."
 
     # ── Printing ──
     if btype in ("printing", "print"):
@@ -127,22 +130,22 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                     unit = unit or "in"
                     qbit = f" × {qty} pieces" if qty else ""
                     return (
-                        f"Oya SAV/sticker *{w:g}×{h:g} {unit}*{qbit} — I go confirm total for *{name}*."
+                        f"Oya SAV/sticker *{w:g}×{h:g} {unit}*{qbit} — I go check the price now."
                         if is_pidgin else
-                        f"SAV/sticker *{w:g}×{h:g} {unit}*{qbit} noted for *{name}*. Confirming total."
+                        f"SAV/sticker *{w:g}×{h:g} {unit}*{qbit} noted. Checking the total now."
                     )
                 return (
-                    f"Oya! SAV/sticker for *{name}*.\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
+                    f"Oya sticker! Abeg tell me size (width x height) and how many pieces. Inches or feet?"
                     if is_pidgin else
-                    f"SAV/sticker for *{name}*. Please share size (width x height) and quantity. Inches or feet?"
+                    f"Sticker — please share size (width x height) and quantity. Inches or feet?"
                 )
             if any(x in low for x in ("banner", "flex", "nylon", "frame")):
                 pass  # fall through to specific branches below
             else:
                 return (
-                    f"No wahala — *{name}* fit print am.\nWetin exactly: sticker, banner, nylon, frame, or another thing?"
+                    f"No wahala — we fit print am.\nWetin exactly: sticker, banner, nylon, frame, or another thing?"
                     if is_pidgin or "jare" in low or "wan" in low else
-                    f"Sure — *{name}* can help.\nWhat would you like to print: sticker, banner, nylon, frame, or something else?"
+                    f"Sure — we can help.\nWhat would you like to print: sticker, banner, nylon, frame, or something else?"
                 )
 
         if any(x in low for x in ("sticker", "sav", "label")):
@@ -158,9 +161,9 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                     f"I'll confirm the total — pickup or delivery after the quote?"
                 )
             return (
-                f"Oya sticker for *{name}*!\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
+                f"Oya sticker! Abeg tell me size (width x height) and how many pieces. Inches or feet?"
                 if is_pidgin else
-                f"Sticker printing — please share size (width x height) and quantity. Inches or feet?"
+                f"Sticker — please share size (width x height) and quantity. Inches or feet?"
             )
         if "nylon" in low:
             return (

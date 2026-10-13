@@ -112,10 +112,13 @@ def _detect_size_unit(text: str, ctx: dict | None = None) -> str:
 
 
 def _parse_size(text: str):
-    low = (text or "").lower()
+    low = (text or "").lower().replace("×", "x").replace("*", "x")
     m = re.search(r"(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)", low)
     if not m:
         m = re.search(r"(\d+(?:\.\d+)?)\s*by\s*(\d+(?:\.\d+)?)", low)
+    if not m:
+        # "I say 5x2" / "size 5x2"
+        m = re.search(r"(?:size|say|na|be)\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", low)
     if m:
         return float(m.group(1)), float(m.group(2))
     return None, None
@@ -1513,6 +1516,55 @@ async def _handle_inbound_core(
                         ctx["size_unit"] = "in"
             except Exception as _sx:
                 print("agent_state_sync", _sx)
+
+            # If agent acknowledged size in this turn, force quote calculation now
+            try:
+                _rw, _rh = _parse_size(text or "")
+                _rq = _parse_qty(text or "")
+                if _rw and _rh and (ctx.get("service_name") or ctx.get("service_id")) and not ctx.get("quote_locked"):
+                    ctx["width"], ctx["height"] = _rw, _rh
+                    if _rq:
+                        ctx["qty"] = _rq
+                    if not ctx.get("qty"):
+                        ctx["qty"] = 1
+                    if "inch" in (text or "").lower():
+                        ctx["size_unit"] = "in"
+                    svc = _resolve_service(services, ctx)
+                    if svc is None:
+                        for s in services or []:
+                            if getattr(s, "is_active", True) and any(
+                                k in (s.name or "").lower() for k in ("sav", "sticker", "vinyl", "label")
+                            ):
+                                svc = s
+                                break
+                    if svc:
+                        unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
+                        total = _calc_total(svc, _rw, _rh, int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
+                        if total and float(total) > 0:
+                            ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = float(total)
+                            ctx["quote_locked"] = True
+                            ctx["service_id"] = svc.id
+                            ctx["service_name"] = svc.name
+                            ctx["size_unit"] = unit
+                            _save_ctx(conv, ctx)
+                            conv.state = "await_fulfillment"
+                            try:
+                                await db.commit()
+                            except Exception:
+                                pass
+                            reply = (
+                                f"*{svc.name}* {_rw:g}×{_rh:g} {unit} × {ctx.get('qty')} pcs\n"
+                                f"Total: *{company.currency} {float(total):,.0f}*\n\n"
+                                f"You wan *pickup* or *delivery*?"
+                                if ctx.get("lang") == "pidgin" else
+                                f"*{svc.name}* {_rw:g}×{_rh:g} {unit} × {ctx.get('qty')} pcs\n"
+                                f"Total: *{company.currency} {float(total):,.0f}*\n\n"
+                                f"Pickup or delivery?"
+                            )
+                            print("bot_trace FORCE_QUOTE_AFTER_AGENT total=%s" % total)
+            except Exception as _fq:
+                print("force_quote_after_agent", type(_fq).__name__, _fq)
+
             _save_ctx(conv, ctx)
             if needs_human:
                 # Notify admin but KEEP bot replying (do not freeze chat)
