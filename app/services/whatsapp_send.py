@@ -65,8 +65,12 @@ async def send_text(phone_number_id: str, access_token: str, to_wa_id: str, body
     """Send WhatsApp text. Logs Graph status (never the access token)."""
     to = _digits(to_wa_id)
     if not to or not (body or "").strip():
-        print("wa_send_text_skip empty to or body")
+        print("wa_send_text_skip empty to or body to_raw=%r body_len=%s" % (to_wa_id, len(body or "")))
         return False
+    if not phone_number_id or not (access_token or "").strip():
+        print("wa_send_text_skip missing_credentials pnid=%r token_len=%s" % (phone_number_id, len(access_token or "")))
+        return False
+    print("wa_send_text_start to=%s pnid=%s body_len=%s" % (to, str(phone_number_id)[:12], len(body)))
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -271,79 +275,5 @@ async def send_image(
         "to": to,
         "type": "image",
         "image": image,
-    }
-    return await _post(phone_number_id, access_token, payload)
-
-
-async def send_document(
-    phone_number_id: str,
-    access_token: str,
-    to_wa_id: str,
-    media_id: str | None = None,
-    *,
-    document_url: str | None = None,
-    filename: str | None = None,
-    caption: str | None = None,
-) -> bool:
-    to = _digits(to_wa_id)
-    if not to or (not media_id and not document_url):
-        return False
-    doc: dict = {}
-    if media_id:
-        doc["id"] = media_id
-    else:
-        doc["link"] = document_url
-    if filename:
-        doc["filename"] = filename[:240]
-    if caption:
-        doc["caption"] = caption[:1024]
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "document",
-        "document": doc,
-    }
-    return await _post(phone_number_id, access_token, payload)
-
-
-async def send_video_id(
-    phone_number_id: str,
-    access_token: str,
-    to_wa_id: str,
-    media_id: str,
-    caption: str | None = None,
-) -> bool:
-    to = _digits(to_wa_id)
-    if not to or not media_id:
-        return False
-    video: dict = {"id": media_id}
-    if caption:
-        video["caption"] = caption[:1024]
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "video",
-        "video": video,
-    }
-    return await _post(phone_number_id, access_token, payload)
-
-
-async def send_audio_id(
-    phone_number_id: str,
-    access_token: str,
-    to_wa_id: str,
-    media_id: str,
-) -> bool:
-    to = _digits(to_wa_id)
-    if not to or not media_id:
-        return False
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "audio",
-        "audio": {"id": media_id},
     }
     return await _post(phone_number_id, access_token, payload)

@@ -47,7 +47,7 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     is_pidgin = bool(words & pidgin_markers) or any(
         x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg")
     )
-    # Continue active quote only when message is NOT a new service / clear new request
+    # Continue active quote only when message is NOT a new service / clear new request / pure greet
     _new_service = any(
         x in low
         for x in (
@@ -56,7 +56,15 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             "new order", "another", "different", "start over", "start again",
         )
     )
-    if (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width")) and not _new_service:
+    _pure_greet = (
+        len(words) <= 8
+        and bool(words & {"hi", "hello", "hey", "haffa", "howfar", "bros", "boss", "guy", "morning", "evening"})
+        or any(x in low for x in ("how e be", "how é", "how far", "bad guy", "my guy", "wetin dey"))
+    ) and not any(x in low for x in ("sticker", "sav", "banner", "size", "piece", "inch")) and not any(c.isdigit() for c in low)
+    if _pure_greet:
+        # allow normal greeting path — do not force "still on SAV"
+        pass
+    elif (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width")) and not _new_service:
         svc = ctx.get("service_name") or "your order"
         if not (ctx.get("width") and ctx.get("height")):
             return (

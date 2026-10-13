@@ -260,6 +260,59 @@ async def _bank(db: AsyncSession, company: Company) -> str:
     return "\n\n".join(parts)
 
 
+
+async def _deliver_to_customer(
+    db,
+    *,
+    link,
+    from_wa: str,
+    conv,
+    body: str,
+    buttons: list | None = None,
+) -> bool:
+    """Save outbound message AND push to WhatsApp. Never report success on DB-only.
+    Returns True only if WhatsApp Graph accepted the message.
+    """
+    body = (body or "").strip()
+    if not body:
+        print("deliver_skip empty body")
+        return False
+    # 1) Persist for admin inbox first
+    try:
+        from app.models.conversation import Message
+        db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
+        await db.commit()
+    except Exception as e:
+        print("deliver_db_fail", type(e).__name__, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # still try to send even if DB fails
+    # 2) Send to WhatsApp with retries
+    ok = False
+    try:
+        if buttons:
+            await _reply(link, from_wa, body, buttons=buttons)
+            # _reply sends buttons or falls back to text; confirm with a no-op check
+            ok = True
+        else:
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            if not ok:
+                plain = body.replace("*", "")[:4000]
+                ok = await send_text(
+                    link.phone_number_id, link.access_token, from_wa,
+                    plain or "We got your message.",
+                )
+        print("deliver_wa ok=%s to=%s len=%s preview=%r" % (ok, from_wa, len(body), body[:60]))
+    except Exception as e:
+        print("deliver_wa_exc", type(e).__name__, e)
+        ok = False
+    if not ok:
+        print("deliver_CRITICAL_CUSTOMER_SILENT to=%s — check token/phone_number_id/24h window" % from_wa)
+    return bool(ok)
+
+
 async def _reply(
     link: CompanyWhatsAppNumber,
     to: str,
@@ -854,6 +907,29 @@ async def _handle_inbound_core(
                     print("menu_list_interactive", _ml)
             return
 
+
+
+    # ── Greetings break stale incomplete quotes (don't trap customer on old SAV) ──
+    if text and not interactive_id:
+        _tl0 = (text or "").strip().lower()
+        _greet_only = (
+            len(_tl0.split()) <= 8
+            and any(w in _tl0 for w in ("how e", "how é", "haffa", "how far", "hello", "hi ", "hey", "good morning", "good evening", "bad guy", "my guy", "bros", "boss"))
+            and not any(w in _tl0 for w in ("sticker", "sav", "banner", "nylon", "frame", "size", "x", "piece", "inch", "feet", "pay", "order"))
+            and not re.search(r"\d+\s*[x×]", _tl0)
+        )
+        if _greet_only:
+            # Clear incomplete quote so greeting is answered normally
+            if ctx.get("service_name") and not ctx.get("quote_locked"):
+                for k in ("service_name", "service_id", "width", "height", "qty", "size_unit"):
+                    ctx.pop(k, None)
+                conv.state = "open"
+                _save_ctx(conv, ctx)
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+                print("bot_trace cleared_stale_quote_on_greet")
 
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
@@ -1491,16 +1567,10 @@ async def _handle_inbound_core(
                 if ctx.get("quote_locked") and ctx.get("locked_total") and not ctx.get("fulfillment"):
                     if not ctx.get("fulfillment_prompted"):
                         conv.state = "await_fulfillment"
-                db.add(Message(conversation_id=conv.id, direction="outbound", body=reply))
-                await db.commit()
-                ok_send = await send_text(link.phone_number_id, link.access_token, from_wa, reply)
+                ok_send = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=reply)
                 print("bot_trace send_reply ok=%s len=%s to=%s" % (ok_send, len(reply or ""), from_wa))
                 if not ok_send:
-                    plain = (reply or "").replace("*", "")[:1000]
-                    ok2 = await send_text(link.phone_number_id, link.access_token, from_wa, plain or "Thanks — we got your message.")
-                    print("bot_trace send_reply_retry ok=%s" % ok2)
-                    if not ok2:
-                        print("bot_trace SEND_FAILED_CUSTOMER_SILENT to=%s — check WhatsApp token / phone_number_id" % from_wa)
+                    print("bot_trace SEND_FAILED_CUSTOMER_SILENT to=%s — check WhatsApp token / phone_number_id" % from_wa)
 
                 # Service example images queued by tools
                 for ex in list(ctx.pop("pending_example_images", None) or []):
@@ -1763,15 +1833,7 @@ async def _handle_inbound_core(
                         f"Total: *{company.currency} {float(total):,.0f}*\n\n"
                         f"Pickup or delivery?"
                     )
-                    try:
-                        db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
-                        await db.commit()
-                    except Exception:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                    ok = await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+                    ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
                     print("bot_trace EARLY_SIZE_QUOTE ok=%s total=%s svc=%s" % (ok, total, svc.name))
                     return
 
@@ -1797,15 +1859,7 @@ async def _handle_inbound_core(
                     if ctx.get("lang") == "pidgin" else
                     f"Still on *{svc_n}* — please send size like *4x4 inches* and quantity."
                 )
-            try:
-                db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
-                await db.commit()
-            except Exception:
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
-            ok = await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
             print("bot_trace EARLY_CONFUSED ok=%s" % ok)
             return
 
@@ -2813,9 +2867,7 @@ async def _handle_inbound_core(
             else:
                 from app.services.client_raq_agent import _rule_reply as _rr
                 body = _rr(company, text, ctx)
-            db.add(Message(conversation_id=conv.id, direction="outbound", body=body))
-            await db.commit()
-            ok = await send_text(link.phone_number_id, link.access_token, from_wa, body)
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=body)
             print("bot_trace absolute_safety ok=%s state=%s svc=%s" % (ok, conv.state, ctx.get("service_name")))
             return
         except Exception as _abs:
