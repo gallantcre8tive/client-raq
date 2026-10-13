@@ -165,8 +165,7 @@ def _resolve_service(services, ctx: dict):
 
 
 def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str | None = None, **kwargs) -> float:
-    """Correct area math: inches → (W×H×qty×rate)/144 ; feet → W×H×qty×rate."""
-    ctx = kwargs.get("ctx") or {}
+    """Deterministic pricing via pricing_engine — correct for all business types."""
     try:
         from app.services.pricing_engine import calculate as _price_calc
         res = _price_calc(
@@ -182,49 +181,36 @@ def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str
             unit_price_override=kwargs.get("unit_price_override"),
             weight_kg=kwargs.get("weight_kg"),
             hours=kwargs.get("hours"),
-            ctx=ctx,
+            ctx=kwargs.get("ctx") or {},
         )
         if res.get("ok") and res.get("total") is not None:
-            # Persist explainability on ctx for "how you calculate"
-            if isinstance(ctx, dict):
-                ctx["price_breakdown"] = res.get("breakdown") or ""
-                ctx["unit_rate"] = res.get("unit_rate")
-                ctx["rate_unit"] = res.get("rate_unit") or "sq ft"
-                ctx["size_unit"] = res.get("size_unit") or size_unit
-            print(
-                "price_calc total=%s breakdown=%s rate=%s/%s"
-                % (res["total"], res.get("breakdown"), res.get("unit_rate"), res.get("rate_unit"))
-            )
             return float(res["total"])
-    except Exception as e:
-        print("pricing_engine_err", type(e).__name__, e)
-    # Inline fallback — same formula
-    base = float(getattr(service, "base_price", 0) or 0)
-    q = max(1, int(qty or 1))
-    unit = (size_unit or (ctx.get("size_unit") if isinstance(ctx, dict) else None) or "").lower()
-    low = (size_text or "").lower()
-    if not unit:
-        unit = "in" if "inch" in low else "ft" if any(x in low for x in ("ft", "feet")) else "ft"
-    mode = getattr(service, "pricing_method", None) or _unit_mode(getattr(service, "unit", None))
-    if mode in ("sqin",):
-        mode = "sqft"
-    if (mode == "piece" or not width or not height) and mode != "sqft":
+        # Fallback piece price when size missing for area methods
+        base = float(getattr(service, "base_price", 0) or 0)
+        q = max(1, int(qty or 1))
         return round(base * q, 2)
-    w, h = float(width or 0), float(height or 0)
-    if unit in ("in", "inch", "inches"):
-        total = round((w * h * q * base) / 144.0, 2)
-        if isinstance(ctx, dict):
-            ctx["price_breakdown"] = f"({w:g}×{h:g} in × {q} × {base:g}) ÷ 144 = {total:,.2f}"
-            ctx["unit_rate"] = base
-            ctx["rate_unit"] = "sq ft"
-        return total
-    total = round(w * h * base * q, 2)
-    if isinstance(ctx, dict):
-        ctx["price_breakdown"] = f"{w:g}×{h:g} ft × {q} × {base:g} = {total:,.2f}"
-        ctx["unit_rate"] = base
-        ctx["rate_unit"] = "sq ft"
-    return total
-
+    except Exception as e:
+        print("pricing_engine_fallback", type(e).__name__, e)
+        base = float(getattr(service, "base_price", 0) or 0)
+        q = max(1, int(qty or 1))
+        mode = getattr(service, "pricing_method", None) or _unit_mode(getattr(service, "unit", None))
+        if mode in ("sqin",):
+            mode = "sqft"
+        if mode == "piece" or not width or not height:
+            return round(base * q, 2)
+        unit = (size_unit or "").lower().strip() or _detect_size_unit(size_text or "", None)
+        w, h = float(width), float(height)
+        if mode == "sqft":
+            if unit in ("in", "inch", "inches"):
+                return round((w * h * q * base) / 144.0, 2)
+            if unit in ("m", "metre", "meter", "sqm"):
+                return round(w * h * 10.7639 * base * q, 2)
+            return round(w * h * base * q, 2)
+        if mode == "sqm":
+            if unit in ("ft", "feet", "foot"):
+                return round((w * h / 10.7639) * base * q, 2)
+            return round(w * h * base * q, 2)
+        return round(w * h * base * q, 2)
 
 
 def _is_clarifying_question(text: str) -> bool:
@@ -1849,116 +1835,6 @@ async def _handle_inbound_core(
 
 
 
-
-
-    # ── Design fee yes/no ──
-    if text and not interactive_id and ctx.get("design_asked") and ctx.get("needs_design") is None:
-        _td = (text or "").lower()
-        dfee = float(ctx.get("pending_design_fee") or 0)
-        pre = float(ctx.get("pre_design_total") or ctx.get("total") or 0)
-        if any(x in _td for x in ("i have design", "i get design", "design ready", "no design fee", "i go send design", "my design", "already have")):
-            ctx["needs_design"] = False
-            total = pre
-            ctx["locked_total"] = ctx["total"] = total
-            ctx["quote_locked"] = True
-            _save_ctx(conv, ctx)
-            conv.state = "await_fulfillment"
-            try:
-                await db.commit()
-            except Exception:
-                pass
-            body = (
-                f"OK — use your design. Total: *{company.currency} {total:,.0f}*. Pickup or delivery?"
-                if ctx.get("lang") == "pidgin" else
-                f"OK — we will use your design. Total: *{company.currency} {total:,.0f}*. Pickup or delivery?"
-            )
-            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=body)
-            print("bot_trace design_no ok=%s" % ok)
-            return
-        if any(x in _td for x in ("design am", "you design", "una design", "need design", "help design", "yes design", "design fee")):
-            ctx["needs_design"] = True
-            total = pre + dfee
-            ctx["locked_total"] = ctx["total"] = total
-            ctx["design_fee"] = dfee
-            ctx["quote_locked"] = True
-            _save_ctx(conv, ctx)
-            conv.state = "await_fulfillment"
-            try:
-                await db.commit()
-            except Exception:
-                pass
-            body = (
-                f"OK — design +{company.currency} {dfee:,.0f}. New total: *{company.currency} {total:,.0f}*. Pickup or delivery?"
-                if ctx.get("lang") == "pidgin" else
-                f"OK — design fee +{company.currency} {dfee:,.0f}. New total: *{company.currency} {total:,.0f}*. Pickup or delivery?"
-            )
-            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=body)
-            print("bot_trace design_yes ok=%s" % ok)
-            return
-
-    # ── Pickup / delivery answers ──
-    if text and not interactive_id and (ctx.get("quote_locked") or ctx.get("locked_total")):
-        _tpl = (text or "").lower()
-        if any(x in _tpl for x in (
-            "pickup", "pick up", "pick am", "i go come", "i will come", "come collect",
-            "come for am", "for una office", "your office", "office", "i go collect",
-        )) and "deliver" not in _tpl:
-            ctx["fulfillment"] = "pickup"
-            _save_ctx(conv, ctx)
-            conv.state = "await_payment"
-            try:
-                await db.commit()
-            except Exception:
-                pass
-            # Load payment details
-            pay_lines = []
-            try:
-                from app.models.company import PaymentDetail
-                from sqlalchemy import select
-                rows = (await db.execute(
-                    select(PaymentDetail).where(
-                        PaymentDetail.company_id == company.id,
-                        PaymentDetail.is_active == True,  # noqa: E712
-                    )
-                )).scalars().all()
-                for p in rows[:3]:
-                    pay_lines.append(
-                        f"*{p.bank_name}*\n{p.account_name}\n{p.account_number}"
-                        + (f"\n{p.instructions}" if p.instructions else "")
-                    )
-            except Exception as _pe:
-                print("pay_details", _pe)
-            total = float(ctx.get("locked_total") or ctx.get("total") or 0)
-            cur = company.currency or "NGN"
-            body = (
-                f"Sharp! Pickup noted.\nTotal: *{cur} {total:,.0f}*\n\n"
-                + ("Pay to:\n" + "\n\n".join(pay_lines) + "\n\n" if pay_lines else "")
-                + "When you pay, send the *payment screenshot* here."
-                if ctx.get("lang") == "pidgin" else
-                f"Pickup confirmed.\nTotal: *{cur} {total:,.0f}*\n\n"
-                + ("Pay to:\n" + "\n\n".join(pay_lines) + "\n\n" if pay_lines else "")
-                + "After payment, please send the *screenshot* here."
-            )
-            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=body)
-            print("bot_trace pickup_ok=%s" % ok)
-            return
-        if any(x in _tpl for x in ("delivery", "deliver", "send am", "bring am", "home delivery")):
-            ctx["fulfillment"] = "delivery"
-            conv.state = "await_address"
-            _save_ctx(conv, ctx)
-            try:
-                await db.commit()
-            except Exception:
-                pass
-            body = (
-                "OK delivery — abeg send your *full address* and landmark."
-                if ctx.get("lang") == "pidgin" else
-                "OK for delivery — please send your full address and a landmark."
-            )
-            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=body)
-            print("bot_trace delivery_ask ok=%s" % ok)
-            return
-
     # ── Finishing options (printing only): cut / eyelet / whiteout ──
     if text and not interactive_id and ctx.get("quote_locked"):
         _tlf = (text or "").lower()
@@ -2014,46 +1890,8 @@ async def _handle_inbound_core(
             except Exception as _fe:
                 print("finishing_handler", type(_fe).__name__, _fe)
 
-
-    # ── Small-size low-qty waste rule (large format / sticker inches) ──
-    if text and not interactive_id and ctx.get("service_name"):
-        _w, _h = _parse_size(text)
-        _q = _parse_qty(text) or ctx.get("qty")
-        if _w and _h and _q:
-            unit_chk = "in" if "inch" in (text or "").lower() or (ctx.get("size_unit") == "in") else _detect_size_unit(text, ctx)
-            # sizes under 12 inches and low qty
-            if unit_chk in ("in", "inch", "inches") and max(float(_w), float(_h)) < 12 and int(_q) < 50:
-                svc_name = ctx.get("service_name") or "print"
-                outbound = (
-                    f"For *{float(_w):g}×{float(_h):g} inches*, {int(_q)} pieces too small — "
-                    f"material go waste for large-format machine.\n"
-                    f"Abeg increase quantity (e.g. 50+ pcs) or confirm say you go pay for the waste sheet.\n"
-                    f"You wan increase quantity or pay waste?"
-                    if ctx.get("lang") == "pidgin" else
-                    f"For *{float(_w):g}×{float(_h):g} inches*, {int(_q)} pieces is very low — "
-                    f"the material sheet would be mostly waste.\n"
-                    f"Please increase quantity (e.g. 50+) or confirm you will pay for the waste sheet."
-                )
-                # Only block very low (e.g. < 20) — warn under 50
-                if int(_q) < 20:
-                    ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
-                    ctx["await_qty_confirm"] = True
-                    ctx["pending_width"] = float(_w)
-                    ctx["pending_height"] = float(_h)
-                    ctx["pending_qty"] = int(_q)
-                    _save_ctx(conv, ctx)
-                    try:
-                        await db.commit()
-                    except Exception:
-                        pass
-                    print("bot_trace waste_qty_block ok=%s" % ok)
-                    return
-
-    # ── EARLY: size/qty while quoting (must never go silent) ──
-    if text and not interactive_id and (
-        (conv.state or "") in ("await_details", "await_size", "await_qty_fixed")
-        or (ctx.get("service_name") and not ctx.get("quote_locked"))
-    ):
+    # ── EARLY: size/qty — ALWAYS when WxH present (never generic fallback) ──
+    if text and not interactive_id and not ctx.get("quote_locked"):
         _w, _h = _parse_size(text)
         _q = _parse_qty(text)
         if _w and _h:
@@ -2067,17 +1905,32 @@ async def _handle_inbound_core(
                 ctx["size_unit"] = "in"
             elif any(x in low_t for x in ("ft", "feet")):
                 ctx["size_unit"] = "ft"
+            if not ctx.get("service_name"):
+                ctx["service_name"] = "sticker"
             svc = _resolve_service(services, ctx)
             if svc is None:
-                hint = (ctx.get("service_name") or "").lower()
+                hint = (ctx.get("service_name") or "sticker").lower()
                 for s in services or []:
                     if not getattr(s, "is_active", True):
                         continue
                     sn = (s.name or "").lower()
-                    if any(k in sn for k in ("sav", "sticker", "vinyl", "label", "banner", "nylon", "frame")):
-                        if not hint or any(k in hint for k in ("sticker", "sav", "vinyl", "banner", "nylon", "frame", "label")) or hint in sn:
-                            svc = s
-                            break
+                    if any(k in sn for k in ("sav", "sticker", "vinyl", "label")):
+                        svc = s
+                        break
+                if svc is None:
+                    for s in services or []:
+                        if not getattr(s, "is_active", True):
+                            continue
+                        sn = (s.name or "").lower()
+                        if any(k in sn for k in ("banner", "nylon", "frame", "flex")):
+                            if hint in sn or any(k in hint for k in ("banner", "nylon", "frame")):
+                                svc = s
+                                break
+            if svc is None:
+                for s in services or []:
+                    if getattr(s, "is_active", True) and float(getattr(s, "base_price", 0) or 0) > 0:
+                        svc = s
+                        break
             if svc is None:
                 for s in services or []:
                     if getattr(s, "is_active", True):
@@ -2093,7 +1946,25 @@ async def _handle_inbound_core(
                 except Exception as _ce:
                     print("early_quote_calc", _ce)
                     total = 0
-                if total and total > 0:
+                if not total or float(total) <= 0:
+                    # still acknowledge size — never generic
+                    outbound = (
+                        f"I don get *{ctx['width']:g}×{ctx['height']:g}* × {ctx.get('qty')} for *{svc.name}*. "
+                        f"Abeg hold — price list no gree calculate; my person go confirm the amount."
+                        if ctx.get("lang") == "pidgin" else
+                        f"Got *{ctx['width']:g}×{ctx['height']:g}* × {ctx.get('qty')} for *{svc.name}*. "
+                        f"Price needs a quick confirm from the team — we will reply with the total shortly."
+                    )
+                    try:
+                        ctx["needs_human"] = True
+                        _save_ctx(conv, ctx)
+                        await db.commit()
+                    except Exception:
+                        pass
+                    ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+                    print("bot_trace EARLY_SIZE_ZERO_TOTAL ok=%s svc=%s" % (ok, svc.name))
+                    return
+                if total and float(total) > 0:
                     ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = float(total)
                     ctx["quote_locked"] = True
                     try:

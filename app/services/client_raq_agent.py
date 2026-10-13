@@ -50,10 +50,23 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     pidgin_markers = {
         "abeg", "wan", "dey", "wetin", "oya", "haffa", "omoh", "fit", "nko", "nah",
         "bros", "brother", "guy", "una", "sef", "sharp", "howfar", "how", "blood",
+        "oga", "jare", "nah",
     }
     is_pidgin = bool(words & pidgin_markers) or any(
-        x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg")
+        x in low for x in ("no fit", "how your side", "wetin you", "i wan", "abeg", "oga mi", "jare")
     )
+    # HARD RULE: any size in message must never hit generic fallback
+    _w, _h, _qty, _unit = _extract_size_qty(msg)
+    if _w and _h:
+        _unit = _unit or ("in" if "inch" in low else "ft" if any(x in low for x in ("ft", "feet")) else "in")
+        _q = _qty or ctx.get("qty") or 1
+        if not ctx.get("service_name"):
+            # assume sticker/SAV if they were just asked size, or default sticker
+            ctx["service_name"] = "sticker"
+        if is_pidgin:
+            return f"Oya I get am — *{_w:g}×{_h:g} {_unit}* × {_q} pcs. I go give you the total now."
+        return f"Got it — *{_w:g}×{_h:g} {_unit}* × {_q} pcs. Calculating your total now."
+
     # Continue active quote only when message is NOT a new service / clear new request / pure greet
     _new_service = any(
         x in low
@@ -92,37 +105,28 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             "square foot", "sq ft", "sqft", "per foot", "per ft", "rate",
             "how much per", "wetin be the price", "wetin be the square",
             "how much for one", "unit price", "base price", "per square",
-            "wetin be the rate", "the rate", "how you calculate", "how you take calculate",
-            "how e take calculate", "breakdown", "explain the price", "calculate am",
         )):
-            # Prefer real price-list rate (base_price), never invent
-            rate = ctx.get("unit_rate") or ctx.get("base_price") or rate
-            rate_unit = ctx.get("rate_unit") or "sq ft"
-            br = ctx.get("price_breakdown") or ""
-            w, h, q = ctx.get("width"), ctx.get("height"), ctx.get("qty") or 1
-            su = ctx.get("size_unit") or ""
-            tot = float(ctx.get("locked_total") or ctx.get("total") or 0)
-            if rate and w and h:
-                # Rebuild correct breakdown for inches
-                if su in ("in", "inch", "inches"):
-                    br = f"({float(w):g}×{float(h):g} in × {q} × {float(rate):g}) ÷ 144 = {tot:,.2f}"
-                elif su in ("ft", "feet", "foot"):
-                    br = f"{float(w):g}×{float(h):g} ft × {q} × {float(rate):g} = {tot:,.2f}"
+            if rate:
                 if is_pidgin:
                     return (
-                        f"Rate for *{svc}* na *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
-                        f"Calculation: {br}\n"
-                        f"Total: *{cur} {tot:,.0f}*."
+                        f"For *{svc}*, the rate na *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
+                        f"Your own ({ctx.get('width') or '?'}×{ctx.get('height') or '?'} "
+                        f"{ctx.get('size_unit') or ''} × {ctx.get('qty') or 1}) "
+                        f"total na *{cur} {float(ctx.get('locked_total') or ctx.get('total') or 0):,.0f}*."
                     )
                 return (
-                    f"Rate for *{svc}* is *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
-                    f"Calculation: {br}\n"
-                    f"Total: *{cur} {tot:,.0f}*."
+                    f"For *{svc}*, the rate is *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
+                    f"Your job total is *{cur} {float(ctx.get('locked_total') or ctx.get('total') or 0):,.0f}*."
                 )
-            if br:
-                return (f"E be like this: {br}" if is_pidgin else f"Here is the math: {br}")
+            if ctx.get("locked_total") and ctx.get("width") and ctx.get("height"):
+                area = float(ctx["width"]) * float(ctx["height"]) * float(ctx.get("qty") or 1)
+                if area > 0:
+                    implied = float(ctx["locked_total"]) / area
+                    if is_pidgin:
+                        return f"Based on your quote, e work out about *{cur} {implied:,.0f}* per {rate_unit}. Total still *{cur} {float(ctx['locked_total']):,.0f}*."
+                    return f"Based on your quote, that is about *{cur} {implied:,.0f}* per {rate_unit}. Total remains *{cur} {float(ctx['locked_total']):,.0f}*."
             if is_pidgin:
-                return "Abeg hold on — I go confirm the exact rate from the price list."
+                return "Abeg hold on — I go confirm the exact rate from the price list and tell you."
             return "One moment — I will confirm the exact rate from our price list."
 
         # Eyelets explanation + offer
@@ -261,7 +265,7 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                 qbit = f" × {qty} pieces" if qty else ""
                 return (
                     f"Oya! Sticker *{w:g}×{h:g} {unit}*{qbit} for *{name}*.\n"
-                    f"I dey calculate the total now…"
+                    f"I go confirm the total now — you wan pickup or delivery after the quote?"
                     if is_pidgin else
                     f"Sticker *{w:g}×{h:g} {unit}*{qbit} noted for *{name}*.\n"
                     f"I'll confirm the total — pickup or delivery after the quote?"
@@ -402,7 +406,11 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     # Last resort — short, human, no brand spam
     if is_pidgin:
         return "I hear you. Wetin you wan do — or ask me any question about the job."
-    return "Got it. What do you need, or ask me any question about the job."
+    # size already handled above — this is true last resort only
+    _w2, _h2, _, _ = _extract_size_qty(msg)
+    if _w2 and _h2:
+        return f"Size *{_w2:g}×{_h2:g}* noted — calculating price now."
+    return "I hear you. Wetin you wan print or ask about?"
 
 
 
