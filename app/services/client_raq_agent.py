@@ -111,12 +111,31 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
 
     # ── Printing ──
     if btype in ("printing", "print"):
+        # If they already named the product (sav/sticker/banner), do not ask "what exactly"
         if any(x in low for x in ("print something", "wan print", "i wan print", "print am", "something jare")):
-            return (
-                f"No wahala — *{name}* fit print am.\nWetin exactly: sticker, banner, nylon, frame, or another thing?"
-                if is_pidgin or "jare" in low or "wan" in low else
-                f"Sure — *{name}* can help.\nWhat would you like to print: sticker, banner, nylon, frame, or something else?"
-            )
+            if any(x in low for x in ("sav", "sticker", "label", "vinyl", "decal")):
+                w, h, qty, unit = _extract_size_qty(msg)
+                if w and h:
+                    unit = unit or "in"
+                    qbit = f" × {qty} pieces" if qty else ""
+                    return (
+                        f"Oya SAV/sticker *{w:g}×{h:g} {unit}*{qbit} — I go confirm total for *{name}*."
+                        if is_pidgin else
+                        f"SAV/sticker *{w:g}×{h:g} {unit}*{qbit} noted for *{name}*. Confirming total."
+                    )
+                return (
+                    f"Oya! SAV/sticker for *{name}*.\nAbeg tell me size (width x height) and how many pieces. Inches or feet?"
+                    if is_pidgin else
+                    f"SAV/sticker for *{name}*. Please share size (width x height) and quantity. Inches or feet?"
+                )
+            if any(x in low for x in ("banner", "flex", "nylon", "frame")):
+                pass  # fall through to specific branches below
+            else:
+                return (
+                    f"No wahala — *{name}* fit print am.\nWetin exactly: sticker, banner, nylon, frame, or another thing?"
+                    if is_pidgin or "jare" in low or "wan" in low else
+                    f"Sure — *{name}* can help.\nWhat would you like to print: sticker, banner, nylon, frame, or something else?"
+                )
 
         if any(x in low for x in ("sticker", "sav", "label")):
             w, h, qty, unit = _extract_size_qty(msg)

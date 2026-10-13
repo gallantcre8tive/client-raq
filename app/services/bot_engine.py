@@ -857,7 +857,12 @@ async def _handle_inbound_core(
 
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
-    if text and not interactive_id and _btype in ("printing", "print"):
+    _is_printing = (
+        _btype in ("printing", "print", "print_shop", "printing_company", "printer")
+        or "print" in _btype
+        or not _btype
+    )
+    if text and not interactive_id and _is_printing:
         _intent_map = [
             (("sticker", "sav", "label"), "sticker"),
             (("banner", "flex", "rollup", "roll-up", "roll up"), "banner"),
@@ -1406,6 +1411,32 @@ async def _handle_inbound_core(
             print("bot_trace agent_done reply_len=%s needs_human=%s" % (
                 len(reply or ""), needs_human,
             ))
+            # Persist service + await_details when customer named sticker/sav/banner
+            try:
+                _tl = (text or "").lower()
+                if any(k in _tl for k in ("sticker", "sav", "label", "vinyl", "banner", "nylon", "frame")):
+                    if not ctx.get("service_name"):
+                        for label, keys in (
+                            ("sticker", ("sticker", "sav", "label", "vinyl")),
+                            ("banner", ("banner", "flex")),
+                            ("nylon", ("nylon",)),
+                            ("frame", ("frame", "acrylic")),
+                        ):
+                            if any(k in _tl for k in keys):
+                                ctx["service_name"] = label
+                                break
+                    if not (ctx.get("width") and ctx.get("height")):
+                        conv.state = "await_details"
+                    _w, _h = _parse_size(text or "")
+                    _q = _parse_qty(text or "")
+                    if _w and _h:
+                        ctx["width"], ctx["height"] = _w, _h
+                    if _q:
+                        ctx["qty"] = _q
+                    if "inch" in _tl:
+                        ctx["size_unit"] = "in"
+            except Exception as _sx:
+                print("agent_state_sync", _sx)
             _save_ctx(conv, ctx)
             if needs_human:
                 # Notify admin but KEEP bot replying (do not freeze chat)
@@ -1668,6 +1699,116 @@ async def _handle_inbound_core(
             await send_text(link.phone_number_id, link.access_token, from_wa, reply)
             return
 
+
+    # ── EARLY: size/qty while quoting (must never go silent) ──
+    if text and not interactive_id and (
+        (conv.state or "") in ("await_details", "await_size", "await_qty_fixed")
+        or (ctx.get("service_name") and not ctx.get("quote_locked"))
+    ):
+        _w, _h = _parse_size(text)
+        _q = _parse_qty(text)
+        if _w and _h:
+            ctx["width"], ctx["height"] = _w, _h
+            if _q:
+                ctx["qty"] = _q
+            if not ctx.get("qty"):
+                ctx["qty"] = 1
+            low_t = text.lower()
+            if "inch" in low_t:
+                ctx["size_unit"] = "in"
+            elif any(x in low_t for x in ("ft", "feet")):
+                ctx["size_unit"] = "ft"
+            svc = _resolve_service(services, ctx)
+            if svc is None:
+                hint = (ctx.get("service_name") or "").lower()
+                for s in services or []:
+                    if not getattr(s, "is_active", True):
+                        continue
+                    sn = (s.name or "").lower()
+                    if any(k in sn for k in ("sav", "sticker", "vinyl", "label", "banner", "nylon", "frame")):
+                        if not hint or any(k in hint for k in ("sticker", "sav", "vinyl", "banner", "nylon", "frame", "label")) or hint in sn:
+                            svc = s
+                            break
+            if svc is None:
+                for s in services or []:
+                    if getattr(s, "is_active", True):
+                        svc = s
+                        break
+            if svc:
+                unit = ctx.get("size_unit") or _detect_size_unit(text, ctx)
+                ctx["size_unit"] = unit
+                ctx["service_id"] = svc.id
+                ctx["service_name"] = svc.name
+                try:
+                    total = _calc_total(svc, ctx["width"], ctx["height"], int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
+                except Exception as _ce:
+                    print("early_quote_calc", _ce)
+                    total = 0
+                if total and total > 0:
+                    ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = float(total)
+                    ctx["quote_locked"] = True
+                    _save_ctx(conv, ctx)
+                    conv.state = "await_fulfillment"
+                    try:
+                        await db.commit()
+                    except Exception:
+                        pass
+                    size_bit = f"{ctx['width']:g}×{ctx['height']:g} {unit} "
+                    outbound = (
+                        f"*{svc.name}* {size_bit}× {ctx.get('qty')} pieces\n"
+                        f"Total: *{company.currency} {float(total):,.0f}*\n\n"
+                        f"You wan *pickup* or *delivery*?"
+                        if ctx.get("lang") == "pidgin" else
+                        f"*{svc.name}* {size_bit}× {ctx.get('qty')}\n"
+                        f"Total: *{company.currency} {float(total):,.0f}*\n\n"
+                        f"Pickup or delivery?"
+                    )
+                    try:
+                        db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                        await db.commit()
+                    except Exception:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                    ok = await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+                    print("bot_trace EARLY_SIZE_QUOTE ok=%s total=%s svc=%s" % (ok, total, svc.name))
+                    return
+
+    # ── EARLY: ?? / confused with open order ──
+    if text and not interactive_id and (text or "").strip() in ("?", "??", "???", "wetin", "eh", "eh?"):
+        if ctx.get("service_name") or ctx.get("width"):
+            svc_n = ctx.get("service_name") or "your order"
+            if ctx.get("quote_locked") and ctx.get("locked_total"):
+                outbound = (
+                    f"Your *{svc_n}* quote still dey: *{company.currency} {float(ctx['locked_total']):,.0f}*. Pickup or delivery?"
+                    if ctx.get("lang") == "pidgin" else
+                    f"Your *{svc_n}* quote is *{company.currency} {float(ctx['locked_total']):,.0f}*. Pickup or delivery?"
+                )
+            elif ctx.get("width") and ctx.get("height"):
+                outbound = (
+                    f"I don get size for *{svc_n}* ({ctx['width']:g}×{ctx['height']:g}). Confirm quantity or say *quote*."
+                    if ctx.get("lang") == "pidgin" else
+                    f"I have size for *{svc_n}* ({ctx['width']:g}×{ctx['height']:g}). Confirm quantity or say *quote*."
+                )
+            else:
+                outbound = (
+                    f"Still on *{svc_n}* — abeg send size like *4x4 inches* and how many pieces."
+                    if ctx.get("lang") == "pidgin" else
+                    f"Still on *{svc_n}* — please send size like *4x4 inches* and quantity."
+                )
+            try:
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            ok = await send_text(link.phone_number_id, link.access_token, from_wa, outbound)
+            print("bot_trace EARLY_CONFUSED ok=%s" % ok)
+            return
+
     # ── Two-stage Grok understanding ──
     # Buttons stay rule-based. Free text ALWAYS goes through Grok first so the
     # customer can change topic mid-flow (e.g. ask nylon price while on Pickup).
@@ -1686,6 +1827,19 @@ async def _handle_inbound_core(
     if text and state in step_answers:
         tl = text.lower().strip()
         text_is_step_answer = any(k in tl for k in step_answers[state]) and len(tl) < 40
+
+    # Size / qty / unit answers while quoting — NEVER send to Grok first; rules must calculate
+    if text and state in ("await_details", "await_size", "await_qty_fixed", "await_service"):
+        tl = (text or "").lower()
+        if re.search(r"\d+\s*[x×*]\s*\d+", tl) or re.search(
+            r"\d+\s*(inch|inches|ft|feet|pcs|pieces|pc)\b", tl
+        ) or re.search(r"\d+(pcs|pieces)\b", tl):
+            text_is_step_answer = True
+        if re.fullmatch(r"\d+", tl.strip()):
+            text_is_step_answer = True
+        if tl.strip() in ("??", "?", "???", "wetin", "eh"):
+            # confused follow-up: keep in rules with context, not cold Grok greet
+            text_is_step_answer = True
 
     if text and not interactive_id and not text_is_step_answer:
         try:
@@ -2416,6 +2570,49 @@ async def _handle_inbound_core(
             print("bot_trace await_details_quote total=%s" % total)
             return
         else:
+            # Last resort: pick SAV/sticker/vinyl service if name hints sticker
+            hint = (ctx.get("service_name") or text or "").lower()
+            for s in services or []:
+                if not getattr(s, "is_active", True):
+                    continue
+                sn = (s.name or "").lower()
+                if any(k in sn for k in ("sav", "sticker", "vinyl", "label", "decal")) and any(
+                    k in hint for k in ("sav", "sticker", "vinyl", "label")
+                ):
+                    svc = s
+                    break
+            if svc is None:
+                for s in services or []:
+                    if getattr(s, "is_active", True) and any(
+                        k in (s.name or "").lower() for k in ("sav", "sticker", "vinyl")
+                    ):
+                        svc = s
+                        break
+            if svc and ctx.get("width") and ctx.get("height"):
+                unit = ctx.get("size_unit") or _detect_size_unit(text or "", ctx)
+                ctx["size_unit"] = unit
+                ctx["service_id"] = svc.id
+                ctx["service_name"] = svc.name
+                total = _calc_total(svc, ctx.get("width"), ctx.get("height"), int(ctx.get("qty") or 1), text, size_unit=unit, ctx=ctx)
+                ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = total
+                ctx["quote_locked"] = True
+                _save_ctx(conv, ctx)
+                conv.state = "await_fulfillment"
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+                size_bit = f"{ctx['width']:g}×{ctx['height']:g} {unit} "
+                outbound = _t(
+                    ctx,
+                    f"*{svc.name}* {size_bit}× {ctx.get('qty')} piece(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                    f"*{svc.name}* {size_bit}× {ctx.get('qty')} piece(s)\nTotal: *{company.currency} {total:,.0f}*\n\nPickup or delivery?",
+                )
+                await _reply(link, from_wa, outbound, buttons=[("ful_pickup", "Pickup"), ("ful_delivery", "Delivery")])
+                db.add(Message(conversation_id=conv.id, direction="outbound", body=outbound))
+                await db.commit()
+                print("bot_trace await_details_fallback_quote total=%s" % total)
+                return
             outbound = _t(
                 ctx,
                 "Which service is this for? Type *sticker*, *banner*, *nylon*, or *menu*.",
