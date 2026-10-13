@@ -1543,6 +1543,18 @@ async def _handle_inbound_core(
                         if total and float(total) > 0:
                             ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = float(total)
                             ctx["quote_locked"] = True
+                            try:
+                                _area = float(_rw) * float(_rh) * float(ctx.get("qty") or 1)
+                                if unit in ("in", "inch", "inches"):
+                                    _area = _area / 144.0  # to sq ft for rate display
+                                    ctx["rate_unit"] = "sq ft"
+                                else:
+                                    ctx["rate_unit"] = "sq ft" if unit in ("ft", "feet") else (unit or "unit")
+                                if _area > 0:
+                                    ctx["unit_rate"] = round(float(total) / _area, 2)
+                                ctx["base_price"] = float(getattr(svc, "base_price", 0) or ctx.get("unit_rate") or 0)
+                            except Exception:
+                                pass
                             ctx["service_id"] = svc.id
                             ctx["service_name"] = svc.name
                             ctx["size_unit"] = unit
@@ -1822,6 +1834,62 @@ async def _handle_inbound_core(
             return
 
 
+
+    # ── Finishing options (printing only): cut / eyelet / whiteout ──
+    if text and not interactive_id and ctx.get("quote_locked"):
+        _tlf = (text or "").lower()
+        _is_print = "print" in (getattr(company, "business_type", None) or "printing").lower() or not getattr(company, "business_type", None)
+        if _is_print and any(k in _tlf for k in ("eyelet", "whiteout", "white out", "cut", "print and cut", "no cut", "no eyelet", "no whiteout")):
+            try:
+                import json as _json
+                flags = {}
+                raw = getattr(company, "bot_flags", None) or "{}"
+                if isinstance(raw, str) and raw.strip().startswith("{"):
+                    flags = _json.loads(raw)
+                cur = company.currency or "NGN"
+                add_on = 0.0
+                notes = []
+                if any(k in _tlf for k in ("eyelet", "grommet")) and "no" not in _tlf.split()[0:2]:
+                    fee = float(flags.get("eyelet_fee") or 500)
+                    add_on += fee
+                    notes.append(f"eyelets +{cur} {fee:,.0f}")
+                    ctx["want_eyelets"] = True
+                if "whiteout" in _tlf or "white out" in _tlf or "blockout" in _tlf:
+                    if not _tlf.strip().startswith("no"):
+                        fee = float(flags.get("whiteout_fee") or 0)
+                        add_on += fee
+                        notes.append(f"whiteout" + (f" +{cur} {fee:,.0f}" if fee else ""))
+                        ctx["want_whiteout"] = True
+                if any(k in _tlf for k in ("cut", "print and cut", "print & cut")) and "no cut" not in _tlf:
+                    fee = float(flags.get("cut_fee") or flags.get("print_cut_fee") or 1000)
+                    add_on += fee
+                    notes.append(f"print & cut +{cur} {fee:,.0f}")
+                    ctx["want_cut"] = True
+                if notes:
+                    base = float(ctx.get("locked_total") or ctx.get("total") or 0)
+                    new_total = base + add_on
+                    ctx["locked_total"] = ctx["total"] = new_total
+                    ctx["finishing_notes"] = ", ".join(notes)
+                    _save_ctx(conv, ctx)
+                    try:
+                        await db.commit()
+                    except Exception:
+                        pass
+                    outbound = (
+                        f"OK I add: {', '.join(notes)}.\n"
+                        f"New total: *{cur} {new_total:,.0f}*\n"
+                        f"Pickup or delivery?"
+                        if ctx.get("lang") == "pidgin" else
+                        f"Added: {', '.join(notes)}.\n"
+                        f"New total: *{cur} {new_total:,.0f}*\n"
+                        f"Pickup or delivery?"
+                    )
+                    ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+                    print("bot_trace finishing_addon ok=%s add=%s" % (ok, add_on))
+                    return
+            except Exception as _fe:
+                print("finishing_handler", type(_fe).__name__, _fe)
+
     # ── EARLY: size/qty while quoting (must never go silent) ──
     if text and not interactive_id and (
         (conv.state or "") in ("await_details", "await_size", "await_qty_fixed")
@@ -1869,6 +1937,20 @@ async def _handle_inbound_core(
                 if total and total > 0:
                     ctx["locked_total"] = ctx["total"] = ctx["subtotal"] = float(total)
                     ctx["quote_locked"] = True
+                    try:
+                        _aw = float(ctx.get("width") or 0)
+                        _ah = float(ctx.get("height") or 0)
+                        _aq = float(ctx.get("qty") or 1)
+                        _area = _aw * _ah * _aq
+                        _u = (ctx.get("size_unit") or unit or "ft")
+                        if _u in ("in", "inch", "inches"):
+                            _area = _area / 144.0
+                        if _area > 0:
+                            ctx["unit_rate"] = round(float(total) / _area, 2)
+                            ctx["rate_unit"] = "sq ft"
+                        ctx["base_price"] = float(getattr(svc, "base_price", 0) or ctx.get("unit_rate") or 0)
+                    except Exception:
+                        pass
                     _save_ctx(conv, ctx)
                     conv.state = "await_fulfillment"
                     try:

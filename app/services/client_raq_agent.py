@@ -71,16 +71,106 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     if _pure_greet:
         # allow normal greeting path — do not force "still on SAV"
         pass
-    elif (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width")) and not _new_service:
+    elif (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width") or ctx.get("quote_locked")) and not _new_service:
         # ALWAYS parse THIS message for size/qty before asking again
         w, h, qty, unit = _extract_size_qty(msg)
-        if w and h:
+        if w and h and not ctx.get("quote_locked"):
             unit = unit or ("in" if "inch" in low else "ft" if any(x in low for x in ("ft", "feet")) else ctx.get("size_unit") or "in")
             q = qty or ctx.get("qty") or 1
-            # Signal to engine: size captured — short human ack (engine will quote if it can)
             if is_pidgin:
                 return f"Oya I get am — *{w:g}×{h:g} {unit}* × {q} pcs. Make I check the price for you sharp sharp."
             return f"Got it — *{w:g}×{h:g} {unit}* × {q} pcs. Checking the price for you now."
+
+        # --- Answer ANY question while order is open (rate, terms, finishing) ---
+        svc = ctx.get("service_name") or "your order"
+        rate = ctx.get("unit_rate") or ctx.get("base_price")
+        rate_unit = ctx.get("rate_unit") or ctx.get("size_unit") or "sq ft"
+        cur = getattr(company, "currency", None) or "NGN"
+
+        # Square foot / rate / how much per
+        if any(x in low for x in (
+            "square foot", "sq ft", "sqft", "per foot", "per ft", "rate",
+            "how much per", "wetin be the price", "wetin be the square",
+            "how much for one", "unit price", "base price", "per square",
+        )):
+            if rate:
+                if is_pidgin:
+                    return (
+                        f"For *{svc}*, the rate na *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
+                        f"Your own ({ctx.get('width') or '?'}×{ctx.get('height') or '?'} "
+                        f"{ctx.get('size_unit') or ''} × {ctx.get('qty') or 1}) "
+                        f"total na *{cur} {float(ctx.get('locked_total') or ctx.get('total') or 0):,.0f}*."
+                    )
+                return (
+                    f"For *{svc}*, the rate is *{cur} {float(rate):,.0f}* per {rate_unit}.\n"
+                    f"Your job total is *{cur} {float(ctx.get('locked_total') or ctx.get('total') or 0):,.0f}*."
+                )
+            if ctx.get("locked_total") and ctx.get("width") and ctx.get("height"):
+                area = float(ctx["width"]) * float(ctx["height"]) * float(ctx.get("qty") or 1)
+                if area > 0:
+                    implied = float(ctx["locked_total"]) / area
+                    if is_pidgin:
+                        return f"Based on your quote, e work out about *{cur} {implied:,.0f}* per {rate_unit}. Total still *{cur} {float(ctx['locked_total']):,.0f}*."
+                    return f"Based on your quote, that is about *{cur} {implied:,.0f}* per {rate_unit}. Total remains *{cur} {float(ctx['locked_total']):,.0f}*."
+            if is_pidgin:
+                return "Abeg hold on — I go confirm the exact rate from the price list and tell you."
+            return "One moment — I will confirm the exact rate from our price list."
+
+        # Eyelets explanation + offer
+        if any(x in low for x in ("eyelet", "eyelets", "grommet", "hole for hang", "hang hole")):
+            if is_pidgin:
+                return (
+                    "Eyelets na those small metal rings wey we put for the four corners of the banner "
+                    "so you fit hang am with rope or cable tie.\n"
+                    "You want eyelets for this job? If yes I go add the finishing fee."
+                )
+            return (
+                "Eyelets are the small metal rings on the corners of a banner so you can hang it with rope or ties.\n"
+                "Do you want eyelets on this job? I can add the finishing fee if yes."
+            )
+
+        # Whiteout
+        if any(x in low for x in ("whiteout", "white out", "blockout", "opaque", "see through")):
+            if is_pidgin:
+                return (
+                    "Whiteout (blockout) na backing wey make the banner no transparent — "
+                    "print no go show for the back.\nYou need whiteout for this one?"
+                )
+            return (
+                "Whiteout (blockout) is a backing so the banner is not see-through — "
+                "the print does not show from the back.\nDo you need whiteout on this job?"
+            )
+
+        # Print and cut / sticker cutting
+        if any(x in low for x in ("cut", "cutting", "print and cut", "print & cut", "kiss cut", "die cut")):
+            cut_fee = ctx.get("cut_fee") or 1000
+            if is_pidgin:
+                return (
+                    "Print and cut mean we go cut the sticker shape for you (no just print for sheet).\n"
+                    f"Cutting fee usually start from about *{cur} {float(cut_fee):,.0f}* depending on quantity.\n"
+                    "You want us to cut the stickers for you?"
+                )
+            return (
+                "Print and cut means we cut each sticker shape for you (not only print on a sheet).\n"
+                f"Cutting usually starts around *{cur} {float(cut_fee):,.0f}* depending on quantity.\n"
+                "Do you want us to cut the stickers?"
+            )
+
+        # Total again
+        if any(x in low for x in ("total", "how much", "price", "cost", "amount", "ego", "how much be")):
+            if ctx.get("locked_total"):
+                if is_pidgin:
+                    return (
+                        f"Your total still stand *{cur} {float(ctx['locked_total']):,.0f}* "
+                        f"for *{svc}* ({ctx.get('width') or '?'}×{ctx.get('height') or '?'} "
+                        f"{ctx.get('size_unit') or ''} × {ctx.get('qty') or 1}).\n"
+                        "You wan *pickup* or *delivery*?"
+                    )
+                return (
+                    f"Your total is *{cur} {float(ctx['locked_total']):,.0f}* "
+                    f"for *{svc}*.\nPickup or delivery?"
+                )
+
         if not (ctx.get("width") and ctx.get("height")):
             if is_pidgin:
                 return "Abeg send the size like *5x2* and how many pieces (inches or feet)."
@@ -89,9 +179,16 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             if is_pidgin:
                 return "I don get the size. Confirm quantity or say *quote* make I give price."
             return "I have the size. Confirm quantity or say *quote* for the total."
+        # Quote open — stay helpful, never generic greet
         if is_pidgin:
-            return "Your quote still dey open. You wan *pickup* or *delivery*?"
-        return "Your quote is still open. Pickup or delivery?"
+            return (
+                f"Your *{svc}* quote still dey: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                "You fit ask about rate, eyelets, whiteout, cutting — or choose *pickup* / *delivery*."
+            )
+        return (
+            f"Your *{svc}* quote is *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+            "Ask about rate, eyelets, whiteout, cutting — or choose pickup / delivery."
+        )
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
     is_confused = low in ("?", "??", "???", "hello?", "wetin?", "wetin", "eh?", "abi?")
@@ -293,15 +390,10 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     if btype == "education":
         return f"*{name}* — which course or service do you need info on?"
 
+    # Last resort — short, human, no brand spam
     if is_pidgin:
-        return (
-            f"I hear you — *{name}* dey online.\n"
-            "Abeg tell me wetin you need clearly and I go sort you."
-        )
-    return (
-        f"Thanks for messaging *{name}*.\n"
-        "Tell me what you need and I will help you right away."
-    )
+        return "I hear you. Wetin you wan do — or ask me any question about the job."
+    return "Got it. What do you need, or ask me any question about the job."
 
 
 
