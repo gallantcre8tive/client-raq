@@ -9,6 +9,11 @@ from app.models.company import Company, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Conversation, Message, Order, OrderStatus
 from app.services.grok_client import grok_chat, grok_vision
+try:
+    from app.services.service_workflows import is_finishing_allowed, family_for_service, next_question
+except Exception:
+    is_finishing_allowed = family_for_service = next_question = None  # type: ignore
+
 from app.services.whatsapp_send import send_text, send_buttons, send_list, send_typing, download_media
 
 log = logging.getLogger("client_raq.bot")
@@ -1840,6 +1845,19 @@ async def _handle_inbound_core(
         _tlf = (text or "").lower()
         _is_print = "print" in (getattr(company, "business_type", None) or "printing").lower() or not getattr(company, "business_type", None)
         if _is_print and any(k in _tlf for k in ("eyelet", "whiteout", "white out", "cut", "print and cut", "no cut", "no eyelet", "no whiteout")):
+            # skip options not allowed for this service family (e.g. eyelets on stickers)
+            _svc_name = ctx.get("service_name") or ""
+            def _ok_fin(opt: str) -> bool:
+                if not is_finishing_allowed:
+                    # conservative fallback
+                    if opt in ("eyelets", "eyelet") and any(k in _svc_name.lower() for k in ("sticker", "sav", "label", "decal")):
+                        return False
+                    return True
+                try:
+                    return is_finishing_allowed(opt, _svc_name, _tlf, getattr(company, "business_type", None) or "printing")
+                except Exception:
+                    return True
+
             try:
                 import json as _json
                 flags = {}
@@ -1849,11 +1867,19 @@ async def _handle_inbound_core(
                 cur = company.currency or "NGN"
                 add_on = 0.0
                 notes = []
-                if any(k in _tlf for k in ("eyelet", "grommet")) and "no" not in _tlf.split()[0:2]:
+                if any(k in _tlf for k in ("eyelet", "grommet")) and "no" not in _tlf.split()[0:2] and _ok_fin("eyelets"):
                     fee = float(flags.get("eyelet_fee") or 500)
                     add_on += fee
                     notes.append(f"eyelets +{cur} {fee:,.0f}")
                     ctx["want_eyelets"] = True
+                elif any(k in _tlf for k in ("eyelet", "grommet")) and not _ok_fin("eyelets"):
+                    outbound = (
+                        "Eyelets no apply for this product (e.g. sticker). We continue with your quote."
+                        if ctx.get("lang") == "pidgin" else
+                        "Eyelets don't apply to this product. Continuing with your current quote."
+                    )
+                    ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+                    return
                 if "whiteout" in _tlf or "white out" in _tlf or "blockout" in _tlf:
                     if not _tlf.strip().startswith("no"):
                         fee = float(flags.get("whiteout_fee") or 0)

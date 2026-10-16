@@ -11,6 +11,20 @@ from app.config import get_settings
 
 log = logging.getLogger("client_raq.agent")
 
+
+try:
+    from app.services.service_workflows import (
+        family_for_service,
+        is_finishing_allowed,
+        next_question,
+        workflow_hint_for_prompt,
+        allowed_finishing,
+        detect_print_family,
+    )
+except Exception:  # pragma: no cover
+    family_for_service = is_finishing_allowed = next_question = None  # type: ignore
+    workflow_hint_for_prompt = allowed_finishing = detect_print_family = None  # type: ignore
+
 def _extract_size_qty(msg: str):
     """Return (w, h, qty, unit) from free text if present."""
     import re
@@ -129,17 +143,29 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                 return "Abeg hold on — I go confirm the exact rate from the price list and tell you."
             return "One moment — I will confirm the exact rate from our price list."
 
-        # Eyelets explanation + offer
+        # Eyelets — ONLY if this service family allows them (banners), never stickers
         if any(x in low for x in ("eyelet", "eyelets", "grommet", "hole for hang", "hang hole")):
+            svc_obj = ctx.get("service_name")
+            allowed = True
+            try:
+                if is_finishing_allowed and not is_finishing_allowed("eyelets", svc_obj, low, getattr(company, "business_type", None) or "printing"):
+                    allowed = False
+            except Exception:
+                # fallback: sticker/sav/label never get eyelets
+                if any(k in (str(svc_obj) + " " + low).lower() for k in ("sticker", "sav", "label", "decal", "vinyl")) and "banner" not in low:
+                    allowed = False
+            if not allowed:
+                if is_pidgin:
+                    return "No wahala — eyelets no concern this sticker/label job. We continue with your size and quantity."
+                return "No problem — eyelets don't apply to this sticker/label job. We'll stick to size and quantity."
             if is_pidgin:
                 return (
-                    "Eyelets na those small metal rings wey we put for the four corners of the banner "
-                    "so you fit hang am with rope or cable tie.\n"
-                    "You want eyelets for this job? If yes I go add the finishing fee."
+                    "Eyelets na those small metal rings for banner corners so you fit hang am.\n"
+                    "You want eyelets for this banner? I fit add the finishing fee."
                 )
             return (
-                "Eyelets are the small metal rings on the corners of a banner so you can hang it with rope or ties.\n"
-                "Do you want eyelets on this job? I can add the finishing fee if yes."
+                "Eyelets are metal rings on banner corners for hanging.\n"
+                "Do you want eyelets on this banner?"
             )
 
         # Whiteout
@@ -154,7 +180,7 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                 "the print does not show from the back.\nDo you need whiteout on this job?"
             )
 
-        # Print and cut / sticker cutting
+        # Print and cut — relevant for stickers/labels, not usually banners
         if any(x in low for x in ("cut", "cutting", "print and cut", "print & cut", "kiss cut", "die cut")):
             cut_fee = ctx.get("cut_fee") or 1000
             if is_pidgin:
@@ -227,15 +253,27 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
                 "Please send your *address* and preferred day/time."
             )
 
-        # Quote open — stay helpful, never generic greet
+        # Quote open — only mention finishing that applies to THIS service family
+        fin_bits = []
+        try:
+            af = allowed_finishing(svc, low, getattr(company, "business_type", None) or "printing") if allowed_finishing else ()
+            if "print_cut" in af:
+                fin_bits.append("cutting")
+            if "eyelets" in af:
+                fin_bits.append("eyelets")
+            if "whiteout" in af:
+                fin_bits.append("whiteout")
+        except Exception:
+            fin_bits = []
+        fin_txt = (" / " + " / ".join(fin_bits)) if fin_bits else ""
         if is_pidgin:
             return (
                 f"Your *{svc}* quote still dey: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-                "You wan *pickup* (you go come) or *delivery*? Or ask about rate / cutting / eyelets."
+                f"You wan *pickup* (you go come) or *delivery*? Or ask about rate{fin_txt}."
             )
         return (
             f"Your *{svc}* quote is *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-            "Choose *pickup* or *delivery*, or ask about rate / cutting / eyelets."
+            f"Choose *pickup* or *delivery*, or ask about rate{fin_txt}."
         )
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
