@@ -1890,6 +1890,50 @@ async def _handle_inbound_core(
             except Exception as _fe:
                 print("finishing_handler", type(_fe).__name__, _fe)
 
+
+    # ── EARLY: natural pickup/delivery while quote is locked ──
+    if text and not interactive_id and ctx.get("quote_locked") and not ctx.get("fulfillment"):
+        _tl = (text or "").lower()
+        _is_pick = any(x in _tl for x in (
+            "pickup", "pick up", "pick-up", "collect", "i go come", "i will come",
+            "carry am", "myself", "no need for delivery", "no delivery", "i go collect",
+            "come carry", "i dey come", "go come", "i will pick", "i go pick", "self collect",
+        ))
+        _is_del = any(x in _tl for x in (
+            "delivery", "deliver", "bring am", "send am", "home delivery", "drop off", "courier",
+        )) and not _is_pick
+        if _is_pick or _is_del:
+            ctx["fulfillment"] = "pickup" if _is_pick else "delivery"
+            cur = company.currency or "NGN"
+            total = float(ctx.get("locked_total") or ctx.get("total") or 0)
+            svc_n = ctx.get("service_name") or "your order"
+            if _is_pick:
+                outbound = (
+                    f"Sharp! *Pickup* — *{svc_n}* total *{cur} {total:,.0f}*.\n"
+                    f"Which day/time you go come? e.g. *Tomorrow 2pm*"
+                    if ctx.get("lang") == "pidgin" else
+                    f"*Pickup* noted — *{svc_n}* total *{cur} {total:,.0f}*.\n"
+                    f"What day/time will you come? e.g. *Tomorrow 2pm*"
+                )
+                conv.state = "await_datetime"
+            else:
+                outbound = (
+                    f"Delivery noted — *{svc_n}* total *{cur} {total:,.0f}*.\n"
+                    f"Abeg send *address* and day/time."
+                    if ctx.get("lang") == "pidgin" else
+                    f"Delivery noted — *{svc_n}* total *{cur} {total:,.0f}*.\n"
+                    f"Please send *address* and day/time."
+                )
+                conv.state = "await_address"
+            _save_ctx(conv, ctx)
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+            print("bot_trace EARLY_FULFILLMENT ok=%s mode=%s" % (ok, ctx["fulfillment"]))
+            return
+
     # ── EARLY: size/qty — ALWAYS when WxH present (never generic fallback) ──
     if text and not interactive_id and not ctx.get("quote_locked"):
         _w, _h = _parse_size(text)
@@ -2037,14 +2081,23 @@ async def _handle_inbound_core(
     }
     # Short answers that clearly complete the current step — let rules handle them
     step_answers = {
-        "await_fulfillment": ("pickup", "delivery", "deliver", "come collect", "i go come", "i will come"),
+        "await_fulfillment": (
+            "pickup", "pick up", "pick-up", "delivery", "deliver", "come collect",
+            "i go come", "i will come", "carry am", "myself", "no need for delivery",
+            "no delivery", "i go collect", "come carry", "i dey come", "go come",
+            "customer pickup", "self collect", "i will pick", "i go pick",
+        ),
         "await_lang": ("english", "pidgin", "en", "normal english"),
         "await_artwork": ("need design", "print ready", "i have design", "no design", "design ready"),
     }
     text_is_step_answer = False
     if text and state in step_answers:
         tl = text.lower().strip()
-        text_is_step_answer = any(k in tl for k in step_answers[state]) and len(tl) < 40
+        # fulfillment answers can be long natural sentences — do NOT limit to 40 chars
+        if state == "await_fulfillment":
+            text_is_step_answer = any(k in tl for k in step_answers[state])
+        else:
+            text_is_step_answer = any(k in tl for k in step_answers[state]) and len(tl) < 40
 
     # Size / qty / unit answers while quoting — NEVER send to Grok first; rules must calculate
     if text and state in ("await_details", "await_size", "await_qty_fixed", "await_service"):
@@ -2846,7 +2899,7 @@ async def _handle_inbound_core(
     # Fulfillment
     elif state == "await_fulfillment" or interactive_id in ("ful_pickup", "ful_delivery"):
         is_del = interactive_id == "ful_delivery" or any(w in low for w in ("deliver", "delivery", "send"))
-        is_pick = interactive_id == "ful_pickup" or any(w in low for w in ("pickup", "pick up", "collect"))
+        is_pick = interactive_id == "ful_pickup" or any(w in low for w in ("pickup", "pick up", "pick-up", "collect", "i go come", "carry am", "myself", "no need for delivery", "no delivery", "i go collect", "come carry", "i dey come", "go come", "i will come", "i will pick", "i go pick", "self collect"))
         if not is_del and not is_pick:
             # Free text that is not pickup/delivery (AI path should have handled topic changes).
             # Acknowledge and re-offer buttons so the chat never feels stuck.

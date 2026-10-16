@@ -192,15 +192,50 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             if is_pidgin:
                 return "I don get the size. Confirm quantity or say *quote* make I give price."
             return "I have the size. Confirm quantity or say *quote* for the total."
+
+        # Natural pickup / delivery intent (must beat generic "still open" reply)
+        _pickup = any(x in low for x in (
+            "pickup", "pick up", "pick-up", "collect", "i go come", "i will come",
+            "carry am", "myself", "no need for delivery", "no delivery", "i go collect",
+            "come carry", "i dey come", "go come", "i will pick", "i go pick",
+            "self collect", "come take", "i go take",
+        ))
+        _delivery = any(x in low for x in (
+            "delivery", "deliver", "bring am", "send am", "home delivery",
+            "drop off", "dropoff", "ship", "courier",
+        )) and not _pickup
+        if _pickup and not _delivery:
+            ctx["fulfillment"] = "pickup"
+            if is_pidgin:
+                return (
+                    f"Sharp! *Pickup* noted for *{svc}* — total *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                    "Which day/time you go come? Example: *Tomorrow 2pm*."
+                )
+            return (
+                f"Pickup noted for *{svc}* — total *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                "What day/time will you come? Example: *Tomorrow 2pm*."
+            )
+        if _delivery:
+            ctx["fulfillment"] = "delivery"
+            if is_pidgin:
+                return (
+                    f"Delivery noted — total *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                    "Abeg send your *address* and preferred day/time."
+                )
+            return (
+                f"Delivery noted — total *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                "Please send your *address* and preferred day/time."
+            )
+
         # Quote open — stay helpful, never generic greet
         if is_pidgin:
             return (
                 f"Your *{svc}* quote still dey: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-                "You fit ask about rate, eyelets, whiteout, cutting — or choose *pickup* / *delivery*."
+                "You wan *pickup* (you go come) or *delivery*? Or ask about rate / cutting / eyelets."
             )
         return (
             f"Your *{svc}* quote is *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-            "Ask about rate, eyelets, whiteout, cutting — or choose pickup / delivery."
+            "Choose *pickup* or *delivery*, or ask about rate / cutting / eyelets."
         )
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
