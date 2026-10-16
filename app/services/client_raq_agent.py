@@ -1,14 +1,27 @@
-import re
 """Client RaQ AI agent — Grok/xAI with tools + natural rule fallbacks."""
 from __future__ import annotations
 
+import re
 import json
 import logging
 from typing import Any
 
 import httpx
 
-from app.config import get_settings
+try:
+    from app.config import get_settings
+except Exception:
+    try:
+        from app.core.config import get_settings
+    except Exception:
+        def get_settings():  # type: ignore
+            class _S:
+                xai_api_key = ""
+                grok_api_key = ""
+                GROK_API_KEY = ""
+                XAI_API_KEY = ""
+            return _S()
+
 
 log = logging.getLogger("client_raq.agent")
 
@@ -58,6 +71,26 @@ def _escalate_human(is_pidgin: bool = True) -> str:
 
 def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     """Natural fallback when Grok is down — match customer tone + business type."""
+    # _RULE_REPLY_SAFE
+    try:
+        return _rule_reply_inner(company, customer_message, ctx)
+    except Exception as _rr:
+        try:
+            import logging
+            logging.getLogger("client_raq.agent").warning("rule_reply fail %s", _rr)
+        except Exception:
+            pass
+        low = (customer_message or "").lower()
+        if any(x in low for x in ("sticker", "sav", "label")):
+            return "Oya sticker! Abeg tell me size (width x height) and how many pieces. Inches or feet?"
+        if any(x in low for x in ("banner", "flex")):
+            return "Oya banner! Abeg tell me size (width x height) and how many. Feet or metres?"
+        if any(x in low for x in ("haffa", "how far", "hello", "hi ", "hey", "good morning")):
+            return "How far! Wetin you wan do today — I dey here."
+        return "I dey here — wetin you need? Sticker, banner, or something else?"
+
+
+def _rule_reply_inner(company, customer_message: str, ctx: dict) -> str:
     name = getattr(company, "name", None) or "us"
     msg = (customer_message or "").strip()
     low = msg.lower()
@@ -305,10 +338,17 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
     is_confused = low in ("?", "??", "???", "hello?", "wetin?", "wetin", "eh?", "abi?")
     _schedule_words = {
         "tomorrow", "today", "monday", "tuesday", "wednesday", "thursday", "friday",
-        "saturday", "sunday", "pm", "am", "hour", "o'clock", "time", "6pm", "2pm",
-        "evening", "morning", "afternoon", "night", "noon", "by", "sha",
+        "saturday", "sunday", "hour", "o'clock", "6pm", "2pm", "noon",
     }
-    _has_schedule = bool(words & _schedule_words) or bool(re.search(r"\d\s*(am|pm)?", low)) or "tomorrow" in low
+    # only treat morning/evening as schedule if with day/time context
+    _has_schedule = (
+        bool(words & _schedule_words)
+        or "tomorrow" in low or "today" in low
+        or bool(re.search(r"\b\d{1,2}\s*(am|pm)\b", low))
+        or (("evening" in low or "morning" in low or "afternoon" in low) and (
+            "tomorrow" in low or "today" in low or bool(re.search(r"\d", low)) or "hour" in low
+        ))
+    )
     _busy_order = bool(
         ctx.get("quote_locked") or ctx.get("fulfillment") or ctx.get("service_name")
         or ctx.get("width") or ctx.get("locked_total")

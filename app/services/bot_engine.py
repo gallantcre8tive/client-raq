@@ -9,10 +9,13 @@ from app.models.company import Company, PaymentDetail, CompanyWhatsAppNumber
 from app.models.catalog import Service, ServiceVariant
 from app.models.conversation import Conversation, Message, Order, OrderStatus
 from app.services.grok_client import grok_chat, grok_vision
+is_finishing_allowed = family_for_service = next_question = None  # type: ignore
 try:
-    from app.services.service_workflows import is_finishing_allowed, family_for_service, next_question
-except Exception:
-    is_finishing_allowed = family_for_service = next_question = None  # type: ignore
+    from app.services.service_workflows import is_finishing_allowed as _ifa, family_for_service as _ffs, next_question as _nq
+    is_finishing_allowed, family_for_service, next_question = _ifa, _ffs, _nq
+except Exception as _sw_imp:
+    print("service_workflows import skip", type(_sw_imp).__name__, _sw_imp)
+
 
 from app.services.whatsapp_send import send_text, send_buttons, send_list, send_typing, download_media
 
@@ -927,17 +930,18 @@ async def _handle_inbound_core(
             and not re.search(r"\d+\s*[x×]", _tl0)
         )
         if _greet_only:
-            # Clear incomplete quote so greeting is answered normally
-            if ctx.get("service_name") and not ctx.get("quote_locked"):
-                for k in ("service_name", "service_id", "width", "height", "qty", "size_unit"):
-                    ctx.pop(k, None)
-                conv.state = "open"
-                _save_ctx(conv, ctx)
-                try:
-                    await db.commit()
-                except Exception:
-                    pass
-                print("bot_trace cleared_stale_quote_on_greet")
+            # Clear incomplete / finished quote so a new chat can start cleanly
+            for k in ("service_name", "service_id", "width", "height", "qty", "size_unit",
+                      "fulfillment", "datetime", "date", "time", "quote_locked", "locked_total",
+                      "total", "subtotal", "design_status"):
+                ctx.pop(k, None)
+            conv.state = "open"
+            _save_ctx(conv, ctx)
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            print("bot_trace cleared_stale_quote_on_greet")
 
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
@@ -3293,9 +3297,17 @@ async def handle_inbound(
                     )
                 )).scalar_one_or_none()
                 if link and link.access_token and from_wa:
+                    _fb = (text or "").lower()
+                    if any(x in _fb for x in ("sticker", "sav", "label")):
+                        _out = "Oya sticker! Abeg tell me size (width x height) and how many pieces. Inches or feet?"
+                    elif any(x in _fb for x in ("banner", "flex")):
+                        _out = "Oya banner! Abeg tell me size (width x height) and quantity. Feet or metres?"
+                    elif any(x in _fb for x in ("haffa", "how far", "hello", "hey", "hi")):
+                        _out = "How far! Wetin you wan do today — I dey here."
+                    else:
+                        _out = "I dey here — wetin you need? Sticker, banner, or something else?"
                     await send_text(
-                        link.phone_number_id, link.access_token, from_wa,
-                        "I got your message — tell me clearly what you need and I will help.",
+                        link.phone_number_id, link.access_token, from_wa, _out,
                     )
             except Exception:
                 pass
