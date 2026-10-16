@@ -1917,6 +1917,107 @@ async def _handle_inbound_core(
                 print("finishing_handler", type(_fe).__name__, _fe)
 
 
+
+    # ── EARLY: natural datetime after pickup/delivery chosen ──
+    if text and not interactive_id and (
+        (conv.state or "") in ("await_datetime", "await_schedule")
+        or (ctx.get("fulfillment") and ctx.get("quote_locked") and not ctx.get("datetime"))
+    ):
+        _tl = (text or "").lower()
+        # Design question while scheduling — answer design, keep schedule state
+        if any(x in _tl for x in ("design", "artwork", "logo", "do the design", "help me do", "graphic")):
+            ctx["design_status"] = "need_design"
+            _save_ctx(conv, ctx)
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            fee = float(getattr(company, "design_fee_default", 0) or 0)
+            cur = company.currency or "NGN"
+            if fee > 0:
+                outbound = (
+                    f"Yes we fit help with design. Design fee na about *{cur} {fee:,.0f}* "
+                    f"(confirm with us). Still drop the *day/time* you go come for pickup — e.g. *Tomorrow 6pm*."
+                    if ctx.get("lang") == "pidgin" else
+                    f"Yes, we can help with design. Design fee is about *{cur} {fee:,.0f}* "
+                    f"(we will confirm). Please still share the *day/time* for pickup — e.g. *Tomorrow 6pm*."
+                )
+            else:
+                outbound = (
+                    "Yes we fit help with the design — send your idea or logo. "
+                    "Still tell me *day/time* for pickup e.g. *Tomorrow 6pm*."
+                    if ctx.get("lang") == "pidgin" else
+                    "Yes, we can help with the design — send your idea or logo. "
+                    "Please still share *day/time* for pickup e.g. *Tomorrow 6pm*."
+                )
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+            print("bot_trace EARLY_DESIGN_WHILE_SCHEDULE ok=%s" % ok)
+            return
+
+        _looks_time = any(x in _tl for x in (
+            "am", "pm", "monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday", "tomorrow", "today", "next", "morning", "evening",
+            "afternoon", "night", "noon", "hour", "o'clock", "oclock",
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        )) or bool(re.search(r"\d\s*(am|pm|:)", _tl)) or bool(re.search(r"\b\d{1,2}\s*(am|pm)?\b", _tl))
+        # "evening hour sha tomorrow", "6pm tomorrow", "by 6pm"
+        if _looks_time or re.search(r"\d", text or ""):
+            ctx["datetime"] = text.strip()
+            # light parse
+            m_time = re.search(r"(\d{1,2})\s*(:\s*\d{2})?\s*(am|pm)?", _tl)
+            if m_time:
+                ctx["time"] = m_time.group(0).replace(" ", "")
+            if "tomorrow" in _tl:
+                ctx["date"] = "tomorrow"
+            elif "today" in _tl:
+                ctx["date"] = "today"
+            elif any(d in _tl for d in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")):
+                for d in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+                    if d in _tl:
+                        ctx["date"] = d
+                        break
+            if "evening" in _tl or "night" in _tl:
+                ctx["time"] = ctx.get("time") or "evening"
+            if "morning" in _tl:
+                ctx["time"] = ctx.get("time") or "morning"
+            if "afternoon" in _tl:
+                ctx["time"] = ctx.get("time") or "afternoon"
+            _save_ctx(conv, ctx)
+            conv.state = "await_payment"
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            bank = ""
+            try:
+                bank = await _bank(db, company)
+            except Exception:
+                bank = "Ask staff for payment account."
+            total = float(ctx.get("locked_total") or ctx.get("total") or 0)
+            cur = company.currency or "NGN"
+            svc_n = ctx.get("service_name") or "order"
+            when = text.strip()
+            outbound = (
+                f"Order locked:\n"
+                f"• *{svc_n}*\n"
+                f"• {ctx.get('fulfillment') or 'pickup'}\n"
+                f"• When: *{when}*\n"
+                f"• Total: *{cur} {total:,.0f}*\n\n"
+                f"Pay to:\n{bank}\n\n"
+                f"After payment, *send screenshot* here."
+                if ctx.get("lang") != "pidgin" else
+                f"Order don set:\n"
+                f"• *{svc_n}*\n"
+                f"• {ctx.get('fulfillment') or 'pickup'}\n"
+                f"• Time: *{when}*\n"
+                f"• Total: *{cur} {total:,.0f}*\n\n"
+                f"Pay to:\n{bank}\n\n"
+                f"After you pay, *send screenshot* here."
+            )
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+            print("bot_trace EARLY_DATETIME ok=%s when=%s" % (ok, when[:40]))
+            return
+
     # ── EARLY: natural pickup/delivery while quote is locked ──
     if text and not interactive_id and ctx.get("quote_locked") and not ctx.get("fulfillment"):
         _tl = (text or "").lower()

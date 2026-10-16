@@ -1,3 +1,4 @@
+import re
 """Client RaQ AI agent — Grok/xAI with tools + natural rule fallbacks."""
 from __future__ import annotations
 
@@ -231,6 +232,30 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
             "drop off", "dropoff", "ship", "courier",
         )) and not _pickup
         if _pickup and not _delivery:
+            # Already pickup + message has time → acknowledge schedule (engine may also handle)
+            if ctx.get("fulfillment") == "pickup" and (
+                any(x in low for x in ("tomorrow", "today", "pm", "am", "evening", "morning", "afternoon", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))
+                or re.search(r"\d", low)
+            ):
+                if is_pidgin:
+                    return f"I hear the time — *{msg.strip()}*. I go lock that for your pickup. Next: payment details."
+                return f"Got the time — *{msg.strip()}*. Next I will send payment details."
+            # Design question mixed with pickup
+            if any(x in low for x in ("design", "artwork", "logo", "help me do")):
+                ctx["fulfillment"] = "pickup"
+                if is_pidgin:
+                    return (
+                        f"Pickup noted. Yes we fit help with design — send logo/idea.\n"
+                        f"Total still *{cur} {float(ctx.get('locked_total') or 0):,.0f}*. Which *day/time* you go come?"
+                    )
+                return (
+                    f"Pickup noted. Yes, we can help with design — send logo/idea.\n"
+                    f"Total remains *{cur} {float(ctx.get('locked_total') or 0):,.0f}*. What *day/time* will you come?"
+                )
+            if ctx.get("fulfillment") == "pickup":
+                if is_pidgin:
+                    return "Pickup don already note. Abeg send *day/time* you go come — e.g. *Tomorrow 6pm*."
+                return "Pickup is already noted. Please send the *day/time* you will come — e.g. *Tomorrow 6pm*."
             ctx["fulfillment"] = "pickup"
             if is_pidgin:
                 return (
@@ -278,9 +303,19 @@ def _rule_reply(company, customer_message: str, ctx: dict) -> str:
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
     is_confused = low in ("?", "??", "???", "hello?", "wetin?", "wetin", "eh?", "abi?")
-    is_greet = (not is_confused) and (
-        bool(words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "morning", "evening", "afternoon", "brother", "bros", "boss", "blood"})
-        or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood", "how far my oga", "how e be")
+    _schedule_words = {
+        "tomorrow", "today", "monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday", "pm", "am", "hour", "o'clock", "time", "6pm", "2pm",
+        "evening", "morning", "afternoon", "night", "noon", "by", "sha",
+    }
+    _has_schedule = bool(words & _schedule_words) or bool(re.search(r"\d\s*(am|pm)?", low)) or "tomorrow" in low
+    _busy_order = bool(
+        ctx.get("quote_locked") or ctx.get("fulfillment") or ctx.get("service_name")
+        or ctx.get("width") or ctx.get("locked_total")
+    )
+    is_greet = (not is_confused) and (not _has_schedule) and (not _busy_order) and (
+        bool(words & {"hi", "hello", "hey", "haffa", "howfar", "sup", "yo", "brother", "bros", "boss", "blood"})
+        or low in ("hi", "hello", "hey", "haffa", "how far", "haffa blood", "how far my oga", "how e be", "good morning", "good evening")
     )
     btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
 
