@@ -133,6 +133,46 @@ def _rule_reply_inner(company, customer_message: str, ctx: dict) -> str:
         # allow normal greeting path — do not force "still on SAV"
         pass
     elif (ctx.get("service_name") or ctx.get("service_id") or ctx.get("width") or ctx.get("quote_locked")) and not _new_service:
+
+        # How did you calculate? — use stored quote_detail
+        if any(x in low for x in (
+            "how you take calculate", "how you calculate", "how did you calculate",
+            "how u calculate", "breakdown", "break down", "why that price", "how e reach",
+            "how you take get", "explain the price", "formula", "calculation",
+        )) or (("how" in low or "wetin" in low) and any(x in low for x in ("calculate", "price", "cost", "total"))):
+            detail = ctx.get("quote_detail") or {}
+            cur = getattr(company, "currency", None) or "NGN"
+            if not detail and ctx.get("locked_total"):
+                detail = {
+                    "mode": "sqft" if ctx.get("width") else "piece",
+                    "total": ctx.get("locked_total"),
+                    "unit_rate": ctx.get("unit_rate") or ctx.get("base_price"),
+                    "base_price": ctx.get("base_price") or ctx.get("unit_rate"),
+                    "width": ctx.get("width"), "height": ctx.get("height"),
+                    "qty": ctx.get("qty") or 1, "size_unit": ctx.get("size_unit") or "in",
+                    "service_name": ctx.get("service_name") or "this service",
+                    "breakdown": ctx.get("quote_breakdown") or "",
+                }
+                try:
+                    w0 = float(detail.get("width") or 0)
+                    h0 = float(detail.get("height") or 0)
+                    q0 = int(detail.get("qty") or 1)
+                    if w0 and h0 and str(detail.get("size_unit") or "").startswith("in"):
+                        detail["area_one_sqin"] = w0 * h0
+                        detail["area_one_sqft"] = (w0 * h0) / 144.0
+                        detail["total_area_sqft"] = detail["area_one_sqft"] * q0
+                        detail["mode"] = "sqft"
+                except Exception:
+                    pass
+            try:
+                from app.services.pricing_engine import format_explain
+                return format_explain(detail, cur, is_pidgin)
+            except Exception:
+                bd = ctx.get("quote_breakdown") or detail.get("breakdown") or ""
+                if is_pidgin:
+                    return f"How we take calculate am:\n{bd}\nTotal: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*"
+                return f"Calculation:\n{bd}\nTotal: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*"
+
         # ALWAYS parse THIS message for size/qty before asking again
         w, h, qty, unit = _extract_size_qty(msg)
         if w and h and not ctx.get("quote_locked"):

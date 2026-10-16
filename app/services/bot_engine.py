@@ -173,9 +173,12 @@ def _resolve_service(services, ctx: dict):
 
 
 def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str | None = None, **kwargs) -> float:
-    """Deterministic pricing via pricing_engine — correct for all business types."""
+    """Deterministic pricing via pricing_engine — correct for all business types.
+    When kwargs['ctx'] is a dict, stores full quotation breakdown in ctx['quote_detail'].
+    """
     try:
         from app.services.pricing_engine import calculate as _price_calc
+        _ctx = kwargs.get("ctx") or {}
         res = _price_calc(
             service,
             width=width,
@@ -189,8 +192,18 @@ def _calc_total(service, width, height, qty, size_text: str = "", size_unit: str
             unit_price_override=kwargs.get("unit_price_override"),
             weight_kg=kwargs.get("weight_kg"),
             hours=kwargs.get("hours"),
-            ctx=kwargs.get("ctx") or {},
+            ctx=_ctx,
         )
+        if isinstance(_ctx, dict) and res:
+            detail = dict(res)
+            detail["service_name"] = getattr(service, "name", None) or _ctx.get("service_name")
+            detail["service_id"] = getattr(service, "id", None) or _ctx.get("service_id")
+            _ctx["quote_detail"] = detail
+            _ctx["quote_breakdown"] = res.get("breakdown") or ""
+            if res.get("unit_rate") is not None:
+                _ctx["unit_rate"] = res.get("unit_rate")
+            if res.get("base_price") is not None:
+                _ctx["base_price"] = res.get("base_price")
         if res.get("ok") and res.get("total") is not None:
             return float(res["total"])
         # Fallback piece price when size missing for area methods
@@ -1921,6 +1934,69 @@ async def _handle_inbound_core(
                 print("finishing_handler", type(_fe).__name__, _fe)
 
 
+
+
+    # ── EARLY: "How you take calculate am?" — explain saved quotation ──
+    if text and not interactive_id and (
+        ctx.get("quote_locked") or ctx.get("locked_total") or ctx.get("quote_detail")
+    ):
+        _tl = (text or "").lower()
+        _ask_calc = any(x in _tl for x in (
+            "how you take calculate", "how you calculate", "how did you calculate",
+            "how u calculate", "how una calculate", "break down", "breakdown",
+            "how you get", "how una get", "why that price", "why e cost",
+            "how e reach", "explain the price", "explain price", "wetin make am",
+            "how you take get", "how you take do", "calculation", "formula",
+        )) or (
+            ("how" in _tl or "wetin" in _tl) and any(x in _tl for x in ("calculate", "price", "cost", "total", "quote"))
+        )
+        if _ask_calc:
+            cur = company.currency or "NGN"
+            detail = ctx.get("quote_detail") or {}
+            if not detail and ctx.get("locked_total"):
+                # rebuild minimal detail from ctx
+                detail = {
+                    "mode": "sqft" if ctx.get("width") else "piece",
+                    "total": ctx.get("locked_total") or ctx.get("total"),
+                    "unit_rate": ctx.get("unit_rate") or ctx.get("base_price"),
+                    "base_price": ctx.get("base_price") or ctx.get("unit_rate"),
+                    "width": ctx.get("width"),
+                    "height": ctx.get("height"),
+                    "qty": ctx.get("qty") or 1,
+                    "size_unit": ctx.get("size_unit") or "in",
+                    "service_name": ctx.get("service_name"),
+                    "breakdown": ctx.get("quote_breakdown") or "",
+                }
+                # fill area fields if inches
+                try:
+                    w, h, q = float(detail["width"] or 0), float(detail["height"] or 0), int(detail["qty"] or 1)
+                    if w and h and (detail.get("size_unit") or "").startswith("in"):
+                        detail["area_one_sqin"] = w * h
+                        detail["area_one_sqft"] = (w * h) / 144.0
+                        detail["total_area_sqft"] = detail["area_one_sqft"] * q
+                        detail["mode"] = "sqft"
+                except Exception:
+                    pass
+            try:
+                from app.services.pricing_engine import format_explain
+                outbound = format_explain(detail, cur, pidgin=(ctx.get("lang") == "pidgin"))
+            except Exception:
+                bd = ctx.get("quote_breakdown") or detail.get("breakdown") or ""
+                outbound = (
+                    f"How we take calculate am:\n{bd}\nTotal: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*"
+                    if ctx.get("lang") == "pidgin" else
+                    f"Calculation:\n{bd}\nTotal: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*"
+                )
+            # keep next step soft
+            if ctx.get("quote_locked") and not ctx.get("fulfillment"):
+                outbound += (
+                    "\n\nYou still fit choose *pickup* or *delivery*."
+                    if ctx.get("lang") == "pidgin" else
+                    "\n\nYou can still choose *pickup* or *delivery*."
+                )
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+            print("bot_trace EARLY_QUOTE_EXPLAIN ok=%s" % ok)
+            return
 
     # ── EARLY: natural datetime after pickup/delivery chosen ──
     if text and not interactive_id and (

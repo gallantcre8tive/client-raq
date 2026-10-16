@@ -278,12 +278,18 @@ def calculate(
         w, h = float(w), float(h)
         if unit in ("in", "inch", "inches"):
             # (W × H × qty × rate) ÷ 144
-            area_sqft = (w * h * qty) / 144.0
+            area_one_sqin = w * h
+            area_one_sqft = area_one_sqin / 144.0
+            area_sqft = area_one_sqft * qty
             total = round(area_sqft * base + design + extra, 2)
             breakdown = (
-                f"({w:g}×{h:g} in × {qty} × {base:g}) ÷ 144 "
-                f"= {area_sqft:.4f} sq ft × {base:g} = {total:,.2f}"
+                f"{w:g}×{h:g} in = {area_one_sqin:g} sq in "
+                f"(÷144 = {area_one_sqft:.6f} sq ft) × {qty} pcs "
+                f"= {area_sqft:.4f} sq ft × ₦{base:g}/sq ft = {total:,.2f}"
             )
+            result["area_one_sqin"] = area_one_sqin
+            result["area_one_sqft"] = area_one_sqft
+            result["total_area_sqft"] = area_sqft
             rate_unit = "sq ft"
             unit_rate = base
         elif unit in ("m", "metre", "meter", "sqm"):
@@ -292,12 +298,16 @@ def calculate(
             breakdown = (
                 f"({w:g}×{h:g} m × {qty}) → {area_sqft:.4f} sq ft × {base:g} = {total:,.2f}"
             )
+            result["total_area_sqft"] = area_sqft
             rate_unit = "sq ft"
             unit_rate = base
         else:
-            area_sqft = w * h * qty
+            area_one = w * h
+            area_sqft = area_one * qty
             total = round(area_sqft * base + design + extra, 2)
-            breakdown = f"{w:g}×{h:g} ft × {qty} × {base:g} = {total:,.2f}"
+            breakdown = f"{w:g}×{h:g} ft = {area_one:g} sq ft × {qty} × {base:g} = {total:,.2f}"
+            result["area_one_sqft"] = area_one
+            result["total_area_sqft"] = area_sqft
             rate_unit = "sq ft"
             unit_rate = base
 
@@ -401,3 +411,77 @@ def format_money(amount: float, currency: str = "NGN") -> str:
     if cur in ("USD", "$"):
         return f"${amt:,.2f}"
     return f"{cur} {amt:,.2f}"
+
+
+def format_explain(detail: dict, currency: str = "NGN", pidgin: bool = True) -> str:
+    """Human explanation of a stored quotation breakdown (from ctx["quote_detail"])."""
+    if not detail:
+        return (
+            "I no fit break am down now — abeg make we quote again with size and quantity."
+            if pidgin else
+            "I cannot show the breakdown right now — please request a new quote with size and quantity."
+        )
+    cur = (currency or "NGN").upper()
+    sym = "₦" if cur in ("NGN", "NAIRA", "₦") else (cur + " ")
+    mode = (detail.get("mode") or "").lower()
+    total = detail.get("total")
+    rate = detail.get("unit_rate") or detail.get("base_price")
+    w = detail.get("width")
+    h = detail.get("height")
+    qty = detail.get("qty") or 1
+    unit = (detail.get("size_unit") or "").lower()
+    svc = detail.get("service_name") or "this service"
+
+    if mode == "sqft" and w and h:
+        if unit in ("in", "inch", "inches"):
+            one_sqin = float(detail.get("area_one_sqin") or (float(w) * float(h)))
+            one_sqft = float(detail.get("area_one_sqft") or (one_sqin / 144.0))
+            tot_area = float(detail.get("total_area_sqft") or (one_sqft * int(qty)))
+            if pidgin:
+                return (
+                    f"Abeg, na size and quantity we use calculate am.\n"
+                    f"• Each *{svc}* na *{float(w):g} × {float(h):g} inches* = *{one_sqin:g} sq inches*\n"
+                    f"• Convert to sq ft: {one_sqin:g} ÷ 144 = *{one_sqft:.5f} sq ft* per piece\n"
+                    f"• For *{int(qty):,}* pieces: {one_sqft:.5f} × {int(qty):,} = *{tot_area:.4f} sq ft* total\n"
+                    f"• Rate: *{sym}{float(rate):g} per sq ft*\n"
+                    f"• Total: {tot_area:.4f} × {float(rate):g} = *{sym}{float(total):,.0f}*\n"
+                    f"(No extra charge for this quote unless we add design/finishing later.)"
+                )
+            return (
+                f"Here is the exact calculation:\n"
+                f"• Each *{svc}* is *{float(w):g} × {float(h):g} inches* = *{one_sqin:g} sq inches*\n"
+                f"• To square feet: {one_sqin:g} ÷ 144 = *{one_sqft:.5f} sq ft* each\n"
+                f"• For *{int(qty):,}* pieces: {one_sqft:.5f} × {int(qty):,} = *{tot_area:.4f} sq ft*\n"
+                f"• Rate: *{sym}{float(rate):g} per square foot*\n"
+                f"• Total: {tot_area:.4f} × {float(rate):g} = *{sym}{float(total):,.0f}*"
+            )
+        # feet
+        one = float(detail.get("area_one_sqft") or (float(w) * float(h)))
+        tot_area = float(detail.get("total_area_sqft") or (one * int(qty)))
+        if pidgin:
+            return (
+                f"Na size and quantity:\n"
+                f"• *{float(w):g} × {float(h):g} feet* = *{one:g} sq ft* per piece\n"
+                f"• × *{int(qty):,}* = *{tot_area:g} sq ft*\n"
+                f"• × *{sym}{float(rate):g}/sq ft* = *{sym}{float(total):,.0f}*"
+            )
+        return (
+            f"Calculation:\n"
+            f"• *{float(w):g} × {float(h):g} feet* = *{one:g} sq ft* each\n"
+            f"• × *{int(qty):,}* = *{tot_area:g} sq ft*\n"
+            f"• × *{sym}{float(rate):g}/sq ft* = *{sym}{float(total):,.0f}*"
+        )
+
+    if mode in ("piece", "fixed"):
+        if pidgin:
+            return (
+                f"Na per piece:\n"
+                f"• *{sym}{float(rate):g}* × *{int(qty):,}* pieces = *{sym}{float(total):,.0f}*"
+            )
+        return f"Per piece: *{sym}{float(rate):g}* × *{int(qty):,}* = *{sym}{float(total):,.0f}*"
+
+    # generic from stored breakdown string
+    bd = detail.get("breakdown") or ""
+    if pidgin:
+        return f"How we take calculate am:\n{bd}\nTotal: *{sym}{float(total or 0):,.0f}*"
+    return f"Calculation:\n{bd}\nTotal: *{sym}{float(total or 0):,.0f}*"
