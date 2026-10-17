@@ -2045,8 +2045,13 @@ async def _handle_inbound_core(
             "how you get", "how una get", "why that price", "why e cost",
             "how e reach", "explain the price", "explain price", "wetin make am",
             "how you take get", "how you take do", "calculation", "formula",
+            "how are you calculating", "how are you calculate", "how r you calculating",
+            "how you dey calculate", "how una dey calculate", "how e take calculate",
+            "show calculation", "show the calculation", "wetin be the calculation",
+            "how una take calculate", "how you take am",
         )) or (
-            ("how" in _tl or "wetin" in _tl) and any(x in _tl for x in ("calculate", "price", "cost", "total", "quote"))
+            ("how" in _tl or "wetin" in _tl or "are you" in _tl)
+            and any(x in _tl for x in ("calculate", "calculating", "price", "cost", "total", "quote"))
         )
         if _ask_calc:
             cur = company.currency or "NGN"

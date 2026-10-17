@@ -137,6 +137,7 @@ def _rule_reply_inner(company, customer_message: str, ctx: dict) -> str:
         # How did you calculate? — use stored quote_detail
         if any(x in low for x in (
             "how you take calculate", "how you calculate", "how did you calculate",
+            "how are you calculating", "how are you calculate", "how you dey calculate",
             "how u calculate", "breakdown", "break down", "why that price", "how e reach",
             "how you take get", "explain the price", "formula", "calculation",
         )) or (("how" in low or "wetin" in low) and any(x in low for x in ("calculate", "price", "cost", "total"))):
@@ -398,11 +399,11 @@ def _rule_reply_inner(company, customer_message: str, ctx: dict) -> str:
         if is_pidgin:
             return (
                 f"Your *{svc}* quote still dey: *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-                f"You wan *pickup* (you go come) or *delivery*? Or ask about rate{fin_txt}."
+                f"You wan *pickup* (you go come) or *delivery*?"
             )
         return (
             f"Your *{svc}* quote is *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
-            f"Choose *pickup* or *delivery*, or ask about rate{fin_txt}."
+            f"Choose *pickup* or *delivery*."
         )
 
     # "??" / "?" alone is follow-up confusion, NOT a greeting
