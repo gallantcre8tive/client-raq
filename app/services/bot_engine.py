@@ -956,6 +956,95 @@ async def _handle_inbound_core(
                 pass
             print("bot_trace cleared_stale_quote_on_greet")
 
+    # ── EARLY: "Wetin be square feet price for banner?" → answer rate, do NOT ask size ──
+    if text and not interactive_id:
+        _tlr = (text or "").lower()
+        _ask_rate = any(x in _tlr for x in (
+            "square feet price", "square foot price", "sq ft price", "sqft price",
+            "per square foot", "per sq ft", "per sqft", "rate per", "wetin be the rate",
+            "wetin be square", "wetin be sq", "how much per sq", "how much per square",
+            "price per sq", "price per square", "unit rate", "what is the rate",
+            "wetin be rate", "wetin the rate", "how much for square",
+        )) or (
+            ("rate" in _tlr or "price" in _tlr or "cost" in _tlr)
+            and any(x in _tlr for x in ("sq ft", "sqft", "square foot", "square feet", "per sq", "per square"))
+        )
+        if _ask_rate:
+            # identify service from message or context
+            _hint = _tlr
+            _svc_name = ctx.get("service_name") or ""
+            rows = list((await db.execute(
+                select(Service).where(Service.company_id == company.id, Service.is_active == True)  # noqa: E712
+            )).scalars().all())
+            matched = None
+            for keys, label in (
+                (("banner", "flex", "mesh", "backlit"), "banner"),
+                (("sticker", "sav", "vinyl", "label"), "sticker"),
+                (("nylon",), "nylon"),
+                (("frame", "acrylic"), "frame"),
+            ):
+                if any(k in _hint for k in keys) or any(k in _svc_name.lower() for k in keys):
+                    for s in rows:
+                        sn = (s.name or "").lower()
+                        if any(k in sn for k in keys):
+                            matched = s
+                            break
+                    if matched:
+                        break
+            if not matched and _svc_name:
+                for s in rows:
+                    if _svc_name.lower() in (s.name or "").lower() or (s.name or "").lower() in _svc_name.lower():
+                        matched = s
+                        break
+            if not matched and rows:
+                # if only one sqft service, use it; else prefer banner when "banner" in text
+                sqft_rows = [s for s in rows if (getattr(s, "pricing_method", None) or "").lower() in ("sqft", "sq_ft", "sqin", "area") or "sq" in (s.unit or "").lower()]
+                if "banner" in _hint or "flex" in _hint:
+                    for s in sqft_rows or rows:
+                        if any(k in (s.name or "").lower() for k in ("banner", "flex")):
+                            matched = s
+                            break
+                if not matched and len(sqft_rows) == 1:
+                    matched = sqft_rows[0]
+            cur = company.currency or "NGN"
+            if matched and float(getattr(matched, "base_price", 0) or 0) > 0:
+                rate = float(matched.base_price)
+                unit = (matched.unit or "per sq ft").strip()
+                if "sq" not in unit.lower() and (getattr(matched, "pricing_method", "") or "").lower() in ("sqft", "sq_ft", "sqin", "area"):
+                    unit = "per sq ft"
+                outbound = (
+                    f"For *{matched.name}*, the rate na *{cur} {rate:,.0f}* {unit}.\n"
+                    f"Tell me *width x height* and *how many*, I go calculate your total."
+                    if ctx.get("lang") == "pidgin" else
+                    f"For *{matched.name}*, the rate is *{cur} {rate:,.0f}* {unit}.\n"
+                    f"Share width x height and quantity and I will calculate your total."
+                )
+                # soft set context service without locking quote
+                ctx["service_name"] = matched.name
+                ctx["service_id"] = matched.id
+                ctx["unit_rate"] = rate
+                ctx["base_price"] = rate
+                _save_ctx(conv, ctx)
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+                ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+                print("bot_trace EARLY_UNIT_RATE ok=%s svc=%s rate=%s" % (ok, matched.name, rate))
+                return
+            outbound = (
+                "Abeg hold on — I go confirm the exact rate from our price list and tell you."
+                if ctx.get("lang") == "pidgin" else
+                "One moment — I will confirm the exact rate from our price list."
+            )
+            ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
+            print("bot_trace EARLY_UNIT_RATE missing")
+            return
+
+            print("bot_trace EARLY_QUOTE_EXPLAIN ok=%s" % ok)
+            return
+
+
     # ── Fast service intent for PRINTING only (works even if Grok is down) ──
     _btype = (getattr(company, "business_type", None) or "printing").strip().lower().replace(" ", "_").replace("-", "_")
     _is_printing = (
@@ -1884,7 +1973,16 @@ async def _handle_inbound_core(
                 cur = company.currency or "NGN"
                 add_on = 0.0
                 notes = []
-                if any(k in _tlf for k in ("eyelet", "grommet")) and "no" not in _tlf.split()[0:2] and _ok_fin("eyelets"):
+                _no_eye = any(x in _tlf for x in (
+                    "no eyelet", "no eyelets", "without eyelet", "no need for eyelet", "no need eyelet",
+                    "eyelet no", "eyelets no", "no grommet", "i no need eyelet", "dont need eyelet",
+                    "don't need eyelet", "no need for eyelets",
+                ))
+                _yes_eye = any(k in _tlf for k in ("eyelet", "grommet")) and not _no_eye and _ok_fin("eyelets")
+                if _no_eye:
+                    ctx["want_eyelets"] = False
+                    notes.append("no eyelets")
+                if _yes_eye:
                     fee = float(flags.get("eyelet_fee") or 500)
                     add_on += fee
                     notes.append(f"eyelets +{cur} {fee:,.0f}")
@@ -1995,8 +2093,6 @@ async def _handle_inbound_core(
                     "\n\nYou can still choose *pickup* or *delivery*."
                 )
             ok = await _deliver_to_customer(db, link=link, from_wa=from_wa, conv=conv, body=outbound)
-            print("bot_trace EARLY_QUOTE_EXPLAIN ok=%s" % ok)
-            return
 
     # ── EARLY: natural datetime after pickup/delivery chosen ──
     if text and not interactive_id and (

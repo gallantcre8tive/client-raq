@@ -217,42 +217,73 @@ def _rule_reply_inner(company, customer_message: str, ctx: dict) -> str:
                 return "Abeg hold on — I go confirm the exact rate from the price list and tell you."
             return "One moment — I will confirm the exact rate from our price list."
 
-        # Eyelets — ONLY if this service family allows them (banners), never stickers
-        if any(x in low for x in ("eyelet", "eyelets", "grommet", "hole for hang", "hang hole")):
-            svc_obj = ctx.get("service_name")
-            allowed = True
-            try:
-                if is_finishing_allowed and not is_finishing_allowed("eyelets", svc_obj, low, getattr(company, "business_type", None) or "printing"):
-                    allowed = False
-            except Exception:
-                # fallback: sticker/sav/label never get eyelets
-                if any(k in (str(svc_obj) + " " + low).lower() for k in ("sticker", "sav", "label", "decal", "vinyl")) and "banner" not in low:
-                    allowed = False
-            if not allowed:
-                if is_pidgin:
-                    return "No wahala — eyelets no concern this sticker/label job. We continue with your size and quantity."
-                return "No problem — eyelets don't apply to this sticker/label job. We'll stick to size and quantity."
+        # Finishing preferences — save both choices, never re-ask after customer decided
+        _no_eye = any(x in low for x in (
+            "no eyelet", "no eyelets", "without eyelet", "no need for eyelet", "no need eyelet",
+            "eyelet no", "eyelets no", "i no need eyelet", "dont need eyelet", "don't need eyelet",
+            "no need for eyelets", "no grommet",
+        ))
+        _yes_eye = any(x in low for x in ("eyelet", "grommet")) and not _no_eye
+        _yes_wo = any(x in low for x in ("whiteout", "white out", "blockout")) and "no whiteout" not in low and "no blockout" not in low
+        _no_wo = any(x in low for x in ("no whiteout", "no blockout", "without whiteout"))
+        # plain "No" after we asked about eyelets
+        if low.strip() in ("no", "nope", "no need", "i no need", "no o", "no ooo") and ctx.get("awaiting_finishing") == "eyelets":
+            ctx["want_eyelets"] = False
+            ctx.pop("awaiting_finishing", None)
+            if is_pidgin:
+                return "OK — no eyelets. Your total still stand. You wan *pickup* or *delivery*?"
+            return "OK — no eyelets. Your total stands. Pickup or delivery?"
+        if _yes_wo or _no_eye or _yes_eye or _no_wo:
+            parts = []
+            if _yes_wo:
+                ctx["want_whiteout"] = True
+                parts.append("whiteout ✓")
+            if _no_wo:
+                ctx["want_whiteout"] = False
+                parts.append("no whiteout")
+            if _no_eye:
+                ctx["want_eyelets"] = False
+                parts.append("no eyelets")
+            if _yes_eye:
+                svc_obj = ctx.get("service_name")
+                allowed = True
+                try:
+                    if is_finishing_allowed and not is_finishing_allowed("eyelets", svc_obj, low, getattr(company, "business_type", None) or "printing"):
+                        allowed = False
+                except Exception:
+                    if any(k in (str(svc_obj) + " " + low).lower() for k in ("sticker", "sav", "label", "decal")):
+                        allowed = False
+                if not allowed:
+                    parts.append("eyelets N/A for this product")
+                    ctx["want_eyelets"] = False
+                else:
+                    ctx["want_eyelets"] = True
+                    parts.append("eyelets ✓")
+            ctx.pop("awaiting_finishing", None)
+            note = ", ".join(parts) if parts else "noted"
             if is_pidgin:
                 return (
-                    "Eyelets na those small metal rings for banner corners so you fit hang am.\n"
-                    "You want eyelets for this banner? I fit add the finishing fee."
+                    f"OK I note: *{note}*. "
+                    f"Total still *{cur} {float(ctx.get('locked_total') or 0):,.0f}* "
+                    f"(extra finishing fee only if e apply for your company setup).\n"
+                    f"You wan *pickup* or *delivery*?"
                 )
             return (
-                "Eyelets are metal rings on banner corners for hanging.\n"
-                "Do you want eyelets on this banner?"
+                f"Noted: *{note}*. "
+                f"Total remains *{cur} {float(ctx.get('locked_total') or 0):,.0f}*.\n"
+                f"Pickup or delivery?"
             )
 
-        # Whiteout
-        if any(x in low for x in ("whiteout", "white out", "blockout", "opaque", "see through")):
+        # Only *explain* finishing if customer asks what it is (not stating preference)
+        if any(x in low for x in ("wetin be eyelet", "what is eyelet", "what are eyelet", "explain eyelet")):
             if is_pidgin:
-                return (
-                    "Whiteout (blockout) na backing wey make the banner no transparent — "
-                    "print no go show for the back.\nYou need whiteout for this one?"
-                )
-            return (
-                "Whiteout (blockout) is a backing so the banner is not see-through — "
-                "the print does not show from the back.\nDo you need whiteout on this job?"
-            )
+                return "Eyelets na metal rings for banner corners so you fit hang am. You need them?"
+            return "Eyelets are metal rings on banner corners for hanging. Do you need them?"
+        if any(x in low for x in ("wetin be whiteout", "what is whiteout", "explain whiteout")):
+            if is_pidgin:
+                return "Whiteout (blockout) na backing so print no show for the back. You need am?"
+            return "Whiteout is a backing so print does not show through. Do you need it?"
+
 
         # Print and cut — relevant for stickers/labels, not usually banners
         if any(x in low for x in ("cut", "cutting", "print and cut", "print & cut", "kiss cut", "die cut")):
